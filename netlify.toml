@@ -1,7 +1,8 @@
 [build]
+  base      = "airspace-radar"
   command   = "npm run build"
-  publish   = "dist"
-  functions = "netlify/functions"
+  publish   = "airspace-radar/dist"
+  functions = "airspace-radar/netlify/functions"
 
 [functions]
   # Use Node 20 for serverless functions
