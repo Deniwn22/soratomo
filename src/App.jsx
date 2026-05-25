@@ -1671,58 +1671,73 @@ function Disclaimer({ onAccept }) {
       position:'fixed',inset:0,zIndex:999,
       background:'rgba(1,6,18,0.98)',
       display:'flex',flexDirection:'column',
-      alignItems:'center',justifyContent:'center',
-      padding:'24px 20px',
       fontFamily:"'Exo 2',sans-serif",
     }}>
-      <div style={{maxWidth:480,width:'100%'}}>
-        {/* Logo */}
-        <div style={{textAlign:'center',marginBottom:20}}>
-          <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
-            color:'#b8e4ff',letterSpacing:'.25em'}}>SORATOMO</div>
-          <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.18em',marginTop:4}}>空友 · SKY COMPANION</div>
-          <div style={{fontSize:13,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
-            fontStyle:'italic',marginTop:10,letterSpacing:'.04em',
-            textAlign:'center'}}>Skygazing, for aircraft.</div>
-        </div>
-
-        {/* Disclaimer box */}
-        <div style={{
-          border:'1px solid rgba(77,184,255,0.25)',borderRadius:10,
-          padding:'16px 18px',marginBottom:18,
-          background:'rgba(4,14,36,0.9)',
-        }}>
-          <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
-            color:'#e87070',letterSpacing:'.14em',marginBottom:12,textAlign:'center'}}>
-            ⚠ DISCLAIMER — READ BEFORE USE
+      {/* Scrollable content area — fills all space above the pinned button */}
+      <div style={{
+        flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',
+        padding:'28px 20px 16px',
+        display:'flex',flexDirection:'column',alignItems:'center',
+      }}>
+        <div style={{maxWidth:480,width:'100%'}}>
+          {/* Logo */}
+          <div style={{textAlign:'center',marginBottom:18}}>
+            <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#b8e4ff',letterSpacing:'.25em'}}>SORATOMO</div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.18em',marginTop:4}}>空友 · SKY COMPANION</div>
+            <div style={{fontSize:13,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
+              fontStyle:'italic',marginTop:8,letterSpacing:'.04em'}}>Skygazing, for aircraft.</div>
           </div>
 
-          {[
-            ['NOT FOR AVIATION USE',
-             'This application is a hobbyist tool for personal, recreational, and educational purposes ONLY. It is NOT certified, approved, or intended for any aviation safety, navigation, or operational purpose.'],
-            ['NO SAFETY GUARANTEE',
-             'Do NOT use this app for aircraft separation, traffic deconfliction, collision avoidance, airspace management, flight planning, dispatch, or any real-time flight operation. It provides NO safety assurance of any kind.'],
-            ['DATA ACCURACY & LATENCY',
-             'ADS-B data is sourced from adsb.lol, a third-party crowdsourced network. Data may be delayed, incomplete, inaccurate, or absent. Aircraft without ADS-B transponders will NOT appear. Coverage is not guaranteed.'],
-            ['REGULATORY COMPLIANCE',
-             'Users are solely responsible for complying with all applicable aviation regulations, airspace rules, and laws. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
-            ['LIMITATION OF LIABILITY',
-             'The developer assumes NO liability for any injury, death, property damage, regulatory violation, or other loss arising from use or misuse of this application. Use is entirely at your own risk.'],
-            ['NO ENDORSEMENT',
-             'This app is not affiliated with, endorsed by, or approved by the FAA, ICAO, any air traffic control authority, or any aviation regulatory body.'],
-          ].map(([title, body]) => (
-            <div key={title} style={{marginBottom:10}}>
-              <div style={{fontSize:9,fontFamily:"'Orbitron',monospace",fontWeight:700,
-                color:'#4db8ff',letterSpacing:'.1em',marginBottom:3}}>{title}</div>
-              <div style={{fontSize:10,color:'#7a9ab8',lineHeight:1.55}}>{body}</div>
+          {/* Disclaimer box */}
+          <div style={{
+            border:'1px solid rgba(77,184,255,0.25)',borderRadius:10,
+            padding:'14px 16px',marginBottom:8,
+            background:'rgba(4,14,36,0.9)',
+          }}>
+            <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#e87070',letterSpacing:'.14em',marginBottom:10,textAlign:'center'}}>
+              ⚠ DISCLAIMER — READ BEFORE USE
             </div>
-          ))}
-        </div>
+            {[
+              ['NOT FOR AVIATION USE',
+               'A hobbyist tool for personal, recreational, and educational use ONLY. Not certified or intended for any aviation safety, navigation, or operational purpose.'],
+              ['NO SAFETY GUARANTEE',
+               'Do NOT use for aircraft separation, collision avoidance, airspace management, or any real-time flight operation. Provides NO safety assurance.'],
+              ['DATA ACCURACY & LATENCY',
+               'ADS-B data from adsb.lol may be delayed, incomplete, or absent. Aircraft without ADS-B transponders will NOT appear. Coverage not guaranteed.'],
+              ['REGULATORY COMPLIANCE',
+               'Users are solely responsible for complying with all aviation regulations. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
+              ['LIMITATION OF LIABILITY',
+               'The developer assumes NO liability for any injury, damage, or loss arising from use of this application. Use is entirely at your own risk.'],
+              ['NO ENDORSEMENT',
+               'Not affiliated with or approved by the FAA, ICAO, or any aviation regulatory body.'],
+            ].map(([title, body]) => (
+              <div key={title} style={{marginBottom:9}}>
+                <div style={{fontSize:9,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                  color:'#4db8ff',letterSpacing:'.1em',marginBottom:2}}>{title}</div>
+                <div style={{fontSize:10,color:'#7a9ab8',lineHeight:1.5}}>{body}</div>
+              </div>
+            ))}
+          </div>
 
-        {/* Accept button */}
+          {/* Scroll hint — only visible if content overflows */}
+          <div style={{textAlign:'center',fontSize:9,color:'#2a4050',
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',marginBottom:4}}>
+            ↓ scroll to accept
+          </div>
+        </div>
+      </div>
+
+      {/* Accept button — pinned to bottom, always visible on any screen size */}
+      <div style={{
+        padding:'12px 20px 28px',
+        background:'linear-gradient(0deg,rgba(1,6,18,1) 70%,rgba(1,6,18,0) 100%)',
+        flexShrink:0,
+      }}>
         <button onClick={onAccept} style={{
-          width:'100%',padding:'14px',
+          width:'100%',padding:'15px',
           background:'rgba(77,184,255,0.1)',
           border:'1.5px solid #4db8ff',
           borderRadius:8,cursor:'pointer',
@@ -1730,9 +1745,9 @@ function Disclaimer({ onAccept }) {
           fontSize:11,fontWeight:700,
           color:'#4db8ff',letterSpacing:'.15em',
         }}>
-          I UNDERSTAND — THIS IS FOR ENTERTAINMENT ONLY
+          I UNDERSTAND — ENTERTAINMENT ONLY
         </button>
-        <div style={{textAlign:'center',marginTop:10,fontSize:9,color:'#2a4a58',
+        <div style={{textAlign:'center',marginTop:8,fontSize:9,color:'#2a4a58',
           fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
           Shown once per session · v1
         </div>
