@@ -1,21 +1,16 @@
 [build]
-  base      = "airspace-radar"
   command   = "npm run build"
-  publish   = "airspace-radar/dist"
-  functions = "airspace-radar/netlify/functions"
+  publish   = "dist"
+  functions = "netlify/functions"
 
 [functions]
-  # Use Node 20 for serverless functions
   node_bundler = "esbuild"
 
-# Dev server mirrors what Netlify does in production —
-# functions run alongside the Vite dev server on port 8888.
 [dev]
   command     = "npx vite --host"
   port        = 8888
   target_port = 5173
 
-# Security headers applied to all responses
 [[headers]]
   for = "/*"
   [headers.values]
@@ -24,7 +19,6 @@
     Referrer-Policy        = "strict-origin-when-cross-origin"
     Permissions-Policy     = "camera=*, gyroscope=*, accelerometer=*"
 
-# PWA manifest + icons — long-lived cache, versioned by content hash
 [[headers]]
   for = "/assets/*"
   [headers.values]
