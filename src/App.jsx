@@ -1651,6 +1651,7 @@ const STYLES=[
   "@keyframes ring{0%{transform:translate(-50%,-50%) scale(.7);opacity:.75}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}",
   "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
+  "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
   "@keyframes slideDown{from{transform:translateY(-8%);opacity:0}to{transform:translateY(0);opacity:1}}",
   "@keyframes sweep{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}",
   "@keyframes arPulse{0%,100%{box-shadow:0 0 6px #4db8ff44}50%{box-shadow:0 0 14px #4db8ffaa}}",
@@ -1681,6 +1682,9 @@ function Disclaimer({ onAccept }) {
             color:'#b8e4ff',letterSpacing:'.25em'}}>SORATOMO</div>
           <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
             letterSpacing:'.18em',marginTop:4}}>空友 · SKY COMPANION</div>
+          <div style={{fontSize:13,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
+            fontStyle:'italic',marginTop:10,letterSpacing:'.04em',
+            textAlign:'center'}}>Skygazing, for aircraft.</div>
         </div>
 
         {/* Disclaimer box */}
@@ -2094,6 +2098,7 @@ export default function App() {
   const [altCeiling,  setAltCeiling]  = useState(ALT_MAX);
   const [search,      setSearch]      = useState('');
   const [showDisclaimer,setShowDisclaimer]=useState(()=>!sessionStorage.getItem(DISCLAIMER_KEY));
+  const [taglineOpacity, setTaglineOpacity]=useState(1); // 1→0 after 4s
   const [showFilters, setShowFilters] = useState(false);
   const [tiltMode,    setTiltMode]    = useState(false);
   const [arFov,       setArFov]       = useState(HFOV);
@@ -2857,6 +2862,14 @@ export default function App() {
           <div>
             <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
               color:'#b8e4ff',letterSpacing:'.22em',lineHeight:1}}>SORATOMO</div>
+            {/* Tagline — stays in DOM, fades to 0 after 4s */}
+            <div style={{
+              fontSize:11,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
+              fontStyle:'italic',marginTop:3,letterSpacing:'.03em',
+              transition:'opacity 1.5s ease',
+              opacity:taglineOpacity,
+              pointerEvents:'none',
+            }}>Skygazing, for aircraft.</div>
             {/* Location icon — tap to toggle coords */}
             <div onClick={e=>{e.stopPropagation();setShowCoords(v=>!v);}} style={{
               marginTop:5,display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
@@ -3260,6 +3273,8 @@ export default function App() {
       {showDisclaimer&&<Disclaimer onAccept={()=>{
         sessionStorage.setItem(DISCLAIMER_KEY,'1');
         setShowDisclaimer(false);
+        // Hold tagline for 4s, then fade over 1.5s, then hide
+        setTimeout(()=>setTaglineOpacity(0), 4000);
       }}/>}
     </div>
   );
