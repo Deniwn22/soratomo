@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#010a18"/>
+  <!-- Radar rings -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#4db8ff" stroke-width="6" opacity="0.25"/>
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#4db8ff" stroke-width="4" opacity="0.2"/>
+  <circle cx="256" cy="256" r="80"  fill="none" stroke="#4db8ff" stroke-width="3" opacity="0.18"/>
+  <!-- Crosshair lines -->
+  <line x1="56"  y1="256" x2="456" y2="256" stroke="#4db8ff" stroke-width="2" opacity="0.2"/>
+  <line x1="256" y1="56"  x2="256" y2="456" stroke="#4db8ff" stroke-width="2" opacity="0.2"/>
+  <!-- Radar sweep (frozen at ~45deg) -->
+  <path d="M256,256 L396,116" stroke="#2dffb4" stroke-width="3" opacity="0.6"/>
+  <!-- Aircraft silhouette (narrowbody top-down) centered -->
+  <g transform="translate(256,220)" fill="#b8e4ff">
+    <ellipse cx="0" cy="0" rx="9" ry="52"/>
+    <!-- wings -->
+    <polygon points="-8,4 -60,28 -54,40 -8,24"/>
+    <polygon points="8,4 60,28 54,40 8,24"/>
+    <!-- stab -->
+    <polygon points="-6,42 -28,55 -25,60 -5,48"/>
+    <polygon points="6,42 28,55 25,60 5,48"/>
+  </g>
+  <!-- 空友 kanji small -->
+  <text x="256" y="430" font-family="serif" font-size="36" fill="#4db8ff"
+    text-anchor="middle" opacity="0.6">空友</text>
+</svg>
