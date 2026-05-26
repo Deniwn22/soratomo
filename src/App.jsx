@@ -67,7 +67,10 @@ const getAircraftCat = (icao, emitter='') => {
   // ^C17[A-Z]?$ : C-17 Globemaster (NOT C172 Cessna)
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
-  if(/^F[012][0-9]|^FA[0-9]|^B52|^B1[AB]|^B2A|^C130|^C17[A-Z]?$|^C5[AM]|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^V22|^MV22/.test(t)) return 'military';
+  // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
+  if(/^C17[A-Z]?$|^C5[AM]|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22/.test(t)) return 'milTransport';
+  // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
+  if(/^F[012][0-9]|^FA[0-9]|^B52|^B1[AB]|^B2A|^A10[A-Z]?$|^U2[A-Z]?$|^SR7/.test(t)) return 'military';
 
   return 'narrow';
 };
@@ -207,6 +210,69 @@ const PlaneShape = ({cat, color, fc}) => {
         <polygon points={`-0.8,9.5 ${-4.5*w},11 ${-4*w},11.8 -0.6,10.2`} fill={color} opacity="0.93"/>
         <polygon points={`0.8,9.5 ${4.5*w},11 ${4*w},11.8 0.6,10.2`} fill={color} opacity="0.93"/>
         <ellipse cx="0" cy="0" rx="0.44" ry="9" fill={color} opacity="0.28"/>
+      </>);
+    }
+
+    case 'milTransport': {
+      // C-17 Globemaster III — traced from reference silhouette
+      // Wide box fuselage, 4 engine pods, spoiler slots, winglets, T-tail
+      // Long narrow empennage taper with small T-tail
+      const w = Math.max(0.3, f);
+      return (<>
+        {/* Main body + wings + long tapered empennage + T-tail */}
+        <path d={`
+          M 0,-12
+          C ${1.2*w},-11.6 ${2.8*w},-10.2 ${2.8*w},-8.5
+          L ${2.8*w},-2.5
+          C ${5.8*w},-1.5 ${9.8*w},0.5 ${12.8*w},3.2
+          L ${13.2*w},3.8 L ${13.5*w},4.8
+          C ${11*w},5.2 ${8*w},4.8 ${2.8*w},4.2
+          C ${2.7*w},5.5 ${2.4*w},7.2 ${2.0*w},9.2
+          C ${2.0*w},9.5 ${1.8*w},10.2 ${1.6*w},11
+          C ${3.2*w},11.2 ${5.0*w},10.8 ${5.5*w},11.8
+          L ${5.8*w},13.5
+          L ${5.2*w},14.2
+          C ${4.0*w},14.5 ${2.4*w},13.8 ${1.6*w},13.2
+          L ${1.2*w},14.5
+          L 0,15
+          L ${-1.2*w},14.5
+          L ${-1.6*w},13.2
+          C ${-2.4*w},13.8 ${-4.0*w},14.5 ${-5.2*w},14.2
+          L ${-5.8*w},13.5
+          L ${-5.5*w},11.8
+          C ${-5.0*w},10.8 ${-3.2*w},11.2 ${-1.6*w},11
+          C ${-1.8*w},10.2 ${-2.0*w},9.5 ${-2.0*w},9.2
+          C ${-2.4*w},7.2 ${-2.7*w},5.5 ${-2.8*w},4.2
+          C ${-8*w},4.8 ${-11*w},5.2 ${-13.5*w},4.8
+          L ${-13.2*w},3.8 L ${-12.8*w},3.2
+          C ${-9.8*w},0.5 ${-5.8*w},-1.5 ${-2.8*w},-2.5
+          L ${-2.8*w},-8.5
+          C ${-2.8*w},-10.2 ${-1.2*w},-11.6 0,-12
+          Z`}
+          fill={color}/>
+        {/* Winglets */}
+        <line x1={13.2*w} y1="4.2" x2={14.2*w} y2="3.5"
+          stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1={-13.2*w} y1="4.2" x2={-14.2*w} y2="3.5"
+          stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
+        {/* Trailing edge spoiler slots */}
+        {[4.5,6.5,8.5,10.5].map(x=>(
+          <g key={x}>
+            <line x1={x*w} y1={4.18} x2={x*w+0.4} y2={3.6}
+              stroke="#010a18" strokeWidth="0.7" opacity="0.55"/>
+            <line x1={-x*w} y1={4.18} x2={-x*w-0.4} y2={3.6}
+              stroke="#010a18" strokeWidth="0.7" opacity="0.55"/>
+          </g>
+        ))}
+        {/* Engine pods — 4 total with intake rings */}
+        {[[5.5,0.5,-0.9],[9.8,2.2,0.85]].map(([cx,cy,iy])=>(
+          <g key={cx}>
+            <ellipse cx={cx*w}  cy={cy} rx={1.2*w} ry="2.05" fill={color} opacity=".95"/>
+            <ellipse cx={cx*w}  cy={iy} rx={1.0*w} ry="0.44" fill="#010512" opacity=".52"/>
+            <ellipse cx={-cx*w} cy={cy} rx={1.2*w} ry="2.05" fill={color} opacity=".95"/>
+            <ellipse cx={-cx*w} cy={iy} rx={1.0*w} ry="0.44" fill="#010512" opacity=".52"/>
+          </g>
+        ))}
       </>);
     }
 
@@ -1745,7 +1811,7 @@ function Stats({ entries, onClose }) {
 
   const catOrder  = ['narrow','wide','super','jumbo','regional','bizjet','military',''];
   const catNames  = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
-    jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',helicopter:'Helicopter',piston:'Piston/GA','':'Unknown'};
+    jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
   const catCounts = {};
   entries.forEach(e=>{
     const c=e.cat||getAircraftCat(e.type!=='UNKN'?e.type:'');
