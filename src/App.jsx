@@ -1524,6 +1524,59 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
   );
 }
 
+// ── DualSlider — single track with two draggable handles ──────────
+function DualSlider({ min, max, step, lo, hi, onLo, onHi }) {
+  const trackRef = React.useRef(null);
+
+  const pct    = v => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+  const snap   = v => Math.max(min, Math.min(max, Math.round(v / step) * step));
+
+  const pctFromEvent = e => {
+    if (!trackRef.current) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
+    const cx   = e.clientX ?? (e.touches && e.touches[0]?.clientX) ?? 0;
+    return Math.max(0, Math.min(100, ((cx - rect.left) / rect.width) * 100));
+  };
+
+  const startDrag = (which, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const move = ev => {
+      const v = snap(min + (pctFromEvent(ev) / 100) * (max - min));
+      if (which === 'lo') onLo(Math.min(v, hi - step));
+      else                onHi(Math.max(v, lo + step));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup',   up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup',   up);
+  };
+
+  const loPct = pct(lo), hiPct = pct(hi);
+  const handle = (which, p) => (
+    <div onPointerDown={e => startDrag(which, e)} style={{
+      position:'absolute', left:`${p}%`, top:5,
+      transform:'translateX(-50%)',
+      width:18, height:18, borderRadius:'50%',
+      background:'#4db8ff', border:'2.5px solid #010a18',
+      cursor:'grab', touchAction:'none', zIndex: which==='lo'&&loPct>85 ? 2 : 1,
+      boxShadow:'0 0 0 3px rgba(77,184,255,0.15)',
+    }}/>
+  );
+
+  return (
+    <div ref={trackRef} style={{position:'relative',height:28,margin:'2px 0 8px',touchAction:'none',userSelect:'none'}}>
+      <div style={{position:'absolute',left:9,right:9,top:13,height:4,background:'#060e1e',borderRadius:2}}>
+        <div style={{position:'absolute',left:`${loPct}%`,width:`${hiPct-loPct}%`,top:0,bottom:0,background:'#4db8ff',borderRadius:2}}/>
+      </div>
+      {handle('lo', loPct)}
+      {handle('hi', hiPct)}
+    </div>
+  );
+}
+
 // ── FilterPanel ────────────────────────────────────────────────
 const SPD_MAX=700, DIST_MAX=500;
 
@@ -1535,8 +1588,6 @@ function FilterPanel({
   maxDisplayNmi,onMaxDist,
   onResetAll,onClose,
 }) {
-  const floorPct=(altFloor/ALT_MAX)*100, ceilPct=(altCeiling/ALT_MAX)*100;
-  const minSpdPct=(minSpeedKts/SPD_MAX)*100, maxSpdPct=(maxSpeedKts/SPD_MAX)*100;
   const distPct=(maxDisplayNmi/DIST_MAX)*100;
   const results=search.trim().length>=2
     ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
@@ -1619,29 +1670,21 @@ function FilterPanel({
 
         <Divider/>
 
-        {/* ── Altitude ── */}
-        <Row label="ALTITUDE FLOOR" value={altFloor===0?'NO MIN':`${altFloor.toLocaleString()} ft`}
+        {/* ── Altitude — dual handle ── */}
+        <Row label="ALTITUDE"
+          value={`${altFloor===0?'GND':`${(altFloor/1000).toFixed(0)}k`} — ${altCeiling>=ALT_MAX?'∞':`${(altCeiling/1000).toFixed(0)}k`} ft`}
           reset={altFloor>0||altCeiling<ALT_MAX} onReset={()=>{onFloor(0);onCeiling(ALT_MAX);}}/>
-        <input type="range" min={0} max={ALT_MAX} step={1000} value={altFloor}
-          onChange={e=>{const v=+e.target.value;if(v<altCeiling)onFloor(v);}}
-          style={{width:'100%',marginBottom:6,background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${floorPct}%,#060e1e ${floorPct}%,#060e1e 100%)`}}/>
-        <Row label="ALTITUDE CEILING" value={altCeiling>=ALT_MAX?'NO MAX':`${altCeiling.toLocaleString()} ft`}/>
-        <input type="range" min={0} max={ALT_MAX} step={1000} value={altCeiling}
-          onChange={e=>{const v=+e.target.value;if(v>altFloor)onCeiling(v);}}
-          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${ceilPct}%,#4db8ff ${ceilPct}%,#4db8ff 100%)`}}/>
+        <DualSlider min={0} max={ALT_MAX} step={1000}
+          lo={altFloor} hi={altCeiling} onLo={onFloor} onHi={onCeiling}/>
 
         <Divider/>
 
-        {/* ── Speed ── */}
-        <Row label="SPEED MIN" value={minSpeedKts===0?'NO MIN':`${minSpeedKts} kts`}
+        {/* ── Speed — dual handle ── */}
+        <Row label="SPEED"
+          value={`${minSpeedKts===0?'0':minSpeedKts} — ${maxSpeedKts>=SPD_MAX?'∞':maxSpeedKts} kts`}
           reset={minSpeedKts>0||maxSpeedKts<SPD_MAX} onReset={()=>{onMinSpd(0);onMaxSpd(SPD_MAX);}}/>
-        <input type="range" min={0} max={SPD_MAX} step={10} value={minSpeedKts}
-          onChange={e=>{const v=+e.target.value;if(v<maxSpeedKts)onMinSpd(v);}}
-          style={{width:'100%',marginBottom:6,background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${minSpdPct}%,#060e1e ${minSpdPct}%,#060e1e 100%)`}}/>
-        <Row label="SPEED MAX" value={maxSpeedKts>=SPD_MAX?'NO MAX':`${maxSpeedKts} kts`}/>
-        <input type="range" min={0} max={SPD_MAX} step={10} value={maxSpeedKts}
-          onChange={e=>{const v=+e.target.value;if(v>minSpeedKts)onMaxSpd(v);}}
-          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${maxSpdPct}%,#4db8ff ${maxSpdPct}%,#4db8ff 100%)`}}/>
+        <DualSlider min={0} max={SPD_MAX} step={10}
+          lo={minSpeedKts} hi={maxSpeedKts} onLo={onMinSpd} onHi={onMaxSpd}/>
 
         <Divider/>
 
