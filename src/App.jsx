@@ -1109,7 +1109,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, onSel
 
   // 3D aspect: rotate by hdg-bear → nose points in direction of flight as seen from ground
   const aspect     = ((f.hdg-f.bear)+360)%360;
-  const wingFC     = Math.max(0.38, Math.abs(Math.sin(aspect*D2R))); // 0.38 min keeps foreshortening feel without wings vanishing
+  const wingFC     = 1; // fixed — icons always show full wingspan regardless of heading
 
   return (
     <div onClick={e=>{e.stopPropagation();onSelect(f);}} style={{
