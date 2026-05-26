@@ -1524,55 +1524,35 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
   );
 }
 
-// ── DualSlider — single track with two draggable handles ──────────
+// ── DualSlider — two native <input type="range"> overlaid on one track ──
+// Uses real browser range inputs (iOS-native touch handling, no pointer hacks)
 function DualSlider({ min, max, step, lo, hi, onLo, onHi }) {
-  const trackRef = React.useRef(null);
-
-  const pct    = v => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
-  const snap   = v => Math.max(min, Math.min(max, Math.round(v / step) * step));
-
-  const pctFromEvent = e => {
-    if (!trackRef.current) return 0;
-    const rect = trackRef.current.getBoundingClientRect();
-    const cx   = e.clientX ?? (e.touches && e.touches[0]?.clientX) ?? 0;
-    return Math.max(0, Math.min(100, ((cx - rect.left) / rect.width) * 100));
+  const loPct = ((lo - min) / (max - min)) * 100;
+  const hiPct = ((hi - min) / (max - min)) * 100;
+  const trackStyle = {
+    position:'absolute',inset:0,
+    WebkitAppearance:'none',appearance:'none',
+    background:'transparent',outline:'none',
+    pointerEvents:'none',cursor:'pointer',
+    height:'100%',width:'100%',margin:0,padding:0,
   };
-
-  const startDrag = (which, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const move = ev => {
-      const v = snap(min + (pctFromEvent(ev) / 100) * (max - min));
-      if (which === 'lo') onLo(Math.min(v, hi - step));
-      else                onHi(Math.max(v, lo + step));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup',   up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup',   up);
-  };
-
-  const loPct = pct(lo), hiPct = pct(hi);
-  const handle = (which, p) => (
-    <div onPointerDown={e => startDrag(which, e)} style={{
-      position:'absolute', left:`${p}%`, top:5,
-      transform:'translateX(-50%)',
-      width:18, height:18, borderRadius:'50%',
-      background:'#4db8ff', border:'2.5px solid #010a18',
-      cursor:'grab', touchAction:'none', zIndex: which==='lo'&&loPct>85 ? 2 : 1,
-      boxShadow:'0 0 0 3px rgba(77,184,255,0.15)',
-    }}/>
-  );
-
   return (
-    <div ref={trackRef} style={{position:'relative',height:28,margin:'2px 0 8px',touchAction:'none',userSelect:'none'}}>
-      <div style={{position:'absolute',left:9,right:9,top:13,height:4,background:'#060e1e',borderRadius:2}}>
-        <div style={{position:'absolute',left:`${loPct}%`,width:`${hiPct-loPct}%`,top:0,bottom:0,background:'#4db8ff',borderRadius:2}}/>
+    <div style={{position:'relative',height:28,margin:'2px 0 8px'}}>
+      {/* Track background + active fill */}
+      <div style={{position:'absolute',left:0,right:0,top:'50%',transform:'translateY(-50%)',
+        height:4,background:'#060e1e',borderRadius:2,pointerEvents:'none'}}>
+        <div style={{position:'absolute',left:`${loPct}%`,width:`${hiPct-loPct}%`,
+          top:0,bottom:0,background:'#4db8ff',borderRadius:2}}/>
       </div>
-      {handle('lo', loPct)}
-      {handle('hi', hiPct)}
+      {/* Lo handle — only responds to drags below the midpoint */}
+      <input type="range" min={min} max={max} step={step} value={lo}
+        onChange={e=>{const v=+e.target.value; if(v<hi) onLo(v);}}
+        style={{...trackStyle, pointerEvents:'all',
+          zIndex: lo > hi - (max-min)*0.08 ? 2 : 1}}/>
+      {/* Hi handle — sits on top, only responds above midpoint */}
+      <input type="range" min={min} max={max} step={step} value={hi}
+        onChange={e=>{const v=+e.target.value; if(v>lo) onHi(v);}}
+        style={{...trackStyle, pointerEvents:'all', zIndex:1}}/>
     </div>
   );
 }
@@ -1733,6 +1713,10 @@ const STYLES=[
   "@keyframes arPulse{0%,100%{box-shadow:0 0 6px #4db8ff44}50%{box-shadow:0 0 14px #4db8ffaa}}",
 "@keyframes ping{0%{transform:translate(-50%,-50%) scale(.9);opacity:.85}100%{transform:translate(-50%,-50%) scale(3.2);opacity:0}}",
   "input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;outline:none;cursor:pointer}",
+  "input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#4db8ff;border:2.5px solid #010a18;cursor:grab;box-shadow:0 0 0 3px rgba(77,184,255,0.14);margin-top:-7px}",
+  "input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#4db8ff;border:2.5px solid #010a18;cursor:grab}",
+  "input[type=range]::-webkit-slider-runnable-track{background:transparent;height:3px}",
+  "input[type=range]::-moz-range-track{background:transparent;height:3px}",
   "input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#4db8ff;border:2px solid #010a18;cursor:pointer;box-shadow:0 0 6px #4db8ff44}",
   "input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#4db8ff;border:2px solid #010a18;cursor:pointer}",
 ].join("\n");
