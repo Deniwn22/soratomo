@@ -211,37 +211,33 @@ const PlaneShape = ({cat, color, fc}) => {
     }
 
     case 'military': {
-      // Cranked-delta fighter planform (F-22 / Typhoon / Rafale)
+      // F-22 Raptor — traced from reference silhouette
+      // Stepped chine LE, 42° wing sweep, large stabs, twin rectangular nozzle boxes
       const w = Math.max(0.28, f);
       return (<>
-        {/* Integrated blended wing-body — chined nose, LERX, cranked LE */}
+        {/* Main body — two-step chine, broad wing, large stabs, nozzle boxes */}
         <polygon points={`
-          0,-11
-          ${0.7*w},-8 ${2.2*w},-2.5 ${5.5*w},2.5 ${11*w},5.5
-          ${9.5*w},7.5 ${2.5*w},9.5 ${1.5*w},9.8
-          0,10.8
-          ${-1.5*w},9.8 ${-2.5*w},9.5 ${-9.5*w},7.5
-          ${-11*w},5.5 ${-5.5*w},2.5 ${-2.2*w},-2.5 ${-0.7*w},-8
+          0,-12
+          ${1.1*w},-10.2 ${2.4*w},-7.8 ${3.8*w},-5.5
+          ${13*w},4.2 ${12.6*w},5.2
+          ${9.2*w},5.8 ${10*w},7.2 ${9.8*w},9.6
+          ${5.2*w},9.2 ${3.2*w},9.8
+          ${3.2*w},12.2 ${1.1*w},12.2 ${1.1*w},9.8
+          ${-1.1*w},9.8 ${-1.1*w},12.2 ${-3.2*w},12.2
+          ${-3.2*w},9.8 ${-5.2*w},9.2
+          ${-9.8*w},9.6 ${-10*w},7.2 ${-9.2*w},5.8
+          ${-12.6*w},5.2 ${-13*w},4.2
+          ${-3.8*w},-5.5 ${-2.4*w},-7.8 ${-1.1*w},-10.2
         `} fill={color} opacity="0.96"/>
-        {/* LERX leading-edge highlights */}
-        <polygon points={`${2.2*w},-2.5 ${5.5*w},2.5 ${5.2*w},2 ${2*w},-3`} fill={color} opacity="0.32"/>
-        <polygon points={`${-2.2*w},-2.5 ${-5.5*w},2.5 ${-5.2*w},2 ${-2*w},-3`} fill={color} opacity="0.32"/>
-        {/* All-moving horizontal stabilizers (tailerons) */}
-        <polygon points={`${1.3*w},9.2 ${5.8*w},10.5 ${5.4*w},11.3 ${1.0*w},9.9`} fill={color} opacity="0.88"/>
-        <polygon points={`${-1.3*w},9.2 ${-5.8*w},10.5 ${-5.4*w},11.3 ${-1.0*w},9.9`} fill={color} opacity="0.88"/>
-        {/* Twin afterburning nozzles */}
-        <ellipse cx={ 1.45*w} cy="10.4" rx={0.95*w} ry="0.62" fill={color} opacity="0.93"/>
-        <ellipse cx={-1.45*w} cy="10.4" rx={0.95*w} ry="0.62" fill={color} opacity="0.93"/>
-        {/* Nozzle highlight rings */}
-        <circle cx={ 1.45*w} cy="10.1" r={0.65*w} fill="none" stroke={color} strokeWidth="0.4" opacity="0.5"/>
-        <circle cx={-1.45*w} cy="10.1" r={0.65*w} fill="none" stroke={color} strokeWidth="0.4" opacity="0.5"/>
-        {/* Fuselage spine depth */}
-        <ellipse cx="0" cy="-1.5" rx="0.72" ry="8.5" fill={color} opacity="0.28"/>
-        {/* Cockpit canopy blister */}
-        <ellipse cx="0" cy="-7.2" rx="0.62" ry="1.55" fill={color} opacity="0.52"/>
-        {/* Chine lines on nose */}
-        <polygon points={`0,-11 ${0.7*w},-8 0,-7.5`} fill={color} opacity="0.3"/>
-        <polygon points={`0,-11 ${-0.7*w},-8 0,-7.5`} fill={color} opacity="0.3"/>
+        {/* Chine facet lines — mark the stepped LE angle breaks */}
+        <line x1={1.1*w} y1="-10.2" x2={2.4*w} y2="-7.8" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={2.4*w} y1="-7.8"  x2={3.8*w} y2="-5.5" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={-1.1*w} y1="-10.2" x2={-2.4*w} y2="-7.8" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={-2.4*w} y1="-7.8"  x2={-3.8*w} y2="-5.5" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        {/* Cockpit — long narrow teardrop on forward fuselage */}
+        <ellipse cx="0" cy="-9" rx={0.95*w} ry="2.6" fill="#010a18" opacity="0.44"/>
+        {/* Gap between twin nozzle boxes */}
+        <rect x={-1.1*w} y="9.8" width={2.2*w} height="2.4" rx="0.2" fill="#010a18" opacity="0.48"/>
       </>);
     }
 
