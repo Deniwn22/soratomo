@@ -1475,73 +1475,77 @@ function FilterPanel({
   const results=search.trim().length>=2
     ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
 
-  const Divider = () => <div style={{height:1,background:'rgba(77,184,255,0.07)',margin:'14px 0'}}/>;
-  const SectionLabel = ({children}) => (
-    <div style={{fontSize:10,color:'#60a0c0',fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',marginBottom:9}}>{children}</div>
+  // Compact helpers
+  const Divider = () => <div style={{height:1,background:'rgba(77,184,255,0.07)',margin:'8px 0'}}/>;
+  const Row = ({label,value,reset,onReset}) => (
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+      <span style={{fontSize:9,color:'#60a0c0',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>{label}</span>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {reset&&<span onClick={onReset} style={{fontSize:8,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline'}}>RESET</span>}
+        <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,color:'#4db8ff'}}>{value}</span>
+      </div>
+    </div>
   );
 
   return (
     <div onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
       onClick={e=>e.stopPropagation()} style={{
-        position:'absolute',top:0,left:0,right:0,zIndex:40,
-        background:'rgba(2,8,22,0.97)',borderBottom:'1px solid rgba(77,184,255,0.15)',
-        animation:'slideDown 0.25s cubic-bezier(0.2,0,0.2,1)',
-        display:'flex',flexDirection:'column',maxHeight:'90vh',
+        position:'absolute',inset:0,zIndex:40,
+        background:'rgba(2,8,22,0.97)',
+        display:'flex',flexDirection:'column',
       }}>
       {/* Scrollable body */}
-      <div style={{overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'52px 16px 8px',flex:1}}>
+      <div style={{overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'10px 14px 6px',flex:1}}>
 
         {/* ── Callsign search ── */}
-        <SectionLabel>CALLSIGN SEARCH</SectionLabel>
-        <div style={{position:'relative',marginBottom:results.length||search.trim().length>=2?4:0}}>
+        <div style={{position:'relative',marginBottom:results.length||search.trim().length>=2?4:8}}>
           <input type="text" value={search} onChange={e=>onSearch(e.target.value.toUpperCase())}
-            placeholder="e.g. AAL194, RCH291" style={{width:'100%',boxSizing:'border-box',
+            placeholder="Search callsign…" style={{width:'100%',boxSizing:'border-box',
               background:'rgba(8,20,44,0.9)',border:'1px solid rgba(77,184,255,0.25)',
-              borderRadius:6,padding:'9px 10px 9px 34px',color:'#b8e4ff',fontSize:13,
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',outline:'none'}}/>
-          <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
-            width="13" height="13" viewBox="0 0 13 13">
+              borderRadius:6,padding:'7px 10px 7px 30px',color:'#b8e4ff',fontSize:12,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',outline:'none'}}/>
+          <svg style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
+            width="12" height="12" viewBox="0 0 13 13">
             <circle cx="5" cy="5" r="4" stroke="#4a7898" strokeWidth="1.5" fill="none"/>
             <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="#4a7898" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </div>
         {results.length>0&&(
-          <div style={{borderRadius:6,overflow:'hidden',border:'0.5px solid rgba(77,184,255,0.12)',marginBottom:4}}>
+          <div style={{borderRadius:6,overflow:'hidden',border:'0.5px solid rgba(77,184,255,0.12)',marginBottom:6}}>
             {results.map((f,i)=>{
               const dist=haversine(pos.lat,pos.lon,f.lat,f.lon);
               const bear=getBearing(pos.lat,pos.lon,f.lat,f.lon);
               const elev=getElev(dist,f.alt);
               return (<div key={f.id} onClick={()=>onSelect({...f,dist,bear,elev})} style={{
-                padding:'9px 12px',cursor:'pointer',
+                padding:'7px 10px',cursor:'pointer',
                 background:i%2===0?'rgba(6,16,38,0.95)':'rgba(4,12,30,0.95)',
                 display:'flex',justifyContent:'space-between',alignItems:'center',
                 borderBottom:'0.5px solid rgba(77,184,255,0.06)'}}>
                 <div>
-                  <div style={{fontSize:12,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:700}}>{f.cs}</div>
-                  <div style={{fontSize:11,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{f.airline}</div>
+                  <div style={{fontSize:11,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:700}}>{f.cs}</div>
+                  <div style={{fontSize:10,color:'#5a8898',fontFamily:"'Exo 2',sans-serif"}}>{f.airline}</div>
                 </div>
                 <div style={{textAlign:'right'}}>
-                  <div style={{fontSize:11,color:altColor(f.alt),fontFamily:"'Orbitron',monospace",fontWeight:600}}>{mToFt(f.alt)} ft</div>
-                  <div style={{fontSize:10,color:'#4a7888',fontFamily:"'Orbitron',monospace",marginTop:1}}>{distNmi(dist)} nmi</div>
+                  <div style={{fontSize:10,color:altColor(f.alt),fontFamily:"'Orbitron',monospace",fontWeight:600}}>{mToFt(f.alt)} ft</div>
+                  <div style={{fontSize:9,color:'#4a7888',fontFamily:"'Orbitron',monospace"}}>{distNmi(dist)} nmi</div>
                 </div>
               </div>);
             })}
           </div>
         )}
         {search.trim().length>=2&&results.length===0&&
-          <div style={{fontSize:10,color:'#4a6878',fontFamily:"'Orbitron',monospace",marginBottom:4}}>NO MATCH FOUND</div>}
+          <div style={{fontSize:9,color:'#4a6878',fontFamily:"'Orbitron',monospace",marginBottom:6}}>NO MATCH</div>}
 
         <Divider/>
 
         {/* ── Aircraft type ── */}
-        <SectionLabel>AIRCRAFT TYPE</SectionLabel>
-        <div style={{display:'flex',gap:6,marginBottom:4}}>
+        <div style={{display:'flex',gap:5,marginBottom:8}}>
           {[['ALL','all'],['COMMERCIAL','commercial'],['MILITARY','military']].map(([lbl,val])=>(
             <div key={val} onClick={()=>onTypeFilter(val)} style={{
-              flex:1,textAlign:'center',padding:'6px 0',cursor:'pointer',borderRadius:5,
+              flex:1,textAlign:'center',padding:'5px 0',cursor:'pointer',borderRadius:5,
               background:typeFilter===val?'rgba(77,184,255,0.18)':'transparent',
-              border:`1px solid ${typeFilter===val?'#4db8ff':'rgba(77,184,255,0.2)'}`,
-              fontSize:10,color:typeFilter===val?'#4db8ff':'#4a7888',
+              border:`1px solid ${typeFilter===val?'#4db8ff':'rgba(77,184,255,0.18)'}`,
+              fontSize:9,color:typeFilter===val?'#4db8ff':'#4a7888',
               fontFamily:"'Orbitron',monospace",fontWeight:typeFilter===val?600:400,
             }}>{lbl}</div>
           ))}
@@ -1550,88 +1554,51 @@ function FilterPanel({
         <Divider/>
 
         {/* ── Altitude ── */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
-          <SectionLabel>ALTITUDE</SectionLabel>
-          {(altFloor>0||altCeiling<ALT_MAX)&&
-            <div onClick={()=>{onFloor(0);onCeiling(ALT_MAX);}} style={{fontSize:9,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline',marginBottom:9}}>RESET</div>}
-        </div>
-        <div style={{height:4,background:'#050e1c',borderRadius:2,margin:'-4px 0 12px',position:'relative'}}>
-          <div style={{position:'absolute',left:`${floorPct}%`,width:`${ceilPct-floorPct}%`,top:0,bottom:0,background:'linear-gradient(to right,#2b9de0,#b8e4ff)',borderRadius:2}}/>
-        </div>
-        {[['FLOOR',altFloor,onFloor,floorPct,true],['CEILING',altCeiling,onCeiling,ceilPct,false]].map(([lbl,val,setter,pct,isFloor])=>(
-          <div key={lbl} style={{marginBottom:isFloor?11:0}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-              <span style={{fontSize:10,color:'#5a8898',fontFamily:"'Orbitron',monospace"}}>{lbl}</span>
-              <span style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:600,color:(isFloor?val>0:val<ALT_MAX)?'#4db8ff':'#4a7888'}}>
-                {isFloor?(val===0?'NO MIN':`${val.toLocaleString()} ft`):(val>=ALT_MAX?'NO MAX':`${val.toLocaleString()} ft`)}
-              </span>
-            </div>
-            <input type="range" min={0} max={ALT_MAX} step={1000} value={val}
-              onChange={e=>{const v=+e.target.value;if(isFloor?v<altCeiling:v>altFloor)setter(v);}}
-              style={{width:'100%',background:isFloor
-                ?`linear-gradient(to right,#4db8ff 0%,#4db8ff ${pct}%,#060e1e ${pct}%,#060e1e 100%)`
-                :`linear-gradient(to right,#060e1e 0%,#060e1e ${pct}%,#4db8ff ${pct}%,#4db8ff 100%)`}}/>
-          </div>
-        ))}
+        <Row label="ALTITUDE FLOOR" value={altFloor===0?'NO MIN':`${altFloor.toLocaleString()} ft`}
+          reset={altFloor>0||altCeiling<ALT_MAX} onReset={()=>{onFloor(0);onCeiling(ALT_MAX);}}/>
+        <input type="range" min={0} max={ALT_MAX} step={1000} value={altFloor}
+          onChange={e=>{const v=+e.target.value;if(v<altCeiling)onFloor(v);}}
+          style={{width:'100%',marginBottom:6,background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${floorPct}%,#060e1e ${floorPct}%,#060e1e 100%)`}}/>
+        <Row label="ALTITUDE CEILING" value={altCeiling>=ALT_MAX?'NO MAX':`${altCeiling.toLocaleString()} ft`}/>
+        <input type="range" min={0} max={ALT_MAX} step={1000} value={altCeiling}
+          onChange={e=>{const v=+e.target.value;if(v>altFloor)onCeiling(v);}}
+          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${ceilPct}%,#4db8ff ${ceilPct}%,#4db8ff 100%)`}}/>
 
         <Divider/>
 
         {/* ── Speed ── */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
-          <SectionLabel>SPEED</SectionLabel>
-          {(minSpeedKts>0||maxSpeedKts<SPD_MAX)&&
-            <div onClick={()=>{onMinSpd(0);onMaxSpd(SPD_MAX);}} style={{fontSize:9,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline',marginBottom:9}}>RESET</div>}
-        </div>
-        <div style={{height:4,background:'#050e1c',borderRadius:2,margin:'-4px 0 12px',position:'relative'}}>
-          <div style={{position:'absolute',left:`${minSpdPct}%`,width:`${maxSpdPct-minSpdPct}%`,top:0,bottom:0,background:'linear-gradient(to right,#2b9de0,#b8e4ff)',borderRadius:2}}/>
-        </div>
-        {[['MIN',minSpeedKts,onMinSpd,minSpdPct,true],['MAX',maxSpeedKts,onMaxSpd,maxSpdPct,false]].map(([lbl,val,setter,pct,isMin])=>(
-          <div key={lbl} style={{marginBottom:isMin?11:0}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-              <span style={{fontSize:10,color:'#5a8898',fontFamily:"'Orbitron',monospace"}}>{lbl}</span>
-              <span style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:600,color:(isMin?val>0:val<SPD_MAX)?'#4db8ff':'#4a7888'}}>
-                {isMin?(val===0?'NO MIN':`${val} kts`):(val>=SPD_MAX?'NO MAX':`${val} kts`)}
-              </span>
-            </div>
-            <input type="range" min={0} max={SPD_MAX} step={10} value={val}
-              onChange={e=>{const v=+e.target.value;if(isMin?v<maxSpeedKts:v>minSpeedKts)setter(v);}}
-              style={{width:'100%',background:isMin
-                ?`linear-gradient(to right,#4db8ff 0%,#4db8ff ${pct}%,#060e1e ${pct}%,#060e1e 100%)`
-                :`linear-gradient(to right,#060e1e 0%,#060e1e ${pct}%,#4db8ff ${pct}%,#4db8ff 100%)`}}/>
-          </div>
-        ))}
+        <Row label="SPEED MIN" value={minSpeedKts===0?'NO MIN':`${minSpeedKts} kts`}
+          reset={minSpeedKts>0||maxSpeedKts<SPD_MAX} onReset={()=>{onMinSpd(0);onMaxSpd(SPD_MAX);}}/>
+        <input type="range" min={0} max={SPD_MAX} step={10} value={minSpeedKts}
+          onChange={e=>{const v=+e.target.value;if(v<maxSpeedKts)onMinSpd(v);}}
+          style={{width:'100%',marginBottom:6,background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${minSpdPct}%,#060e1e ${minSpdPct}%,#060e1e 100%)`}}/>
+        <Row label="SPEED MAX" value={maxSpeedKts>=SPD_MAX?'NO MAX':`${maxSpeedKts} kts`}/>
+        <input type="range" min={0} max={SPD_MAX} step={10} value={maxSpeedKts}
+          onChange={e=>{const v=+e.target.value;if(v>minSpeedKts)onMaxSpd(v);}}
+          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${maxSpdPct}%,#4db8ff ${maxSpdPct}%,#4db8ff 100%)`}}/>
 
         <Divider/>
 
-        {/* ── Max display distance ── */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
-          <SectionLabel>MAX DISPLAY RANGE</SectionLabel>
-          {maxDisplayNmi<DIST_MAX&&
-            <div onClick={()=>onMaxDist(DIST_MAX)} style={{fontSize:9,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline',marginBottom:9}}>RESET</div>}
-        </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:5,marginTop:-4}}>
-          <span style={{fontSize:10,color:'#5a8898',fontFamily:"'Orbitron',monospace"}}>RANGE</span>
-          <span style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:600,color:maxDisplayNmi<DIST_MAX?'#4db8ff':'#4a7888'}}>
-            {maxDisplayNmi>=DIST_MAX?'NO LIMIT':`${maxDisplayNmi} nmi`}
-          </span>
-        </div>
+        {/* ── Max display range ── */}
+        <Row label="MAX DISPLAY RANGE" value={maxDisplayNmi>=DIST_MAX?'NO LIMIT':`${maxDisplayNmi} nmi`}
+          reset={maxDisplayNmi<DIST_MAX} onReset={()=>onMaxDist(DIST_MAX)}/>
         <input type="range" min={10} max={DIST_MAX} step={10} value={maxDisplayNmi}
           onChange={e=>onMaxDist(+e.target.value)}
-          style={{width:'100%',background:`linear-gradient(to right,#060e1e 0%,#060e1e ${distPct}%,#4db8ff ${distPct}%,#4db8ff 100%)`}}/>
+          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${distPct}%,#4db8ff ${distPct}%,#4db8ff 100%)`}}/>
 
       </div>{/* end scrollable body */}
 
-      {/* Fixed footer */}
-      <div style={{padding:'10px 16px',borderTop:'1px solid rgba(77,184,255,0.08)',display:'flex',gap:8}}>
+      {/* Compact footer */}
+      <div style={{padding:'7px 12px 10px',borderTop:'1px solid rgba(77,184,255,0.08)',display:'flex',gap:6}}>
         <button onClick={onResetAll} style={{flex:1,background:'transparent',
-          border:'1px solid rgba(255,100,80,0.25)',borderRadius:6,color:'#6a4040',
-          padding:'8px',fontFamily:"'Orbitron',monospace",fontSize:9,cursor:'pointer',letterSpacing:'.08em'}}>
+          border:'1px solid rgba(255,100,80,0.22)',borderRadius:5,color:'#6a4040',
+          padding:'6px',fontFamily:"'Orbitron',monospace",fontSize:8,cursor:'pointer',letterSpacing:'.08em'}}>
           RESET ALL
         </button>
         <button onClick={onClose} style={{flex:2,background:'transparent',
-          border:'1px solid rgba(77,184,255,0.18)',borderRadius:6,color:'#5a8898',
-          padding:'8px',fontFamily:"'Orbitron',monospace",fontSize:10,cursor:'pointer'}}>
-          CLOSE FILTERS
+          border:'1px solid rgba(77,184,255,0.15)',borderRadius:5,color:'#5a8898',
+          padding:'6px',fontFamily:"'Orbitron',monospace",fontSize:9,cursor:'pointer'}}>
+          DONE
         </button>
       </div>
     </div>
