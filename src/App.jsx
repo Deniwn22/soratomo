@@ -246,44 +246,44 @@ const PlaneShape = ({cat, color, fc}) => {
     }
 
     case 'piston': {
-      // C172/C182 Cessna — KEY FIX: leading edge is nearly STRAIGHT (perpendicular to fuselage)
-      // NOT swept back. Trailing edge tapers. Wide fat cabin. Small tail. Prop at nose.
-      const hw  = Math.max(1.2, 10.8 * Math.max(fc, 0.38)); // half main-span
-      const ht  = hw * 0.42;                                 // half stab-span
-      // Wing chord: root ~5.2 units, tip ~3.2 units (Cessna taper ratio ≈ 0.62)
-      // Leading edge: nearly perpendicular — moves only 0.3 units aft over full span
-      // Trailing edge: sweeps aft more noticeably (produces the taper)
-      const wLE = -1.9;             // leading edge y at root
-      const wTE =  3.0;             // trailing edge y at root  (root chord = 4.9)
-      const tLE = wLE - 0.3;        // tip LE sweeps very slightly back → almost straight
-      const tTE = wLE - 0.3 + 3.2; // tip chord 3.2 → tip TE = tLE + 3.2
+      // C172/C182 — narrow nose, long tapering empennage, thin H-stab
+      // Wings: straight LE (nearly perpendicular), tapered TE, foreshortened by fc
+      const hw  = Math.max(1.2, 11.2 * Math.max(fc, 0.38)); // half wingspan
+      const ht  = Math.max(1.0, hw * 0.40);                  // half stab-span
       return (<>
-        {/* ── Left wing: straight LE, tapered TE, squared-off tip ── */}
-        <polygon points={`-2.8,${wLE} ${-hw},${tLE} ${-hw},${tTE} -2.8,${wTE}`} fill={color}/>
-        {/* Rounded tip cap */}
-        <ellipse cx={-hw} cy={(tLE+tTE)/2} rx="0.8" ry="1.6" fill={color}/>
-        {/* ── Right wing (mirror) ── */}
-        <polygon points={`2.8,${wLE} ${hw},${tLE} ${hw},${tTE} 2.8,${wTE}`} fill={color}/>
-        <ellipse cx={hw}  cy={(tLE+tTE)/2} rx="0.8" ry="1.6" fill={color}/>
-        {/* ── Fuselage: wide, fat oval — Cessna cabin is almost square in cross-section ── */}
-        <ellipse cx="0" cy="0.2" rx="3.0" ry="6.8" fill={color}/>
-        {/* ── Engine cowl: wider round nose (spinner, cylinders bulge out) ── */}
-        <ellipse cx="0" cy="-5.2" rx="2.8" ry="2.2" fill={color}/>
-        {/* ── High-wing strut hints (faint angled lines fuselage→mid-wing) ── */}
-        <line x1="-2.6" y1="1.0" x2={-hw*0.48} y2={(tLE+tTE)/2-0.5}
-          stroke={color} strokeWidth="0.65" opacity="0.3"/>
-        <line x1="2.6"  y1="1.0" x2={hw*0.48}  y2={(tLE+tTE)/2-0.5}
-          stroke={color} strokeWidth="0.65" opacity="0.3"/>
-        {/* ── Horizontal stabilizer: small, nearly rectangular ── */}
-        <polygon points={`${-ht},5.5 ${-ht*1.04},7.1 ${ht*1.04},7.1 ${ht},5.5`} fill={color}/>
-        <ellipse cx={-ht*1.04} cy="6.3" rx="0.55" ry="0.85" fill={color}/>
-        <ellipse cx={ht*1.04}  cy="6.3" rx="0.55" ry="0.85" fill={color}/>
-        {/* ── Vertical fin stub ── */}
-        <ellipse cx="0" cy="7.3" rx="1.1" ry="1.2" fill={color} opacity="0.7"/>
-        {/* ── Propeller: prominent 2-blade + hub ── */}
-        <line x1="-3.4" y1="-7.8" x2="3.4" y2="-7.8"
-          stroke={color} strokeWidth="1.8" strokeLinecap="round"/>
-        <circle cx="0" cy="-7.8" r="1.2" fill={color}/>
+        {/* ── Fuselage: narrow nose curves into wider cabin, long tail taper ── */}
+        <path d={`M0,-11.5
+          C${1.0},-11 ${1.8},-10.2 ${2.0},-9
+          C${2.3},-7.8 ${2.6},-6.5 ${2.7},-5.5
+          L${2.7},1.5
+          C${2.7},2.8 ${2.2},4.5 ${1.8},6.2
+          C${1.4},7.6 ${1.0},8.8 ${0.8},10
+          L0,10.4
+          L${-0.8},10
+          C${-1.0},8.8 ${-1.4},7.6 ${-1.8},6.2
+          C${-2.2},4.5 ${-2.7},2.8 ${-2.7},1.5
+          L${-2.7},-5.5
+          C${-2.6},-6.5 ${-2.3},-7.8 ${-2.0},-9
+          C${-1.8},-10.2 ${-1.0},-11 0,-11.5Z`}
+          fill={color}/>
+        {/* ── Wings: straight LE, tapered toward tip ── */}
+        <polygon points={`-2.6,-2.0 ${-hw},-2.3 ${-hw},1.2 -2.6,3.0`} fill={color}/>
+        <ellipse cx={-hw} cy={-0.55} rx="0.78" ry="1.75" fill={color}/>
+        <polygon points={`2.6,-2.0 ${hw},-2.3 ${hw},1.2 2.6,3.0`} fill={color}/>
+        <ellipse cx={hw}  cy={-0.55} rx="0.78" ry="1.75" fill={color}/>
+        {/* ── High-wing strut hints ── */}
+        <line x1="-2.6" y1="0.5" x2={-hw*0.8} y2="0.3"
+          stroke={color} strokeWidth="0.55" opacity="0.28"/>
+        <line x1="2.6"  y1="0.5" x2={hw*0.8}  y2="0.3"
+          stroke={color} strokeWidth="0.55" opacity="0.28"/>
+        {/* ── H-stab: thin rect + rounded tips ── */}
+        <rect x={-ht} y="9.5" width={ht*2} height="0.85" rx="0.42" fill={color}/>
+        <ellipse cx={-ht} cy="9.92" rx="0.52" ry="0.88" fill={color}/>
+        <ellipse cx={ht}  cy="9.92" rx="0.52" ry="0.88" fill={color}/>
+        {/* ── Prop + hub ── */}
+        <line x1="-3.4" y1="-9.0" x2="3.4" y2="-9.0"
+          stroke={color} strokeWidth="1.9" strokeLinecap="round"/>
+        <circle cx="0" cy="-9.0" r="1.1" fill={color}/>
       </>);
     }
 
@@ -316,37 +316,41 @@ const PlaneShape = ({cat, color, fc}) => {
     }
 
     default: {
-      // Narrowbody — B737/A320; most common type, special care for all aspects
-      // fw clamped higher so wings stay prominent even head-on
-      const w = Math.max(0.33, f);
+      // Narrowbody — B737 style
+      // Slimmer fuselage, engines closer to body, thinner tapered wings
+      const w = Math.max(0.38, f);
       return (<>
-        {/* Tapered fuselage — slightly wider at wing root */}
-        <ellipse cx="0" cy="-0.5" rx="1.55" ry="9.5" fill={color}/>
-        {/* Nose cone taper */}
-        <ellipse cx="0" cy="-8.8" rx="0.82" ry="1.2" fill={color} opacity="0.52"/>
-        {/* Cockpit windows — subtle oval */}
-        <ellipse cx="0" cy="-7.8" rx="0.72" ry="0.9" fill={color} opacity="0.42"/>
-        {/* Main wings — 4-sided quadrilateral each side
-            Root: leading edge y=-0.5, trailing edge y=4.5 (5 unit chord)
-            Tip:  leading edge y=2.5,  trailing edge y=5.5 (3 unit chord, swept) */}
-        <polygon points={`-1.5,-0.5 ${-10*w},2.5 ${-9*w},5.5 -1.5,4.5`} fill={color}/>
-        <polygon points={`1.5,-0.5 ${10*w},2.5 ${9*w},5.5 1.5,4.5`} fill={color}/>
-        {/* Leading-edge highlight — gives wing 3D depth */}
-        <polygon points={`-1.5,-0.5 ${-10*w},2.5 ${-10.5*w},2 -1.5,-0.9`} fill={color} opacity="0.4"/>
-        <polygon points={`1.5,-0.5 ${10*w},2.5 ${10.5*w},2 1.5,-0.9`} fill={color} opacity="0.4"/>
-        {/* Wing-body fairing — slight bulge where wing meets fuselage */}
-        <ellipse cx="0" cy="2" rx="2.1" ry="1.8" fill={color} opacity="0.18"/>
-        {/* Under-wing engine nacelles — CFM/LEAP style, slightly forward of mid-wing */}
-        <ellipse cx={-6.5*w} cy="1.2" rx={1.52*w} ry="0.84" fill={color} opacity="0.93"/>
-        <ellipse cx={ 6.5*w} cy="1.2" rx={1.52*w} ry="0.84" fill={color} opacity="0.93"/>
-        {/* Engine intake rings */}
-        <circle  cx={-6.5*w} cy="0.5" r={1.02*w} fill="none" stroke={color} strokeWidth="0.48" opacity="0.55"/>
-        <circle  cx={ 6.5*w} cy="0.5" r={1.02*w} fill="none" stroke={color} strokeWidth="0.48" opacity="0.55"/>
-        {/* Horizontal stabilizer — smaller than main wings */}
-        <polygon points={`-1.1,8 ${-5.8*w},10.5 ${-5.2*w},11.5 -0.9,9`} fill={color} opacity="0.88"/>
-        <polygon points={`1.1,8 ${5.8*w},10.5 ${5.2*w},11.5 0.9,9`} fill={color} opacity="0.88"/>
-        {/* Fuselage depth spine */}
-        <ellipse cx="0" cy="0" rx="0.65" ry="8.5" fill={color} opacity="0.22"/>
+        {/* Slim fuselage — rx 1.5 (was 1.55), smooth nose taper */}
+        <path d={`M0,-10.8
+          C${1.2},-10.4 ${1.5},-9.5 ${1.5},-8
+          L${1.5},-2.8
+          C${4.8},-1.5 ${8.5*w},.4 ${11*w},2.4
+          Q${11.8*w},3.2 ${11*w},4.2
+          C${8.8*w},4.4 ${5.5*w},3.2 ${2.2},2.5
+          L${2},7
+          C${3.5},7 ${5.5},6.8 ${5.9},7.7
+          L${6.2},8.8
+          Q${5},9.2 0,9.3
+          Q${-5},9.2 ${-6.2},8.8
+          L${-5.9},7.7
+          C${-5.5},6.8 ${-3.5},7 ${-2},7
+          L${-2.2},2.5
+          C${-5.5*w},3.2 ${-8.8*w},4.4 ${-11*w},4.2
+          Q${-11.8*w},3.2 ${-11*w},2.4
+          C${-8.5*w},.4 ${-4.8},-1.5 ${-1.5},-2.8
+          L${-1.5},-8
+          C${-1.5},-9.5 ${-1.2},-10.4 0,-10.8Z`}
+          fill={color}/>
+        {/* Wings: thinner chord (root 3.4, tip 1.4), more taper */}
+        <polygon points={`-1.5,-2.2 ${-12*w},1.2 ${-11.5*w},2.6 -1.5,1.2`} fill={color}/>
+        <ellipse cx={-12*w} cy="1.9" rx="0.6" ry="0.85" fill={color}/>
+        <polygon points={`1.5,-2.2 ${12*w},1.2 ${11.5*w},2.6 1.5,1.2`} fill={color}/>
+        <ellipse cx={12*w} cy="1.9" rx="0.6" ry="0.85" fill={color}/>
+        {/* Engines: closer in (cx ±5 vs old ±6.5), clear intake ring */}
+        <ellipse cx={-5*w} cy="1.5" rx={1.35*w} ry={2.4*w} fill={color} opacity="0.95"/>
+        <ellipse cx={-5*w} cy={0.1} rx={1.05*w} ry={0.5*w} fill="#010512" opacity="0.55"/>
+        <ellipse cx={ 5*w} cy="1.5" rx={1.35*w} ry={2.4*w} fill={color} opacity="0.95"/>
+        <ellipse cx={ 5*w} cy={0.1} rx={1.05*w} ry={0.5*w} fill="#010512" opacity="0.55"/>
       </>);
     }
   }
