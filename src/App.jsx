@@ -2212,6 +2212,7 @@ export default function App() {
   const lastLoggedTime   = useRef(new Map());
   const saveLogTimer     = useRef(null); // debounce logbook writes
   const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
+  const demoAlerted      = useRef(false);       // prevent repeated demo banners
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
 
   // Derived: all logged callsigns including this session
@@ -2455,6 +2456,7 @@ export default function App() {
             });
           });
           setApiStatus('live');
+          demoAlerted.current=false; // reset so next outage shows banner again
           schedule(INTERVAL);
 
           // Queue type lookups for aircraft still missing type info (max 5/cycle)
@@ -2507,9 +2509,13 @@ export default function App() {
         }
       } catch(e) {}
 
-      // Fetch failed — show demo, retry
-      setFlights(MOCK);
+      // Fetch failed — show demo, alert user once per outage
+      setFlights([]);         // no demo aircraft — show real data or nothing
       setApiStatus('demo');
+      if(!demoAlerted.current){
+        demoAlerted.current=true;
+        setRangeNote('⚠ NO LIVE DATA — showing demo aircraft');
+      }
       schedule(INTERVAL);
     };
 
@@ -2760,7 +2766,9 @@ export default function App() {
   // Separate effect: dismiss rangeNote after 3 s (avoids cleanup race)
   useEffect(()=>{
     if(!rangeNote) return;
-    const t=setTimeout(()=>setRangeNote(null),3000);
+    // Demo alerts stay longer so the user definitely sees them
+    const ms = rangeNote.includes('demo') ? 8000 : 3000;
+    const t=setTimeout(()=>setRangeNote(null),ms);
     return ()=>clearTimeout(t);
   },[rangeNote]);
 
@@ -2967,12 +2975,15 @@ export default function App() {
           <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
             <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
-                <div style={{width:5,height:5,borderRadius:'50%',background:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#4db8ff',animation:'pulse 1.6s ease-in-out infinite'}}/>
+                <div style={{width:6,height:6,borderRadius:'50%',
+                  background:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
+                  animation:`pulse ${apiStatus==='demo'?'0.8s':'1.6s'} ease-in-out infinite`}}/>
                 <span style={{
                   fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
-                  color:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#4db8ff',
+                  fontWeight:apiStatus==='demo'?700:400,
+                  color:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
                 }}>
-                  {apiStatus==='live'?'LIVE':apiStatus==='limited'?'RATE LIMITED':'DEMO'}
+                  {apiStatus==='live'?'LIVE':apiStatus==='limited'?'RATE LIMITED':'⚠ DEMO'}
                 </span>
               </div>
               {/* Density toggle */}
