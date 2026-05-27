@@ -1299,7 +1299,7 @@ const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}ca
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
 
 // ── AircraftMarker ─────────────────────────────────────────────
-const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/1852;
@@ -1330,6 +1330,8 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, onSel
       position:'absolute',left:`${f.x}%`,top:`${f.y}%`,
       transform:'translate(-50%,-50%)',cursor:'pointer',
       zIndex:isSelected?20:10,
+      opacity:dimmed?0.28:1,
+      transition:'opacity 0.25s ease',
     }}>
       {/* Entry ping — one-shot on first appearance */}
       {isDisplayNew&&<>
@@ -3399,6 +3401,7 @@ export default function App() {
       {/* Aircraft markers */}
       {mapped.map(f=>(
         <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
+          dimmed={selectedId!==null&&selectedId!==f.id}
           onSelect={handleAircraftSelect}
           loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
           proximityM={proximityM}
