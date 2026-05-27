@@ -1121,6 +1121,154 @@ const CITIES = [
   {name:'Tehuacan',st:'MX',lat:18.4583,lon:-97.3917},
   {name:'Monclova',st:'MX',lat:26.9063,lon:-101.4216},
 ];
+const AIRPORTS = [
+  // ── USA — Major hubs ──────────────────────────────────────────
+  {id:'ATL',name:'Atlanta',        lat:33.6407, lon:-84.4277},
+  {id:'ORD',name:'Chicago OHare',lat:41.9742, lon:-87.9073},
+  {id:'LAX',name:'Los Angeles',    lat:33.9425, lon:-118.4081},
+  {id:'DFW',name:'Dallas/FW',      lat:32.8998, lon:-97.0403},
+  {id:'DEN',name:'Denver',         lat:39.8561, lon:-104.6737},
+  {id:'JFK',name:'New York',       lat:40.6413, lon:-73.7781},
+  {id:'SFO',name:'San Francisco',  lat:37.6213, lon:-122.3790},
+  {id:'LAS',name:'Las Vegas',      lat:36.0840, lon:-115.1537},
+  {id:'SEA',name:'Seattle',        lat:47.4502, lon:-122.3088},
+  {id:'MCO',name:'Orlando',        lat:28.4294, lon:-81.3089},
+  {id:'EWR',name:'Newark',         lat:40.6925, lon:-74.1687},
+  {id:'MSP',name:'Minneapolis',    lat:44.8848, lon:-93.2223},
+  {id:'DTW',name:'Detroit',        lat:42.2162, lon:-83.3554},
+  {id:'BOS',name:'Boston',         lat:42.3656, lon:-71.0096},
+  {id:'PHX',name:'Phoenix',        lat:33.4373, lon:-112.0078},
+  {id:'PHL',name:'Philadelphia',   lat:39.8721, lon:-75.2431},
+  {id:'IAH',name:'Houston Intl',   lat:29.9902, lon:-95.3368},
+  {id:'CLT',name:'Charlotte',      lat:35.2140, lon:-80.9431},
+  {id:'MIA',name:'Miami',          lat:25.7959, lon:-80.2870},
+  {id:'FLL',name:'Fort Lauderdale',lat:26.0726, lon:-80.1527},
+  {id:'BWI',name:'Baltimore',      lat:39.1754, lon:-76.6682},
+  {id:'DCA',name:'Washington',     lat:38.8512, lon:-77.0402},
+  {id:'IAD',name:'Dulles',         lat:38.9531, lon:-77.4565},
+  {id:'SLC',name:'Salt Lake City', lat:40.7884, lon:-111.9778},
+  {id:'SAN',name:'San Diego',      lat:32.7336, lon:-117.1897},
+  {id:'HNL',name:'Honolulu',       lat:21.3245, lon:-157.9251},
+  {id:'ANC',name:'Anchorage',      lat:61.1743, lon:-149.9961},
+  {id:'MCI',name:'Kansas City',    lat:39.2976, lon:-94.7139},
+  {id:'STL',name:'St. Louis',      lat:38.7487, lon:-90.3700},
+  {id:'MSY',name:'New Orleans',    lat:29.9934, lon:-90.2580},
+  {id:'BNA',name:'Nashville',      lat:36.1245, lon:-86.6782},
+  {id:'RDU',name:'Raleigh-Durham', lat:35.8777, lon:-78.7875},
+  {id:'MDW',name:'Chicago Midway', lat:41.7860, lon:-87.7524},
+  {id:'AUS',name:'Austin',         lat:30.1975, lon:-97.6664},
+  {id:'TPA',name:'Tampa',          lat:27.9755, lon:-82.5332},
+  {id:'PDX',name:'Portland',       lat:45.5887, lon:-122.5975},
+  {id:'CLE',name:'Cleveland',      lat:41.4058, lon:-81.8549},
+  {id:'PIT',name:'Pittsburgh',     lat:40.4915, lon:-80.2329},
+  {id:'CMH',name:'Columbus',       lat:39.9980, lon:-82.8919},
+  {id:'IND',name:'Indianapolis',   lat:39.7173, lon:-86.2944},
+  {id:'MKE',name:'Milwaukee',      lat:42.9472, lon:-87.8966},
+  {id:'ABQ',name:'Albuquerque',    lat:35.0402, lon:-106.6090},
+  {id:'SMF',name:'Sacramento',     lat:38.6954, lon:-121.5908},
+  {id:'RNO',name:'Reno',           lat:39.4991, lon:-119.7681},
+  {id:'OAK',name:'Oakland',        lat:37.7213, lon:-122.2208},
+  {id:'SJC',name:'San Jose',       lat:37.3626, lon:-121.9290},
+  {id:'BUR',name:'Burbank',        lat:34.2007, lon:-118.3585},
+  {id:'SNA',name:'Orange County',  lat:33.6757, lon:-117.8682},
+  {id:'GEG',name:'Spokane',        lat:47.6199, lon:-117.5338},
+  {id:'BOI',name:'Boise',          lat:43.5644, lon:-116.2228},
+  {id:'FAT',name:'Fresno',         lat:36.7762, lon:-119.7182},
+  {id:'PSP',name:'Palm Springs',   lat:33.8297, lon:-116.5070},
+  // ── USA — Northeast ────────────────────────────────────────────
+  {id:'BUF',name:'Buffalo',        lat:42.9405, lon:-78.7322},
+  {id:'SYR',name:'Syracuse',       lat:43.1112, lon:-76.1063},
+  {id:'ROC',name:'Rochester',      lat:43.1189, lon:-77.6724},
+  {id:'ALB',name:'Albany',         lat:42.7483, lon:-73.8020},
+  {id:'BDL',name:'Hartford',       lat:41.9389, lon:-72.6832},
+  {id:'PVD',name:'Providence',     lat:41.7270, lon:-71.4282},
+  {id:'MHT',name:'Manchester NH',  lat:42.9326, lon:-71.4357},
+  {id:'PWM',name:'Portland ME',    lat:43.6462, lon:-70.3093},
+  {id:'HPN',name:'Westchester',    lat:41.0670, lon:-73.7076},
+  {id:'ACY',name:'Atlantic City',  lat:39.4576, lon:-74.5772},
+  {id:'BTV',name:'Burlington VT',  lat:44.4719, lon:-73.1533},
+  // ── USA — Southeast ────────────────────────────────────────────
+  {id:'ORF',name:'Norfolk',        lat:36.8976, lon:-76.0133},
+  {id:'RIC',name:'Richmond',       lat:37.5052, lon:-77.3197},
+  {id:'CHS',name:'Charleston SC',  lat:32.8988, lon:-80.0405},
+  {id:'SAV',name:'Savannah',       lat:32.1276, lon:-81.2021},
+  {id:'JAX',name:'Jacksonville',   lat:30.4941, lon:-81.6879},
+  {id:'PBI',name:'West Palm Beach',lat:26.6832, lon:-80.0956},
+  {id:'RSW',name:'Fort Myers',     lat:26.5362, lon:-81.7553},
+  {id:'PIE',name:'St Pete-Clrwtr', lat:27.9102, lon:-82.6874},
+  {id:'MYR',name:'Myrtle Beach',   lat:33.6797, lon:-78.9283},
+  {id:'GSP',name:'Greenville SC',  lat:34.8957, lon:-82.2190},
+  {id:'AVL',name:'Asheville',      lat:35.4362, lon:-82.5418},
+  {id:'PNS',name:'Pensacola',      lat:30.4734, lon:-87.1866},
+  {id:'MOB',name:'Mobile',         lat:30.6912, lon:-88.2428},
+  {id:'BHM',name:'Birmingham',     lat:33.5629, lon:-86.7535},
+  {id:'HSV',name:'Huntsville',     lat:34.6372, lon:-86.7751},
+  {id:'LIT',name:'Little Rock',    lat:34.7294, lon:-92.2243},
+  // ── USA — South/Southwest ──────────────────────────────────────
+  {id:'SAT',name:'San Antonio',    lat:29.5337, lon:-98.4698},
+  {id:'ELP',name:'El Paso',        lat:31.8072, lon:-106.3779},
+  {id:'TUL',name:'Tulsa',          lat:36.1984, lon:-95.8881},
+  {id:'OKC',name:'Oklahoma City',  lat:35.3931, lon:-97.6007},
+  {id:'CRP',name:'Corpus Christi', lat:27.7704, lon:-97.5012},
+  {id:'MAF',name:'Midland',        lat:31.9425, lon:-102.2019},
+  {id:'LBB',name:'Lubbock',        lat:33.6636, lon:-101.8228},
+  {id:'AMA',name:'Amarillo',       lat:35.2194, lon:-101.7060},
+  // ── USA — Mountain/Rockies ─────────────────────────────────────
+  {id:'COS',name:'Colorado Sprgs', lat:38.8059, lon:-104.7009},
+  {id:'ASE',name:'Aspen',          lat:39.2232, lon:-106.8693},
+  {id:'MTJ',name:'Montrose',       lat:38.5098, lon:-107.8939},
+  {id:'GJT',name:'Grand Junction', lat:39.1224, lon:-108.5268},
+  {id:'BZN',name:'Bozeman',        lat:45.7775, lon:-111.1530},
+  {id:'MSO',name:'Missoula',       lat:46.9163, lon:-114.0906},
+  {id:'FCA',name:'Kalispell',      lat:48.3105, lon:-114.2560},
+  {id:'BOZ',name:'Great Falls',    lat:47.4820, lon:-111.3709},
+  {id:'JAC',name:'Jackson Hole',   lat:43.6073, lon:-110.7377},
+  {id:'CPR',name:'Casper',         lat:42.9080, lon:-106.4644},
+  {id:'DRO',name:'Durango',        lat:37.1515, lon:-107.7538},
+  // ── USA — Midwest ──────────────────────────────────────────────
+  {id:'DSM',name:'Des Moines',     lat:41.5340, lon:-93.6630},
+  {id:'OMA',name:'Omaha',          lat:41.3032, lon:-95.8941},
+  {id:'ICT',name:'Wichita',        lat:37.6498, lon:-97.4331},
+  {id:'FAR',name:'Fargo',          lat:46.9207, lon:-96.8158},
+  {id:'BIS',name:'Bismarck',       lat:46.7727, lon:-100.7467},
+  {id:'FSD',name:'Sioux Falls',    lat:43.5820, lon:-96.7419},
+  {id:'GRR',name:'Grand Rapids',   lat:42.8808, lon:-85.5228},
+  {id:'CVG',name:'Cincinnati',     lat:39.0488, lon:-84.6678},
+  {id:'SDF',name:'Louisville',     lat:38.1744, lon:-85.7360},
+  {id:'DAY',name:'Dayton',         lat:39.9024, lon:-84.2194},
+  {id:'LEX',name:'Lexington',      lat:38.0364, lon:-84.6060},
+  {id:'MDT',name:'Harrisburg',     lat:40.1935, lon:-76.7634},
+  {id:'MEM',name:'Memphis',        lat:35.0424, lon:-89.9767},
+  {id:'DLH',name:'Duluth',         lat:46.8421, lon:-92.1936},
+  {id:'MSN',name:'Madison',        lat:43.1399, lon:-89.3375},
+  {id:'GRB',name:'Green Bay',      lat:44.4851, lon:-88.1296},
+  // ── USA — Alaska & Hawaii ──────────────────────────────────────
+  {id:'FAI',name:'Fairbanks',      lat:64.8151, lon:-147.8560},
+  {id:'JNU',name:'Juneau',         lat:58.3550, lon:-134.5762},
+  {id:'OGG',name:'Maui',           lat:20.8986, lon:-156.4305},
+  {id:'KOA',name:'Kona',           lat:19.7388, lon:-156.0456},
+  // ── Canada ────────────────────────────────────────────────────
+  {id:'YYZ',name:'Toronto',        lat:43.6777, lon:-79.6248},
+  {id:'YUL',name:'Montreal',       lat:45.4706, lon:-73.7408},
+  {id:'YVR',name:'Vancouver',      lat:49.1947, lon:-123.1842},
+  {id:'YYC',name:'Calgary',        lat:51.1315, lon:-114.0108},
+  {id:'YEG',name:'Edmonton',       lat:53.3097, lon:-113.5797},
+  {id:'YOW',name:'Ottawa',         lat:45.3225, lon:-75.6692},
+  {id:'YQB',name:'Quebec City',    lat:46.7911, lon:-71.3933},
+  {id:'YHZ',name:'Halifax',        lat:44.8808, lon:-63.5086},
+  {id:'YWG',name:'Winnipeg',       lat:49.9100, lon:-97.2398},
+  {id:'YXE',name:'Saskatoon',      lat:52.1708, lon:-106.6993},
+  {id:'YYJ',name:'Victoria',       lat:48.6469, lon:-123.4258},
+  // ── Mexico ────────────────────────────────────────────────────
+  {id:'MEX',name:'Mexico City',    lat:19.4363, lon:-99.0721},
+  {id:'CUN',name:'Cancun',         lat:21.0365, lon:-86.8771},
+  {id:'GDL',name:'Guadalajara',    lat:20.5218, lon:-103.3111},
+  {id:'MTY',name:'Monterrey',      lat:25.7785, lon:-100.1069},
+  {id:'TIJ',name:'Tijuana',        lat:32.5411, lon:-116.9701},
+  {id:'SJD',name:'Los Cabos',      lat:23.1518, lon:-109.7213},
+  {id:'PVR',name:'Puerto Vallarta',lat:20.6801, lon:-105.2544},
+];
+
 const nearestCity = (lat,lon) => {
   let best={name:'unknown',d:Infinity};
   CITIES.forEach(c=>{const d=haversine(lat,lon,c.lat,c.lon);if(d<best.d) best={name:`${c.name}, ${c.st}`,d};});
@@ -2791,6 +2939,11 @@ export default function App() {
     dist:haversine(pos.lat,pos.lon,c.lat,c.lon),
     bear:getBearing(pos.lat,pos.lon,c.lat,c.lon),
   })),[pos]);
+  const apData=useMemo(()=>AIRPORTS.map(a=>({
+    ...a,
+    dist:haversine(pos.lat,pos.lon,a.lat,a.lon),
+    bear:getBearing(pos.lat,pos.lon,a.lat,a.lon),
+  })),[pos]);
 
   // Auto-center on selected aircraft only when few aircraft in view (>3 is busy/airport area)
   const handleSelectFlight=flight=>{
@@ -2865,42 +3018,61 @@ export default function App() {
       </div>
 
       {(()=>{
-        // Cities pinned at horizon — only x moves as you pan, y stays fixed
-        // This keeps them readable and prevents them floating into sky/ground
-        const cityY = horizonY + 2.5; // just below horizon line
+        // Cities + airports pinned at horizon — only x moves as you pan
+        const pinY    = horizonY + 2.5;
         const halfFov = activeFov / 2;
-        const visible = cityData
-          .filter(c => c.dist <= 185200)
-          .map(c => {
-            const diff = ((c.bear - viewHdg + 540) % 360) - 180; // signed °
-            const x = 50 + (diff / halfFov) * 50; // screen x %
-            const fade = Math.max(0, 1 - Math.abs(diff) / halfFov);
-            const distFade = Math.min(1, c.dist / 80000);
-            const opacity = fade * 0.82 * Math.min(1, distFade + 0.3);
-            return {...c, x, opacity, inFov: Math.abs(diff) < halfFov * 0.95};
-          })
-          .filter(c => c.inFov)
-          .sort((a, b) => a.dist - b.dist);
-        // De-overlap horizontally only (all share same y)
-        const MIN_GAP_X = 9; // % of screen width
+        const project = (item, type, maxDist) => {
+          if(item.dist > maxDist) return null;
+          const diff    = ((item.bear - viewHdg + 540) % 360) - 180;
+          if(Math.abs(diff) >= halfFov * 0.95) return null;
+          const x       = 50 + (diff / halfFov) * 50;
+          const fade    = Math.max(0, 1 - Math.abs(diff) / halfFov);
+          const dFade   = Math.min(1, item.dist / 80000);
+          const opacity = fade * 0.82 * Math.min(1, dFade + 0.3);
+          return {...item, x, opacity, type};
+        };
+        // Airports visible up to 250 nmi; cities up to 100 nmi
+        const pts = [
+          ...apData.map(a  => project(a, 'ap',   463000)).filter(Boolean),
+          ...cityData.map(c => project(c, 'city', 185200)).filter(Boolean),
+        ].sort((a,b) => a.dist - b.dist);
+        // De-overlap across both types combined
+        const MIN_GAP_X = 9;
         const accepted = [];
-        for(const c of visible){
-          if(!accepted.some(a => Math.abs(c.x - a.x) < MIN_GAP_X))
-            accepted.push(c);
+        for(const p of pts){
+          if(!accepted.some(a => Math.abs(p.x - a.x) < MIN_GAP_X))
+            accepted.push(p);
         }
-        return accepted.map(c => (
-          <div key={`${c.name}-${c.st}`} style={{
-            position:'absolute', left:`${c.x}%`, top:`${cityY}%`,
+        return accepted.map(p => p.type === 'ap' ? (
+          // ── Airport label ──────────────────────────────────────
+          <div key={`ap-${p.id}`} style={{
+            position:'absolute', left:`${p.x}%`, top:`${pinY}%`,
             transform:'translate(-50%,0)', textAlign:'center',
-            pointerEvents:'none', zIndex:3, opacity:c.opacity,
+            pointerEvents:'none', zIndex:3, opacity:p.opacity,
+            transition:'left 0.1s linear'}}>
+            <div style={{fontSize:9,color:'rgba(252,211,77,0.75)',
+              lineHeight:1,marginBottom:2}}>✈</div>
+            <div style={{fontSize:9,color:'#fcd34d',
+              fontFamily:"'Orbitron',monospace",whiteSpace:'nowrap',
+              fontWeight:700,letterSpacing:'.06em',
+              textShadow:'0 0 6px rgba(252,180,0,0.45)'}}>{p.id}</div>
+            <div style={{fontSize:8,color:'rgba(252,211,77,0.55)',
+              fontFamily:"'Orbitron',monospace"}}>{distNmi(p.dist)} nmi</div>
+          </div>
+        ) : (
+          // ── City label ─────────────────────────────────────────
+          <div key={`city-${p.name}-${p.st}`} style={{
+            position:'absolute', left:`${p.x}%`, top:`${pinY}%`,
+            transform:'translate(-50%,0)', textAlign:'center',
+            pointerEvents:'none', zIndex:3, opacity:p.opacity,
             transition:'left 0.1s linear'}}>
             <div style={{width:3,height:3,background:'rgba(160,210,240,0.65)',
               borderRadius:'50%',margin:'0 auto 3px'}}/>
             <div style={{fontSize:9,color:'#c8eaf8',
               fontFamily:"'Orbitron',monospace",whiteSpace:'nowrap',
-              letterSpacing:'.05em',textShadow:'0 0 6px rgba(77,184,255,0.4)'}}>{c.name}</div>
+              letterSpacing:'.05em',textShadow:'0 0 6px rgba(77,184,255,0.4)'}}>{p.name}</div>
             <div style={{fontSize:8,color:'rgba(160,210,240,0.6)',
-              fontFamily:"'Orbitron',monospace"}}>{distNmi(c.dist)} nmi</div>
+              fontFamily:"'Orbitron',monospace"}}>{distNmi(p.dist)} nmi</div>
           </div>
         ));
       })()}
