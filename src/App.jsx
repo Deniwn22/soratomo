@@ -53,7 +53,8 @@ const getAircraftCat = (icao, emitter='') => {
   if(/^B7[6-9]|^A3[3-5]|^A30/.test(t)) return 'wide';
   // Regional jets — includes Fokker F50/F70/F100 (civil turboprops/jets)
   if(/^CRJ|^ERJ|^E[127]\d\d|^RJ|^F5[0-9]|^F7[0-9]|^F10/.test(t)) return 'regional';
-  if(/GLF|^C[5-7]\d\d|^LJ|^CL6|^BE4/.test(t)) return 'bizjet';
+  // Bizjets: Gulfstream, Citation, Learjet, Challenger, Falcon, Phenom
+  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^LJ|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^PRM1/.test(t)) return 'bizjet';
 
   // ── Piston/GA — MUST come before military to avoid C172 → military ──
   // Cessna 1xx/2xx, Piper PA, Cirrus SR, Diamond DA, Mooney, Beech Bonanza, TBM, PC-12
@@ -70,7 +71,8 @@ const getAircraftCat = (icao, emitter='') => {
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
   if(/^C17[A-Z]?$|^C5[AM]|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
-  if(/^F[012][0-9]|^FA[0-9]|^B52|^B1[AB]|^B2A|^A10[A-Z]?$|^U2[A-Z]?$|^SR7/.test(t)) return 'military';
+  // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
+  if(/^F[012][0-9]|^FA18|^B52|^B1[AB]|^B2A|^A10[A-Z]?$|^U2[A-Z]?$|^SR7/.test(t)) return 'military';
 
   return 'narrow';
 };
@@ -3025,6 +3027,17 @@ export default function App() {
   const viewHdg   = tiltMode ? (heading + hdgBias + 360) % 360 : scanHeading;
   const viewPitch = tiltMode ? (devicePitch + pitchBias) : scanPitch;
 
+  // Military-category check — includes mil helos (UH/AH/MH/HH/CH/OH/SH/TH)
+  // which correctly categorise as 'helicopter' not 'military'
+  const isMilCat=(cat,type='')=>{
+    if(cat==='military'||cat==='milTransport') return true;
+    if(cat==='helicopter'){
+      const t=(type||'').toUpperCase();
+      return /^UH|^AH|^MH|^HH|^CH[3-5]|^OH|^SH[36]|^TH/.test(t);
+    }
+    return false;
+  };
+
   const visibleFlights=flights.filter(f=>{
     const ft=f.alt*3.28084;
     if(ft<altFloor||ft>altCeiling) return false;
@@ -3033,8 +3046,8 @@ export default function App() {
     const distM=haversine(pos.lat,pos.lon,f.lat,f.lon);
     if(distM>maxDisplayNmi*1852) return false;
     const cat=getAircraftCat(f.type);
-    if(typeFilter==='commercial'&&cat==='military') return false;
-    if(typeFilter==='military'&&cat!=='military') return false;
+    if(typeFilter==='commercial'&&isMilCat(cat,f.type)) return false;
+    if(typeFilter==='military'&&!isMilCat(cat,f.type)) return false;
     return true;
   });
   const mapped=visibleFlights.map(f=>{
