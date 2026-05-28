@@ -1613,6 +1613,101 @@ async function generateShareCard(d){
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
 
+
+// ── Aircraft type → full human-readable name ─────────────────────
+const TYPE_NAMES={
+  // Airbus narrowbody
+  A19N:'Airbus A319neo',A20N:'Airbus A320neo',A21N:'Airbus A321neo',
+  A318:'Airbus A318',A319:'Airbus A319',A320:'Airbus A320',A321:'Airbus A321',
+  // Airbus widebody
+  A332:'Airbus A330-200',A333:'Airbus A330-300',A338:'Airbus A330-800neo',A339:'Airbus A330-900neo',
+  A342:'Airbus A340-200',A343:'Airbus A340-300',A345:'Airbus A340-500',A346:'Airbus A340-600',
+  A359:'Airbus A350-900',A35K:'Airbus A350-1000',
+  A388:'Airbus A380',
+  // Boeing narrowbody
+  B732:'Boeing 737-200',B733:'Boeing 737-300',B734:'Boeing 737-400',
+  B735:'Boeing 737-500',B736:'Boeing 737-600',B737:'Boeing 737',
+  B738:'Boeing 737-800',B739:'Boeing 737-900',
+  B37M:'Boeing 737 MAX 7',B38M:'Boeing 737 MAX 8',B39M:'Boeing 737 MAX 9',B3XM:'Boeing 737 MAX 10',
+  // Boeing widebody
+  B752:'Boeing 757-200',B753:'Boeing 757-300',
+  B762:'Boeing 767-200',B763:'Boeing 767-300',B764:'Boeing 767-400',
+  B772:'Boeing 777-200',B773:'Boeing 777-300',
+  B77L:'Boeing 777-200LR',B77W:'Boeing 777-300ER',
+  B778:'Boeing 777X-8',B779:'Boeing 777X-9',
+  B788:'Boeing 787-8 Dreamliner',B789:'Boeing 787-9 Dreamliner',B78X:'Boeing 787-10 Dreamliner',
+  B741:'Boeing 747-100',B742:'Boeing 747-200',B743:'Boeing 747-300',
+  B744:'Boeing 747-400',B748:'Boeing 747-8',
+  // Regional jets
+  CRJ1:'Bombardier CRJ-100',CRJ2:'Bombardier CRJ-200',
+  CRJ7:'Bombardier CRJ-700',CRJ9:'Bombardier CRJ-900',CRJX:'Bombardier CRJ-1000',
+  E135:'Embraer ERJ-135',E145:'Embraer ERJ-145',
+  E170:'Embraer 170',E175:'Embraer 175',E190:'Embraer 190',E195:'Embraer 195',
+  E290:'Embraer E190-E2',E295:'Embraer E195-E2',
+  // Business jets
+  FA10:'Dassault Falcon 10',FA20:'Dassault Falcon 20',FA50:'Dassault Falcon 50',
+  FA7X:'Dassault Falcon 7X',FA8X:'Dassault Falcon 8X',
+  F900:'Dassault Falcon 900',F2TH:'Dassault Falcon 2000',
+  GLF4:'Gulfstream IV',GLF5:'Gulfstream V',
+  G280:'Gulfstream G280',G550:'Gulfstream G550',
+  G650:'Gulfstream G650',G700:'Gulfstream G700',G800:'Gulfstream G800',
+  GLEX:'Bombardier Global Express',GL5T:'Bombardier Global 5000',
+  GL6T:'Bombardier Global 6000',GL7T:'Bombardier Global 7500',
+  C25A:'Cessna Citation CJ2',C25B:'Cessna Citation CJ3',
+  C25C:'Cessna Citation CJ4',C56X:'Cessna Citation XLS',
+  C68A:'Cessna Citation Sovereign',C750:'Cessna Citation X',
+  LJ60:'Learjet 60',LJ75:'Learjet 75',
+  CL30:'Bombardier Challenger 300',CL35:'Bombardier Challenger 350',
+  CL60:'Bombardier Challenger 600',CL65:'Bombardier Challenger 650',
+  // Military fighters / attack
+  F15:'F-15 Eagle',F16:'F-16 Fighting Falcon',
+  F18A:'F/A-18A Hornet',F18B:'F/A-18B Hornet',
+  F18C:'F/A-18C Hornet',F18D:'F/A-18D Hornet',
+  F18E:'F/A-18E Super Hornet',F18F:'F/A-18F Super Hornet',
+  FA18:'F/A-18 Hornet',
+  F22:'F-22 Raptor',F35:'F-35 Lightning II',
+  A10:'A-10 Thunderbolt II',
+  // Bombers
+  B52:'B-52 Stratofortress',B1:'B-1 Lancer',B2:'B-2 Spirit',
+  SR71:'SR-71 Blackbird',U2:'U-2 Dragon Lady',
+  // Military transport / tanker
+  C17:'C-17 Globemaster III',C5M:'C-5 Galaxy',C5AM:'C-5M Super Galaxy',
+  C130:'C-130 Hercules',C130J:'C-130J Super Hercules',
+  KC135:'KC-135 Stratotanker',KC46:'KC-46 Pegasus',
+  E3CF:'E-3 Sentry AWACS',P8:'P-8 Poseidon',
+  V22:'V-22 Osprey',MV22:'MV-22 Osprey',
+  // Military helicopters
+  UH60:'UH-60 Black Hawk',MH60:'MH-60 Black Hawk',HH60:'HH-60 Pave Hawk',
+  SH60:'SH-60 Seahawk',AH64:'AH-64 Apache',
+  CH47:'CH-47 Chinook',OH58:'OH-58 Kiowa',
+  // Civil helicopters
+  S61:'Sikorsky S-61',S76:'Sikorsky S-76',S92:'Sikorsky S-92',
+  EC35:'Airbus H135',EC45:'Airbus H145',EC55:'Airbus H155',
+  EC65:'Airbus H160',AS35:'Airbus AS350',
+  B06:'Bell 206 JetRanger',B407:'Bell 407',B412:'Bell 412',B429:'Bell 429',
+  R44:'Robinson R44',R66:'Robinson R66',
+  MD82:'MD-82',MD83:'MD-83',MD88:'MD-88',MD90:'MD-90',
+  // GA / piston
+  C172:'Cessna 172 Skyhawk',C182:'Cessna 182 Skylane',
+  C152:'Cessna 152',C162:'Cessna 162 Skycatcher',
+  C208:'Cessna 208 Caravan',C210:'Cessna 210 Centurion',
+  PA28:'Piper Cherokee',PA32:'Piper Cherokee Six',PA44:'Piper Seminole',
+  SR20:'Cirrus SR20',SR22:'Cirrus SR22',
+  DA40:'Diamond DA40',DA42:'Diamond DA42',
+  M20T:'Mooney TLS',TBM9:'TBM 930',PC12:'Pilatus PC-12',
+};
+
+function typeFullName(type){
+  if(!type||type==='UNKN') return null;
+  const t=type.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(TYPE_NAMES[t]) return TYPE_NAMES[t];
+  // Pattern fallbacks for unlisted codes
+  if(/^B7[0-9]{2}/.test(t)) return 'Boeing '+t.slice(1);
+  if(/^A3[0-9]{2}/.test(t)) return 'Airbus A'+t.slice(2);
+  if(/^A2[0-9]{2}/.test(t)) return 'Airbus A'+t.slice(2);
+  return null;
+}
+
 async function shareAircraft(data){
   try{
     const blob=await generateShareCard(data);
@@ -1621,7 +1716,11 @@ async function shareAircraft(data){
       await navigator.share({
         files:[file],
         title:`${data.cs} spotted via SoraTomo`,
-        text:`${data.airline||data.type||'Aircraft'} spotted${data.location?' near '+data.location:''}${data.altFt?' at '+Number(data.altFt).toLocaleString()+' ft':''}`,
+        text:(()=>{
+          const acName=typeFullName(data.type)||data.catLabel||'aircraft';
+          const city=data.location||'my area';
+          return `Hey! I just spotted an awesome ${acName} near ${city} using SoraTomo! :)`;
+        })(),
       });
     } else {
       // Fallback: trigger download
@@ -2614,6 +2713,7 @@ export default function App() {
   const saveLogTimer     = useRef(null); // debounce logbook writes
   const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
   const demoAlerted      = useRef(false);       // prevent repeated demo banners
+  const hasAutoReduced   = useRef(false);       // one-shot range reduction at sign-on only
   // Dead-reckoning: extrapolate pos between GPS fixes using last known velocity
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
   const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
@@ -3304,10 +3404,11 @@ export default function App() {
   }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
 
 
-  // Auto-reduce display range when >80 aircraft are in mapped
+  // One-shot range reduction at sign-on — fires once if >80 aircraft load immediately.
+  // After that the user controls range freely; we never touch it again.
   useEffect(()=>{
+    if(hasAutoReduced.current) return;   // already fired once — hands off
     if(mapped.length<=80) return;
-    // Sort all flights by distance, find the 80th closest
     const sorted=[...flights]
       .filter(f=>{
         const ft=f.alt*3.28084;
@@ -3317,9 +3418,10 @@ export default function App() {
       .sort((a,b)=>a._d-b._d);
     if(sorted.length<=80) return;
     const newNmi=Math.max(10,Math.ceil(sorted[79]._d/1852));
-    if(newNmi>=maxDisplayNmi) return; // already tighter or equal
+    if(newNmi>=maxDisplayNmi) return;
+    hasAutoReduced.current=true;          // lock — never reduce again this session
     setMaxDisplayNmi(newNmi);
-    setRangeNote(`Range auto-reduced to ${newNmi} nmi · adjust in FILTER`);
+    setRangeNote(`Range set to ${newNmi} nmi for your area`);
   },[mapped.length]);
 
   // Separate effect: dismiss rangeNote after 3 s (avoids cleanup race)
