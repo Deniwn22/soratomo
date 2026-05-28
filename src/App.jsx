@@ -2459,7 +2459,8 @@ export default function App() {
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
   const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
   const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
-  const posEMA          = useRef(null);   // EMA-smoothed user position (reduces GPS noise jitter)
+  const posEMA          = useRef(null);   // EMA-smoothed / averaged user position
+  const fixBuf          = useRef([]);     // rolling buffer of stationary GPS fixes for averaging
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
 
   // Derived: all logged callsigns including this session
@@ -2487,47 +2488,57 @@ export default function App() {
       return Math.sqrt(dx*dx+dy*dy);
     };
 
-    // Speed-adaptive EMA: lower alpha = heavier smoothing = less jitter
-    // 0 m/s → alpha 0.08 (very sluggish, kills noise)
-    // 50 m/s → alpha 0.85 (responsive in flight)
-    const applyEMA = (lat, lon, speedMs) => {
-      const alpha = Math.min(0.85, Math.max(0.08, speedMs / 60));
-      if(!posEMA.current) {
-        posEMA.current = {lat, lon};    // first fix — initialise directly
-        setPos({lat, lon});
-        return;
+    // Position update strategy:
+    //   STATIONARY (speed < 5 m/s):
+    //     Buffer up to 12 GPS fixes and display their mean.
+    //     Mean of N fixes reduces noise by √N — 12 fixes ≈ 3.5× better than one.
+    //     Each new fix replaces the oldest, so the displayed position drifts
+    //     by at most 1/12th of one fix per update — effectively frozen.
+    //   MOVING (speed ≥ 5 m/s):
+    //     Flush the buffer, switch to speed-adaptive EMA for responsive tracking.
+    const BUF = 12;
+    const updatePos = (lat, lon, speedMs) => {
+      if(speedMs < 5) {
+        // Accumulate fixes; display running average
+        fixBuf.current.push({lat, lon});
+        if(fixBuf.current.length > BUF) fixBuf.current.shift();
+        const n = fixBuf.current.length;
+        const avg = {
+          lat: fixBuf.current.reduce((s,f)=>s+f.lat, 0)/n,
+          lon: fixBuf.current.reduce((s,f)=>s+f.lon, 0)/n,
+        };
+        posEMA.current = avg;
+        setPos({...avg});
+      } else {
+        // Moving — flush stale stationary buffer, switch to EMA
+        if(fixBuf.current.length > 0) fixBuf.current = [];
+        const alpha = Math.min(0.85, Math.max(0.15, speedMs/60));
+        if(!posEMA.current){ posEMA.current={lat,lon}; setPos({lat,lon}); return; }
+        posEMA.current = {
+          lat: posEMA.current.lat + alpha*(lat-posEMA.current.lat),
+          lon: posEMA.current.lon + alpha*(lon-posEMA.current.lon),
+        };
+        setPos({...posEMA.current});
       }
-      posEMA.current = {
-        lat: posEMA.current.lat + alpha*(lat - posEMA.current.lat),
-        lon: posEMA.current.lon + alpha*(lon - posEMA.current.lon),
-      };
-      setPos({...posEMA.current});
     };
 
-    // Called on every real GPS fix — filter bad fixes, update anchor, smooth
+    // Called on every real GPS fix — filter bad fixes, update anchor, update pos
     const onFix = p => {
       const {latitude:lat, longitude:lon, speed, heading:gpsHdg, accuracy} = p.coords;
       const speedMs  = (speed  != null && speed  >= 0) ? speed  : drVel.current.speedMs;
       const trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
 
-      // ── Accuracy gate (primary jitter fix) ──────────────────────
-      // GPS: 5–20 m accuracy. WiFi: 50–500 m. Cell: 500–2000 m.
-      // When stationary, reject anything worse than 100 m — this kills
-      // WiFi/cell fallback fixes that were causing 400–800 m position jumps.
-      // In flight WiFi is unavailable so GPS accuracy is always good.
+      // Accuracy gate — GPS: 5–20 m; WiFi: 50–500 m; Cell: 500–2000 m.
+      // Stationary: reject anything >100 m accuracy (WiFi/cell fallback).
       if(speedMs < 5 && accuracy != null && accuracy > 100) return;
 
-      // ── Position jump gate (belt-and-suspenders) ─────────────────
-      // Reject any fix that jumps >250 m from current position while slow.
-      // Catches rare cases where accuracy field is wrong but position is bad.
-      if(speedMs < 5 && posEMA.current) {
-        const jump = roughM(posEMA.current.lat, posEMA.current.lon, lat, lon);
-        if(jump > 250) return;
-      }
+      // Jump gate — reject >250 m jumps while slow (misreported accuracy)
+      if(speedMs < 5 && posEMA.current &&
+         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > 250) return;
 
       drVel.current    = {speedMs, trackDeg};
       drAnchor.current = {lat, lon, ts: Date.now()};
-      applyEMA(lat, lon, speedMs);
+      updatePos(lat, lon, speedMs);
     };
 
     // One-shot first fix — allow slightly stale so GPS (not WiFi) is used
@@ -2559,7 +2570,7 @@ export default function App() {
       const dist   = drVel.current.speedMs * ageSec;
       const extrap = project(anchor.lat, anchor.lon, track, dist);
       // DR positions are computed (not noisy) — apply with high alpha for smooth tracking
-      applyEMA(extrap.lat, extrap.lon, Math.max(drVel.current.speedMs, 30));
+      updatePos(extrap.lat, extrap.lon, Math.max(drVel.current.speedMs, 30));
     }, 1000);
 
     return ()=>{
