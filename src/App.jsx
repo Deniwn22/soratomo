@@ -1724,6 +1724,88 @@ function DualSlider({ min, max, step, lo, hi, onLo, onHi }) {
   );
 }
 
+// ── RingRangeControl — circular dial on main screen ──────────────
+// 270° sweep: 12 o'clock = NO LIMIT, 9 o'clock = min range
+// Clockwise drag = reduce range
+function RingRangeControl({ value, min=10, max, onChange }) {
+  const svgRef = React.useRef(null);
+  const S=72, cx=36, cy=36, r=27;
+  const frac = (value-min)/(max-min);            // 0=min range, 1=max range
+  const handleDeg = -90 + (1-frac)*270;           // -90° at max, 180° at min
+  const hRad = handleDeg*Math.PI/180;
+  const hx = cx + r*Math.cos(hRad);
+  const hy = cy + r*Math.sin(hRad);
+
+  // SVG arc path between two angles (clockwise)
+  const arc = (a1,a2) => {
+    const r1=a1*Math.PI/180, r2=a2*Math.PI/180;
+    const x1=cx+r*Math.cos(r1), y1=cy+r*Math.sin(r1);
+    const x2=cx+r*Math.cos(r2), y2=cy+r*Math.sin(r2);
+    const span=((a2-a1)+360)%360;
+    return `M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r},0,${span>180?1:0},1,${x2.toFixed(2)},${y2.toFixed(2)}`;
+  };
+
+  const angleToValue = angle => {
+    let a = angle;
+    // Dead zone: atan2 ∈ (-180°, -90°) — snap to nearest extreme
+    if(a < -90) a = a < -135 ? 180 : -90;
+    const f = 1-(a+90)/270;
+    return Math.round(Math.max(min, Math.min(max, min+f*(max-min)))/10)*10;
+  };
+
+  const startDrag = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const move = ev => {
+      if(!svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const cx2 = rect.left+rect.width/2, cy2 = rect.top+rect.height/2;
+      const clientX = ev.clientX??ev.touches?.[0]?.clientX??0;
+      const clientY = ev.clientY??ev.touches?.[0]?.clientY??0;
+      onChange(angleToValue(Math.atan2(clientY-cy2, clientX-cx2)*180/Math.PI));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    move(e);
+  };
+
+  const bgPath     = arc(-90, 180);
+  const activePath = handleDeg < 179.5 ? arc(handleDeg, 180) : null;
+
+  return (
+    <svg ref={svgRef} width={S} height={S} viewBox={`0 0 ${S} ${S}`}
+      onPointerDown={startDrag}
+      style={{cursor:'grab',touchAction:'none',display:'block',overflow:'visible'}}>
+      {/* Track */}
+      <path d={bgPath} fill="none" stroke="rgba(77,184,255,0.12)" strokeWidth="5" strokeLinecap="round"/>
+      {/* Active arc — represents remaining display range */}
+      {activePath&&<path d={activePath} fill="none" stroke="#4db8ff" strokeWidth="5"
+        strokeLinecap="round" opacity="0.82"/>}
+      {/* Handle */}
+      <circle cx={hx} cy={hy} r="6" fill="#4db8ff" stroke="#010a18" strokeWidth="2"/>
+      {/* Center — value */}
+      <text x={cx} y={cy-4} textAnchor="middle" dominantBaseline="middle"
+        fontSize="11" fontWeight="700" fill="#4db8ff"
+        fontFamily="Orbitron,monospace" letterSpacing="-0.5">
+        {value>=max?'∞':value}
+      </text>
+      <text x={cx} y={cy+7} textAnchor="middle" dominantBaseline="middle"
+        fontSize="7" fill="rgba(77,184,255,0.45)" fontFamily="Orbitron,monospace">
+        {value>=max?'FULL':'NMI'}
+      </text>
+      {/* Label below dead-zone gap */}
+      <text x={cx} y={S-3} textAnchor="middle"
+        fontSize="6.5" fill="rgba(77,184,255,0.28)" fontFamily="Orbitron,monospace" letterSpacing=".1em">
+        RANGE
+      </text>
+    </svg>
+  );
+}
+
 // ── FilterPanel ────────────────────────────────────────────────
 const SPD_MAX=700, DIST_MAX=500;
 
@@ -1735,7 +1817,6 @@ function FilterPanel({
   maxDisplayNmi,onMaxDist,
   onResetAll,onClose,
 }) {
-  const distPct=(maxDisplayNmi/DIST_MAX)*100;
   const results=search.trim().length>=2
     ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
 
@@ -1833,14 +1914,6 @@ function FilterPanel({
         <DualSlider min={0} max={SPD_MAX} step={10}
           lo={minSpeedKts} hi={maxSpeedKts} onLo={onMinSpd} onHi={onMaxSpd}/>
 
-        <Divider/>
-
-        {/* ── Max display range ── */}
-        <Row label="MAX DISPLAY RANGE" value={maxDisplayNmi>=DIST_MAX?'NO LIMIT':`${maxDisplayNmi} nmi`}
-          reset={maxDisplayNmi<DIST_MAX} onReset={()=>onMaxDist(DIST_MAX)}/>
-        <input type="range" min={10} max={DIST_MAX} step={10} value={maxDisplayNmi}
-          onChange={e=>onMaxDist(+e.target.value)}
-          style={{width:'100%',marginBottom:2,background:`linear-gradient(to right,#060e1e 0%,#060e1e ${distPct}%,#4db8ff ${distPct}%,#4db8ff 100%)`}}/>
 
       </div>{/* end scrollable body */}
 
@@ -3500,6 +3573,15 @@ export default function App() {
       ))}
 
       {/* Altitude legend */}
+      {/* Range ring dial */}
+      <div style={{position:'absolute',right:12,bottom:155,zIndex:10,
+        background:'rgba(1,8,22,0.78)',borderRadius:'50%',
+        border:'0.5px solid rgba(77,184,255,0.12)',
+        boxShadow:'0 0 12px rgba(0,0,0,0.5)'}}>
+        <RingRangeControl value={maxDisplayNmi} min={10} max={DIST_MAX}
+          onChange={setMaxDisplayNmi}/>
+      </div>
+
       <div style={{position:'absolute',left:10,bottom:155,zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
         border:'0.5px solid rgba(77,184,255,.12)'}}>
