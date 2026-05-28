@@ -2457,6 +2457,7 @@ export default function App() {
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
   const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
   const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
+  const posEMA          = useRef(null);   // EMA-smoothed user position (reduces GPS noise jitter)
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
 
   // Derived: all logged callsigns including this session
@@ -2477,16 +2478,31 @@ export default function App() {
       return {lat: la2/D2R, lon: lo2/D2R};
     };
 
-    // Called on every real GPS fix — update anchor + velocity vector
+    // Speed-adaptive EMA: heavy smoothing at low speed (kills GPS noise jitter),
+    // near-direct at flight speed (stays accurate and responsive).
+    // alpha = 0.25 at 0 m/s → 0.9 at 50 m/s
+    const applyEMA = (lat, lon, speedMs) => {
+      const alpha = Math.min(0.9, Math.max(0.25, speedMs / 55));
+      if(!posEMA.current) {
+        posEMA.current = {lat, lon};          // first fix — initialise directly
+        setPos({lat, lon});
+        return;
+      }
+      posEMA.current = {
+        lat: posEMA.current.lat + alpha * (lat - posEMA.current.lat),
+        lon: posEMA.current.lon + alpha * (lon - posEMA.current.lon),
+      };
+      setPos({...posEMA.current});
+    };
+
+    // Called on every real GPS fix — update anchor + velocity, then smooth
     const onFix = p => {
       const {latitude:lat, longitude:lon, speed, heading:gpsHdg} = p.coords;
-      const now = Date.now();
-      // Derive velocity: prefer GPS speed/heading if valid, else compute from consecutive fixes
-      let speedMs = (speed != null && speed >= 0) ? speed : drVel.current.speedMs;
-      let trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
-      drVel.current = {speedMs, trackDeg};
-      drAnchor.current = {lat, lon, ts: now};
-      setPos({lat, lon}); // snap to truth
+      const speedMs  = (speed  != null && speed  >= 0) ? speed  : drVel.current.speedMs;
+      const trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
+      drVel.current    = {speedMs, trackDeg};
+      drAnchor.current = {lat, lon, ts: Date.now()};
+      applyEMA(lat, lon, speedMs);
     };
 
     // One-shot first fix
@@ -2504,21 +2520,19 @@ export default function App() {
       );
     }, 10000);
 
-    // 1 Hz dead-reckoning extrapolation between GPS fixes
-    // Projects anchor forward at last known speed + current compass heading.
-    // Heading correction via DeviceOrientation (already in app) handles turns.
-    // Snaps back to truth on every real onFix call — error never accumulates
-    // beyond one inter-fix interval (~10–15s = ~0.5–1 nmi worst case at cruise).
+    // 1 Hz dead-reckoning extrapolation between GPS fixes.
+    // Threshold raised to 5 m/s — GPS noise on a stationary device can report
+    // 1-3 m/s spuriously, which was causing on-ground jitter at the old 1 m/s limit.
     const dr = setInterval(()=>{
       const anchor = drAnchor.current;
-      if(!anchor || drVel.current.speedMs < 1) return; // stationary or no fix yet
+      if(!anchor || drVel.current.speedMs < 5) return; // 5 m/s ≈ 10 kts — clear of GPS noise
       const ageSec = (Date.now() - anchor.ts) / 1000;
-      if(ageSec < 1 || ageSec > 60) return; // don't extrapolate stale anchors
-      // Use compass heading if GPS track is stale (handles turns between fixes)
-      const track = drHeadingRef.current || drVel.current.trackDeg;
+      if(ageSec < 1 || ageSec > 60) return;
+      const track  = drHeadingRef.current || drVel.current.trackDeg;
       const dist   = drVel.current.speedMs * ageSec;
       const extrap = project(anchor.lat, anchor.lon, track, dist);
-      setPos(extrap);
+      // DR positions are computed (not noisy) — apply with high alpha for smooth tracking
+      applyEMA(extrap.lat, extrap.lon, Math.max(drVel.current.speedMs, 30));
     }, 1000);
 
     return ()=>{
