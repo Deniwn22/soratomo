@@ -1438,7 +1438,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 // ── Toast notifications ────────────────────────────────────────
 function Toasts({ items }) {
   return (
-    <div style={{position:'absolute',bottom:52,right:10,zIndex:45,
+    <div style={{position:'absolute',bottom:52,left:10,zIndex:45,
       display:'flex',flexDirection:'column-reverse',gap:6,pointerEvents:'none',maxWidth:185}}>
       {items.map(n=>(
         <div key={n.nid} style={{
@@ -3651,7 +3651,7 @@ export default function App() {
           isDisplayNew={displayNewIds.has(f.id)}/>
       ))}
 
-      <div style={{position:'absolute',left:10,bottom:155,zIndex:10,
+      <div style={{position:'absolute',left:10,bottom:110,zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
         border:'0.5px solid rgba(77,184,255,.12)'}}>
         {[
