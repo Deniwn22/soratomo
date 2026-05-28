@@ -2372,22 +2372,23 @@ export default function App() {
 
   useEffect(()=>{
     if(!navigator.geolocation) return;
+    const onFix = p => setPos({lat:p.coords.latitude, lon:p.coords.longitude});
     // One-shot first fix — gets something on screen immediately
     navigator.geolocation.getCurrentPosition(
-      p=>setPos({lat:p.coords.latitude,lon:p.coords.longitude}),
-      ()=>{},
-      {enableHighAccuracy:true, timeout:10000, maximumAge:0}
+      onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:0}
     );
-    // Continuous watch — updates as user moves (critical on aircraft)
-    // enableHighAccuracy forces the GPS chip rather than WiFi/IP lookup,
-    // which is essential at altitude where in-flight WiFi MACs aren't in
-    // location databases and cell triangulation doesn't work.
+    // watchPosition — OS-driven updates (varies 1–15s depending on platform)
     const wid = navigator.geolocation.watchPosition(
-      p=>setPos({lat:p.coords.latitude,lon:p.coords.longitude}),
-      ()=>{},
-      {enableHighAccuracy:true, timeout:15000, maximumAge:5000}
+      onFix, ()=>{}, {enableHighAccuracy:true, timeout:15000, maximumAge:0}
     );
-    return ()=>navigator.geolocation.clearWatch(wid);
+    // Supplemental poll every 10s — forces a fresh hardware fix on a
+    // predictable interval, bypassing OS throttling on Safari/iOS
+    const poll = setInterval(()=>{
+      navigator.geolocation.getCurrentPosition(
+        onFix, ()=>{}, {enableHighAccuracy:true, timeout:8000, maximumAge:0}
+      );
+    }, 10000);
+    return ()=>{ navigator.geolocation.clearWatch(wid); clearInterval(poll); };
   },[]);
 
   const registerOrientation = useCallback(()=>{
