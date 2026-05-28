@@ -1732,13 +1732,16 @@ function DualSlider({ min, max, step, lo, hi, onLo, onHi }) {
 function RingRangeControl({ value, min=10, max, onChange }) {
   const svgRef = React.useRef(null);
   const S=72, cx=36, cy=36, r=27;
-  const frac = (value-min)/(max-min);            // 0=min range, 1=max range
-  const handleDeg = -90 + (1-frac)*270;           // -90° at max, 180° at min
+  const frac = (value-min)/(max-min);
+  // Arc: 10:30 o'clock (SVG 225°) = max range → clockwise 315° → 9 o'clock (SVG 180°) = min range
+  // Dead zone: only 45° from 9→10:30 (upper-left of circle, in the corner away from thumb)
+  const S_DEG=225, E_DEG=180, SWEEP=315;
+  const handleDeg = (S_DEG + (1-frac)*SWEEP) % 360;
   const hRad = handleDeg*Math.PI/180;
   const hx = cx + r*Math.cos(hRad);
   const hy = cy + r*Math.sin(hRad);
 
-  // SVG arc path between two angles (clockwise)
+  // SVG arc path between two angles (clockwise sweep)
   const arc = (a1,a2) => {
     const r1=a1*Math.PI/180, r2=a2*Math.PI/180;
     const x1=cx+r*Math.cos(r1), y1=cy+r*Math.sin(r1);
@@ -1748,10 +1751,10 @@ function RingRangeControl({ value, min=10, max, onChange }) {
   };
 
   const angleToValue = angle => {
-    let a = angle;
-    // Dead zone: atan2 ∈ (-180°, -90°) — snap to nearest extreme
-    if(a < -90) a = a < -135 ? 180 : -90;
-    const f = 1-(a+90)/270;
+    // Clockwise sweep from S_DEG (225°)
+    const sweep = ((angle - S_DEG) + 360) % 360;
+    if(sweep > SWEEP) return sweep < SWEEP+(360-SWEEP)/2 ? min : max; // dead zone snap
+    const f = 1 - sweep/SWEEP;
     return Math.round(Math.max(min, Math.min(max, min+f*(max-min)))/10)*10;
   };
 
@@ -1775,8 +1778,10 @@ function RingRangeControl({ value, min=10, max, onChange }) {
     move(e);
   };
 
-  const bgPath     = arc(-90, 180);
-  const activePath = handleDeg < 179.5 ? arc(handleDeg, 180) : null;
+  const bgPath     = arc(S_DEG, E_DEG);  // 315° background track
+  // Active arc from handle clockwise to E_DEG (9 o'clock)
+  const activeSpan = ((E_DEG - handleDeg) + 360) % 360;
+  const activePath = activeSpan > 1 ? arc(handleDeg, E_DEG) : null;
 
   return (
     <svg ref={svgRef} width={S} height={S} viewBox={`0 0 ${S} ${S}`}
@@ -1809,7 +1814,7 @@ function RingRangeControl({ value, min=10, max, onChange }) {
 }
 
 // ── FilterPanel ────────────────────────────────────────────────
-const SPD_MAX=700, DIST_MAX=500;
+const SPD_MAX=700, DIST_MAX=400;
 
 function FilterPanel({
   altFloor,altCeiling,onFloor,onCeiling,
@@ -2442,7 +2447,7 @@ export default function App() {
   const [typeFilter,  setTypeFilter]  = useState('all');
   const [minSpeedKts, setMinSpeedKts] = useState(0);
   const [maxSpeedKts, setMaxSpeedKts] = useState(700);
-  const [maxDisplayNmi,setMaxDisplayNmi]=useState(500);
+  const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
   const [rangeNote,    setRangeNote]    = useState(null); // auto-range reduction notice
   const [showCoords,  setShowCoords]  = useState(false); // lat/lon toggle
 
@@ -2461,6 +2466,7 @@ export default function App() {
   const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
   const posEMA          = useRef(null);   // EMA-smoothed / averaged user position
   const fixBuf          = useRef([]);     // rolling buffer of stationary GPS fixes for averaging
+  const speedHist       = useRef([]);     // last 3 GPS speed readings — hysteresis for mode switch
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
 
   // Derived: all logged callsigns including this session
@@ -2497,9 +2503,18 @@ export default function App() {
     //   MOVING (speed ≥ 5 m/s):
     //     Flush the buffer, switch to speed-adaptive EMA for responsive tracking.
     const BUF = 12;
+    // isMoving uses a 3-reading hysteresis to prevent spurious mode switches.
+    // GPS noise can report phantom speeds of 0–8 m/s on a stationary device;
+    // requiring 3 consecutive readings above 12 m/s eliminates that entirely.
+    const isMoving = speedMs => {
+      speedHist.current.push(speedMs);
+      if(speedHist.current.length > 3) speedHist.current.shift();
+      return speedHist.current.length === 3 &&
+             speedHist.current.every(s => s > 12);
+    };
     const updatePos = (lat, lon, speedMs) => {
-      if(speedMs < 5) {
-        // Accumulate fixes; display running average
+      if(!isMoving(speedMs)) {
+        // Stationary — accumulate fixes; display running mean
         fixBuf.current.push({lat, lon});
         if(fixBuf.current.length > BUF) fixBuf.current.shift();
         const n = fixBuf.current.length;
@@ -2510,8 +2525,9 @@ export default function App() {
         posEMA.current = avg;
         setPos({...avg});
       } else {
-        // Moving — flush stale stationary buffer, switch to EMA
+        // Moving (3 consecutive readings > 12 m/s) — flush buffer, use EMA
         if(fixBuf.current.length > 0) fixBuf.current = [];
+        speedHist.current = []; // reset so transition back is clean
         const alpha = Math.min(0.85, Math.max(0.15, speedMs/60));
         if(!posEMA.current){ posEMA.current={lat,lon}; setPos({lat,lon}); return; }
         posEMA.current = {
@@ -2530,11 +2546,11 @@ export default function App() {
 
       // Accuracy gate — GPS: 5–20 m; WiFi: 50–500 m; Cell: 500–2000 m.
       // Stationary: reject anything >100 m accuracy (WiFi/cell fallback).
-      if(speedMs < 5 && accuracy != null && accuracy > 100) return;
+      if(speedMs < 12 && accuracy != null && accuracy > 80) return; // tighter gate — GPS <20m, WiFi >50m
 
       // Jump gate — reject >250 m jumps while slow (misreported accuracy)
-      if(speedMs < 5 && posEMA.current &&
-         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > 250) return;
+      if(speedMs < 12 && posEMA.current &&
+         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > 150) return;
 
       drVel.current    = {speedMs, trackDeg};
       drAnchor.current = {lat, lon, ts: Date.now()};
@@ -2563,7 +2579,7 @@ export default function App() {
     // 1-3 m/s spuriously, which was causing on-ground jitter at the old 1 m/s limit.
     const dr = setInterval(()=>{
       const anchor = drAnchor.current;
-      if(!anchor || drVel.current.speedMs < 5) return; // 5 m/s ≈ 10 kts — clear of GPS noise
+      if(!anchor || drVel.current.speedMs < 12) return; // 12 m/s ≈ 24 kts — only DR in actual flight
       const ageSec = (Date.now() - anchor.ts) / 1000;
       if(ageSec < 1 || ageSec > 60) return;
       const track  = drHeadingRef.current || drVel.current.trackDeg;
@@ -3158,7 +3174,7 @@ export default function App() {
 
   const maxRange=visibleFlights.length
     ?Math.round(Math.max(...visibleFlights.map(f=>haversine(pos.lat,pos.lon,f.lat,f.lon)))/1852):0;
-  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<500;
+  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   const horizonY=tiltMode?Math.max(5,Math.min(92,50+(devicePitch/(activeVFov/2))*50)):58;
   // Memoize — only recomputes when user position changes (once per session)
