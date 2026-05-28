@@ -1340,15 +1340,14 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         <div style={{
           position:'absolute',
           left:'50%', top:'50%',
-          width:`${f.uncertRadiusVw*2}vw`,
-          height:`${f.uncertRadiusVw*2}vw`,
+          width:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
+          height:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
           transform:'translate(-50%,-50%)',
           borderRadius:'50%',
-          border:`1px dashed ${color}`,
-          background:`${color}0d`,
-          opacity:0.55,
+          border:`1.5px dashed ${color}`,
+          background:`${color}12`,
+          opacity:0.6,
           pointerEvents:'none',
-          zIndex:-1,
           transition:'width 0.8s ease, height 0.8s ease',
         }}/>
       )}
@@ -3126,13 +3125,14 @@ export default function App() {
       return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
     });
     // ── Uncertainty bubble radius (vw units) ──
-    // Sources: ADS-B position age, user DR age, compass error (~2°)
-    const compassUncertM  = dist * Math.sin(2 * D2R);  // 2° compass error
+    // Sources: ADS-B position age, user DR age, compass error (~2°), AR pointing floor
+    const compassUncertM  = dist * Math.sin(2 * D2R);     // ~2° compass error
     const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, 30) : 0;
     const userUncertM     = drVel.current.speedMs * drAgeSec2;
     const totalUncertM    = Math.sqrt(extraM**2 + userUncertM**2 + compassUncertM**2);
     const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
-    const uncertRadiusVw  = Math.max(3, Math.min(24, (angUncertDeg/activeFov)*50));
+    // Floor: 3° of arc = minimum AR pointing + display uncertainty (always visible bubble)
+    const uncertRadiusVw  = Math.max(9, Math.min(28, (Math.max(angUncertDeg, 3)/activeFov)*50));
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw};
   }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
 
