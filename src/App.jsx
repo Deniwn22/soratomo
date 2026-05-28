@@ -1299,7 +1299,7 @@ const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}ca
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
 
 // ── AircraftMarker ─────────────────────────────────────────────
-const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/1852;
@@ -1333,6 +1333,23 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
       opacity:dimmed?0.28:1,
       transition:'opacity 0.25s ease',
     }}>
+      {/* Uncertainty bubble — tilt/camera mode only, selected aircraft only */}
+      {isSelected && tiltMode && (
+        <div style={{
+          position:'absolute',
+          left:'50%', top:'50%',
+          width:`${f.uncertRadiusVw*2}vw`,
+          height:`${f.uncertRadiusVw*2}vw`,
+          transform:'translate(-50%,-50%)',
+          borderRadius:'50%',
+          border:`1px dashed ${color}`,
+          background:`${color}0d`,
+          opacity:0.55,
+          pointerEvents:'none',
+          zIndex:-1,
+          transition:'width 0.8s ease, height 0.8s ease',
+        }}/>
+      )}
       {/* Entry ping — one-shot on first appearance */}
       {isDisplayNew&&<>
         <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
@@ -2956,7 +2973,15 @@ export default function App() {
       const vDiff=he-viewPitch;
       return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
     });
-    return {...f,dist,bear,elev,...sc,trail};
+    // ── Uncertainty bubble radius (vw units) ──
+    // Sources: ADS-B position age, user DR age, compass error (~2°)
+    const compassUncertM  = dist * Math.sin(2 * D2R);  // 2° compass error
+    const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, 30) : 0;
+    const userUncertM     = drVel.current.speedMs * drAgeSec2;
+    const totalUncertM    = Math.sqrt(extraM**2 + userUncertM**2 + compassUncertM**2);
+    const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
+    const uncertRadiusVw  = Math.max(3, Math.min(24, (angUncertDeg/activeFov)*50));
+    return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw};
   }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
 
 
@@ -3467,6 +3492,7 @@ export default function App() {
       {mapped.map(f=>(
         <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
           dimmed={selectedId!==null&&selectedId!==f.id}
+          tiltMode={tiltMode}
           onSelect={handleAircraftSelect}
           loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
           proximityM={proximityM}
