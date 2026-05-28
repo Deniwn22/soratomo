@@ -1515,6 +1515,132 @@ function CompassStrip({ heading }) {
   );
 }
 
+
+// ── Share card generation ─────────────────────────────────────────
+// Draws a bright 1080×1080 PNG card suitable for Instagram / iMessage
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);
+  c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);
+  c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);
+  c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);
+  c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+}
+async function generateShareCard(d){
+  await document.fonts.ready;
+  const W=1080,H=1080;
+  const cv=document.createElement('canvas');
+  cv.width=W;cv.height=H;
+  const c=cv.getContext('2d');
+  const NAVY='#0c1a2e',BLUE='#0ea5e9',DTEXT='#1e293b',MTEXT='#475569',LTEXT='#94a3b8',WHITE='#ffffff';
+
+  // Background gradient
+  const bg=c.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#dbeafe');bg.addColorStop(1,'#f8fafc');
+  c.fillStyle=bg;c.fillRect(0,0,W,H);
+
+  // Subtle radar rings + crosshair (decorative, top-right)
+  c.strokeStyle='rgba(14,165,233,0.08)';c.lineWidth=2;
+  [220,380,540,700].forEach(r=>{c.beginPath();c.arc(W*0.82,H*0.35,r,0,Math.PI*2);c.stroke();});
+  c.strokeStyle='rgba(14,165,233,0.05)';c.lineWidth=1.5;
+  c.beginPath();c.moveTo(W*0.82,H*0.35-760);c.lineTo(W*0.82,H*0.35+760);c.stroke();
+  c.beginPath();c.moveTo(W*0.82-760,H*0.35);c.lineTo(W*0.82+760,H*0.35);c.stroke();
+
+  // Header bar
+  c.fillStyle=NAVY;c.fillRect(0,0,W,116);
+  c.font="bold 42px 'Orbitron',monospace";c.fillStyle=WHITE;c.textAlign='left';
+  c.fillText('SORATOMO',56,72);
+  c.font="bold 19px 'Orbitron',monospace";c.fillStyle=BLUE;c.textAlign='right';
+  c.fillText('AIRCRAFT SPOTTED',W-56,60);
+  c.font="15px 'Orbitron',monospace";c.fillStyle='#64748b';
+  c.fillText('SKYGAZING, FOR AIRCRAFT.',W-56,86);
+  c.textAlign='left';
+
+  // Callsign — scale down if too wide
+  const cs=d.cs||'UNKNOWN';
+  let csFontSize=108;
+  c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
+  if(c.measureText(cs).width>940) csFontSize=Math.floor(csFontSize*940/c.measureText(cs).width);
+  c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
+  c.fillStyle=DTEXT;c.fillText(cs,60,282);
+
+  // Airline
+  c.font="500 44px 'Exo 2',sans-serif";c.fillStyle=MTEXT;
+  c.fillText(d.airline||'',62,342);
+
+  // Type + category
+  c.font="400 30px 'Exo 2',sans-serif";c.fillStyle=LTEXT;
+  c.fillText([d.type,d.catLabel].filter(Boolean).join('  ·  '),62,386);
+
+  // Accent line
+  c.strokeStyle=BLUE;c.lineWidth=3;
+  c.beginPath();c.moveTo(60,416);c.lineTo(W-60,416);c.stroke();
+
+  // Stats boxes (4 across)
+  const stats = d.altFt!=null
+    ? [{l:'ALTITUDE',v:`${Number(d.altFt).toLocaleString()} ft`},{l:'SPEED',v:`${d.spdKts||'—'} kts`},{l:'DISTANCE',v:`${d.distNmiVal||'—'} nmi`},{l:'BEARING',v:`${d.bearDeg!=null?d.bearDeg+'°':'—'}`}]
+    : [{l:'CLOSEST',v:`${d.closestNmi||'—'} nmi`},{l:'ALTITUDE',v:`${d.logAltFt?Number(d.logAltFt).toLocaleString()+' ft':'—'}`},{l:'SPEED',v:`${d.spdKts||'—'} kts`},{l:'HEADING',v:`${d.hdgDeg!=null?String(d.hdgDeg).padStart(3,'0')+'°':'—'}`}];
+  const bW=Math.floor((W-128)/4),bH=178,bY=446;
+  stats.forEach((s,i)=>{
+    const x=60+i*(bW+8);
+    c.fillStyle=i%2===0?'#eff8fe':'#ffffff';
+    roundRect(c,x,bY,bW,bH,10);c.fill();
+    c.strokeStyle='rgba(14,165,233,0.18)';c.lineWidth=1;roundRect(c,x,bY,bW,bH,10);c.stroke();
+    const vSize=s.v.length>9?38:46;
+    c.font=`bold ${vSize}px 'Orbitron',monospace`;c.fillStyle=DTEXT;c.textAlign='center';
+    c.fillText(s.v,x+bW/2,bY+bH*0.56);
+    c.font="15px 'Orbitron',monospace";c.fillStyle=LTEXT;
+    c.fillText(s.l,x+bW/2,bY+bH*0.81);
+    c.textAlign='left';
+  });
+
+  // Location
+  if(d.location){
+    c.font="22px 'Orbitron',monospace";c.fillStyle=MTEXT;c.fillText('SPOTTED NEAR',62,686);
+    c.font="bold 34px 'Orbitron',monospace";c.fillStyle=BLUE;
+    c.fillText(d.location.toUpperCase().slice(0,38),62,730);
+  }
+
+  // Date/time
+  const dt=d.timestamp?new Date(d.timestamp).toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'}):'';
+  c.font="28px 'Exo 2',sans-serif";c.fillStyle=MTEXT;c.fillText(dt,62,782);
+
+  // Footer bar
+  c.fillStyle=NAVY;c.fillRect(0,H-86,W,86);
+  c.font="20px 'Orbitron',monospace";c.fillStyle='#64748b';c.textAlign='center';
+  c.fillText('soratomo.netlify.app  ·  Skygazing, for aircraft.',W/2,H-30);
+  c.textAlign='left';
+
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+
+async function shareAircraft(data){
+  try{
+    const blob=await generateShareCard(data);
+    const file=new File([blob],`soratomo-${(data.cs||'aircraft').replace(/\s/g,'')}.png`,{type:'image/png'});
+    if(navigator.canShare?.({files:[file]})){
+      await navigator.share({
+        files:[file],
+        title:`${data.cs} spotted via SoraTomo`,
+        text:`${data.airline||data.type||'Aircraft'} spotted${data.location?' near '+data.location:''}${data.altFt?' at '+Number(data.altFt).toLocaleString()+' ft':''}`,
+      });
+    } else {
+      // Fallback: trigger download
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=file.name;a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),5000);
+    }
+  } catch(e){ if(e?.name!=='AbortError') console.error('Share error',e); }
+}
+
+// Share icon SVG path (upload arrow)
+const ShareIcon=()=>(
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+    <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+  </svg>
+);
+
 // ── FlightCard ─────────────────────────────────────────────────
 function FlightCard({ f, onClose, loggedCallsigns }) {
   const catFC=getAircraftCat(f.type, f.emitter||'');
@@ -1571,6 +1697,19 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           </div>
         ))}
       </div>
+      {/* Share button */}
+      <button onClick={()=>shareAircraft({
+        cs:f.cs,airline:f.airline,type:f.type,catLabel,
+        altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
+        distNmiVal:distNmi(f.dist),bearDeg:Math.round(f.bear),
+        hdgDeg:Math.round(f.hdg),location:over,timestamp:Date.now(),
+      })} style={{width:'100%',marginTop:10,padding:'9px 0',
+        background:'transparent',borderRadius:7,cursor:'pointer',
+        border:'1px solid rgba(77,184,255,0.28)',color:'#4db8ff',
+        fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+        display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+        <ShareIcon/> SHARE THIS AIRCRAFT
+      </button>
     </div>
   );
 }
@@ -2190,6 +2329,22 @@ function Stats({ entries, onClose }) {
                   {t.lat.toFixed(2)}° {t.lon.toFixed(2)}°
                 </span>}
               </div>
+              {/* Share button */}
+              <button onClick={e=>{e.stopPropagation();shareAircraft({
+                cs:t.cs||t.reg,airline:t.airline||'',type:detail.type,
+                catLabel:({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+                  'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet',
+                  'military':'Military','milTransport':'Mil Transport',
+                  'helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft'),
+                altFt:null,closestNmi:t.closestNmi,logAltFt:t.alt,
+                spdKts:t.spd,hdgDeg:t.hdg,location:t.city,timestamp:t.timestamp,
+              })}} style={{marginTop:7,width:'100%',padding:'6px 0',
+                background:'transparent',borderRadius:5,cursor:'pointer',
+                border:'1px solid rgba(77,184,255,0.22)',color:'#4a8898',
+                fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                <ShareIcon/> SHARE
+              </button>
             </div>
           ))}
         </div>
