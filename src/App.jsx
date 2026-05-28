@@ -2363,6 +2363,10 @@ export default function App() {
   const saveLogTimer     = useRef(null); // debounce logbook writes
   const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
   const demoAlerted      = useRef(false);       // prevent repeated demo banners
+  // Dead-reckoning: extrapolate pos between GPS fixes using last known velocity
+  const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
+  const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
+  const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
 
   // Derived: all logged callsigns including this session
@@ -2372,23 +2376,66 @@ export default function App() {
 
   useEffect(()=>{
     if(!navigator.geolocation) return;
-    const onFix = p => setPos({lat:p.coords.latitude, lon:p.coords.longitude});
-    // One-shot first fix — gets something on screen immediately
+
+    // Project a lat/lon forward by distance d (metres) along bearing b (degrees)
+    const project = (lat, lon, b, d) => {
+      const R = 6371000;
+      const bR = b * D2R;
+      const la = lat * D2R, lo = lon * D2R;
+      const la2 = Math.asin(Math.sin(la)*Math.cos(d/R) + Math.cos(la)*Math.sin(d/R)*Math.cos(bR));
+      const lo2 = lo + Math.atan2(Math.sin(bR)*Math.sin(d/R)*Math.cos(la), Math.cos(d/R)-Math.sin(la)*Math.sin(la2));
+      return {lat: la2/D2R, lon: lo2/D2R};
+    };
+
+    // Called on every real GPS fix — update anchor + velocity vector
+    const onFix = p => {
+      const {latitude:lat, longitude:lon, speed, heading:gpsHdg} = p.coords;
+      const now = Date.now();
+      // Derive velocity: prefer GPS speed/heading if valid, else compute from consecutive fixes
+      let speedMs = (speed != null && speed >= 0) ? speed : drVel.current.speedMs;
+      let trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
+      drVel.current = {speedMs, trackDeg};
+      drAnchor.current = {lat, lon, ts: now};
+      setPos({lat, lon}); // snap to truth
+    };
+
+    // One-shot first fix
     navigator.geolocation.getCurrentPosition(
       onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:0}
     );
-    // watchPosition — OS-driven updates (varies 1–15s depending on platform)
+    // OS-driven watch
     const wid = navigator.geolocation.watchPosition(
       onFix, ()=>{}, {enableHighAccuracy:true, timeout:15000, maximumAge:0}
     );
-    // Supplemental poll every 10s — forces a fresh hardware fix on a
-    // predictable interval, bypassing OS throttling on Safari/iOS
+    // Supplemental 10s poll — bypasses Safari throttling
     const poll = setInterval(()=>{
       navigator.geolocation.getCurrentPosition(
         onFix, ()=>{}, {enableHighAccuracy:true, timeout:8000, maximumAge:0}
       );
     }, 10000);
-    return ()=>{ navigator.geolocation.clearWatch(wid); clearInterval(poll); };
+
+    // 1 Hz dead-reckoning extrapolation between GPS fixes
+    // Projects anchor forward at last known speed + current compass heading.
+    // Heading correction via DeviceOrientation (already in app) handles turns.
+    // Snaps back to truth on every real onFix call — error never accumulates
+    // beyond one inter-fix interval (~10–15s = ~0.5–1 nmi worst case at cruise).
+    const dr = setInterval(()=>{
+      const anchor = drAnchor.current;
+      if(!anchor || drVel.current.speedMs < 1) return; // stationary or no fix yet
+      const ageSec = (Date.now() - anchor.ts) / 1000;
+      if(ageSec < 1 || ageSec > 60) return; // don't extrapolate stale anchors
+      // Use compass heading if GPS track is stale (handles turns between fixes)
+      const track = drHeadingRef.current || drVel.current.trackDeg;
+      const dist   = drVel.current.speedMs * ageSec;
+      const extrap = project(anchor.lat, anchor.lon, track, dist);
+      setPos(extrap);
+    }, 1000);
+
+    return ()=>{
+      navigator.geolocation.clearWatch(wid);
+      clearInterval(poll);
+      clearInterval(dr);
+    };
   },[]);
 
   const registerOrientation = useCallback(()=>{
@@ -2406,7 +2453,9 @@ export default function App() {
       // Circular EMA: operate on shortest-arc delta to avoid 0°↔360° discontinuity
       if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
       else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
-      setHeading(Math.round(smoothHdg*10)/10);
+      const hdgVal = Math.round(smoothHdg*10)/10;
+      setHeading(hdgVal);
+      drHeadingRef.current = hdgVal; // keep DR closure current
       if(beta!=null){
         const raw=Math.max(-60,Math.min(90,beta-90));
         // EMA (heavier smoothing) — seed on first reading, no snap-from-0
