@@ -2480,47 +2480,72 @@ export default function App() {
       return {lat: la2/D2R, lon: lo2/D2R};
     };
 
-    // Speed-adaptive EMA: heavy smoothing at low speed (kills GPS noise jitter),
-    // near-direct at flight speed (stays accurate and responsive).
-    // alpha = 0.25 at 0 m/s → 0.9 at 50 m/s
+    // Rough distance in metres between two lat/lon points (equirectangular, fast)
+    const roughM = (la1,lo1,la2,lo2) => {
+      const dy=(la2-la1)*111320;
+      const dx=(lo2-lo1)*111320*Math.cos(la1*D2R);
+      return Math.sqrt(dx*dx+dy*dy);
+    };
+
+    // Speed-adaptive EMA: lower alpha = heavier smoothing = less jitter
+    // 0 m/s → alpha 0.08 (very sluggish, kills noise)
+    // 50 m/s → alpha 0.85 (responsive in flight)
     const applyEMA = (lat, lon, speedMs) => {
-      const alpha = Math.min(0.9, Math.max(0.25, speedMs / 55));
+      const alpha = Math.min(0.85, Math.max(0.08, speedMs / 60));
       if(!posEMA.current) {
-        posEMA.current = {lat, lon};          // first fix — initialise directly
+        posEMA.current = {lat, lon};    // first fix — initialise directly
         setPos({lat, lon});
         return;
       }
       posEMA.current = {
-        lat: posEMA.current.lat + alpha * (lat - posEMA.current.lat),
-        lon: posEMA.current.lon + alpha * (lon - posEMA.current.lon),
+        lat: posEMA.current.lat + alpha*(lat - posEMA.current.lat),
+        lon: posEMA.current.lon + alpha*(lon - posEMA.current.lon),
       };
       setPos({...posEMA.current});
     };
 
-    // Called on every real GPS fix — update anchor + velocity, then smooth
+    // Called on every real GPS fix — filter bad fixes, update anchor, smooth
     const onFix = p => {
-      const {latitude:lat, longitude:lon, speed, heading:gpsHdg} = p.coords;
+      const {latitude:lat, longitude:lon, speed, heading:gpsHdg, accuracy} = p.coords;
       const speedMs  = (speed  != null && speed  >= 0) ? speed  : drVel.current.speedMs;
       const trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
+
+      // ── Accuracy gate (primary jitter fix) ──────────────────────
+      // GPS: 5–20 m accuracy. WiFi: 50–500 m. Cell: 500–2000 m.
+      // When stationary, reject anything worse than 100 m — this kills
+      // WiFi/cell fallback fixes that were causing 400–800 m position jumps.
+      // In flight WiFi is unavailable so GPS accuracy is always good.
+      if(speedMs < 5 && accuracy != null && accuracy > 100) return;
+
+      // ── Position jump gate (belt-and-suspenders) ─────────────────
+      // Reject any fix that jumps >250 m from current position while slow.
+      // Catches rare cases where accuracy field is wrong but position is bad.
+      if(speedMs < 5 && posEMA.current) {
+        const jump = roughM(posEMA.current.lat, posEMA.current.lon, lat, lon);
+        if(jump > 250) return;
+      }
+
       drVel.current    = {speedMs, trackDeg};
       drAnchor.current = {lat, lon, ts: Date.now()};
       applyEMA(lat, lon, speedMs);
     };
 
-    // One-shot first fix
+    // One-shot first fix — allow slightly stale so GPS (not WiFi) is used
     navigator.geolocation.getCurrentPosition(
-      onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:0}
+      onFix, ()=>{}, {enableHighAccuracy:true, timeout:12000, maximumAge:5000}
     );
-    // OS-driven watch
+    // OS-driven watch — primary continuous source
     const wid = navigator.geolocation.watchPosition(
-      onFix, ()=>{}, {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+      onFix, ()=>{}, {enableHighAccuracy:true, timeout:20000, maximumAge:10000}
     );
-    // Supplemental 10s poll — bypasses Safari throttling
+    // Supplemental 15s poll — bypasses Safari throttling in flight.
+    // maximumAge:20000 means "use a 20s-old GPS fix rather than fall back
+    // to WiFi", preventing the WiFi-fallback jumps at the cost of slight staleness.
     const poll = setInterval(()=>{
       navigator.geolocation.getCurrentPosition(
-        onFix, ()=>{}, {enableHighAccuracy:true, timeout:8000, maximumAge:0}
+        onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:20000}
       );
-    }, 10000);
+    }, 15000);
 
     // 1 Hz dead-reckoning extrapolation between GPS fixes.
     // Threshold raised to 5 m/s — GPS noise on a stationary device can report
