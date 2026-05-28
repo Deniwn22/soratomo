@@ -2545,11 +2545,16 @@ export default function App() {
 
       // Accuracy gate — GPS: 5–20 m; WiFi: 50–500 m; Cell: 500–2000 m.
       // Stationary: reject anything >100 m accuracy (WiFi/cell fallback).
-      if(speedMs < 12 && accuracy != null && accuracy > 80) return; // tighter gate — GPS <20m, WiFi >50m
+      // Accuracy gate — unconditional: WiFi/cell fallback reports 50–2000 m accuracy;
+      // real GPS is 5–20 m. Reject anything >150 m regardless of reported speed —
+      // GPS noise CAN report high phantom speed, bypassing the old speed-gated check.
+      if(accuracy != null && accuracy > 150) return;
 
-      // Jump gate — reject >250 m jumps while slow (misreported accuracy)
-      if(speedMs < 12 && posEMA.current &&
-         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > 150) return;
+      // Jump gate — speed-proportional: allows for genuine fast movement
+      // but still catches single bad fixes that slip through the accuracy gate
+      const jumpLimit = Math.max(150, speedMs * 25);
+      if(posEMA.current &&
+         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > jumpLimit) return;
 
       drVel.current    = {speedMs, trackDeg};
       drAnchor.current = {lat, lon, ts: Date.now()};
@@ -3125,13 +3130,20 @@ export default function App() {
       return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
     });
     // ── Uncertainty bubble radius (vw units) ──
-    // Sources: ADS-B position age, user DR age, compass error (~2°), AR pointing floor
-    const compassUncertM  = dist * Math.sin(2 * D2R);     // ~2° compass error
+    // Icon is already at the DR position. Bubble = residual error AROUND that estimate.
+    //   drErrM      : error IN the DR (not the DR distance itself).
+    //                 ~12% of extraM covers heading/speed uncertainty + turns.
+    //                 +30 m covers ADS-B GPS accuracy floor.
+    //   userUncertM : how far our own position may be off (user speed × DR age).
+    //   compassUncertM : ~2° phone compass error projected at aircraft distance.
+    // Old approach used full extraM — ~10× too conservative (modelled offset as error).
+    const compassUncertM  = dist * Math.sin(2 * D2R);
     const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, 30) : 0;
     const userUncertM     = drVel.current.speedMs * drAgeSec2;
-    const totalUncertM    = Math.sqrt(extraM**2 + userUncertM**2 + compassUncertM**2);
+    const drErrM          = extraM * 0.12 + 30;
+    const totalUncertM    = Math.sqrt(drErrM**2 + userUncertM**2 + compassUncertM**2);
     const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
-    // Floor: 3° of arc = minimum AR pointing + display uncertainty (always visible bubble)
+    // Floor: 3° = minimum AR pointing + display uncertainty (ensures visible bubble)
     const uncertRadiusVw  = Math.max(9, Math.min(28, (Math.max(angUncertDeg, 3)/activeFov)*50));
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw};
   }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
