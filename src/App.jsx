@@ -1438,8 +1438,8 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 // ── Toast notifications ────────────────────────────────────────
 function Toasts({ items }) {
   return (
-    <div style={{position:'absolute',bottom:52,left:10,zIndex:45,
-      display:'flex',flexDirection:'column-reverse',gap:6,pointerEvents:'none',maxWidth:185}}>
+    <div style={{position:'absolute',bottom:28,right:88,zIndex:45,
+      display:'flex',flexDirection:'column-reverse',gap:6,pointerEvents:'none',maxWidth:175}}>
       {items.map(n=>(
         <div key={n.nid} style={{
           background:'rgba(2,10,30,0.96)',
