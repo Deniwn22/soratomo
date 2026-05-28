@@ -3524,7 +3524,7 @@ export default function App() {
                   border:'1.5px solid #010a18'}}>{Math.min(logbook.reduce((s,e)=>s+(e.tails?.length||1),0),99)}</div>}
               </button>
             </div>
-            <div style={{fontSize:11,color:'#5a8898',fontFamily:"'Orbitron',monospace"}}>{mapped.length} IN VIEW</div>
+
           </div>
         </div>
       </div>
@@ -3651,16 +3651,6 @@ export default function App() {
           isDisplayNew={displayNewIds.has(f.id)}/>
       ))}
 
-      {/* Altitude legend */}
-      {/* Range ring dial */}
-      <div style={{position:'absolute',right:12,bottom:155,zIndex:10,
-        background:'rgba(1,8,22,0.78)',borderRadius:'50%',
-        border:'0.5px solid rgba(77,184,255,0.12)',
-        boxShadow:'0 0 12px rgba(0,0,0,0.5)'}}>
-        <RingRangeControl value={maxDisplayNmi} min={10} max={DIST_MAX}
-          onChange={setMaxDisplayNmi}/>
-      </div>
-
       <div style={{position:'absolute',left:10,bottom:155,zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
         border:'0.5px solid rgba(77,184,255,.12)'}}>
@@ -3698,16 +3688,25 @@ export default function App() {
         padding:'18px 16px 8px'}}>
         <CompassStrip heading={viewHdg}/>
         <div style={{display:'flex',justifyContent:'space-between',padding:'8px 6px 4px'}}>
-          {[
-            ['HEADING',(Math.round(heading)%360).toString().padStart(3,'0')+'\u00b0'],
-            ['IN VIEW',String(mapped.length)],
-            [tiltMode?'AIM ELEV':'MAX RANGE', tiltMode?Math.round(devicePitch)+'\u00b0':maxRange+' nmi'],
-          ].map(([lbl,val])=>(
-            <div key={lbl} style={{textAlign:'center'}}>
-              <div style={{fontSize:9,color:'#4a7888',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:3}}>{lbl}</div>
-              <div style={{fontSize:13,color:'#8ac4e0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{val}</div>
-            </div>
-          ))}
+          <div style={{display:'flex',gap:24,alignItems:'center'}}>
+            {[
+              ['HEADING',(Math.round(heading)%360).toString().padStart(3,'0')+'\u00b0'],
+              ['IN VIEW',String(mapped.length)],
+            ].map(([lbl,val])=>(
+              <div key={lbl} style={{textAlign:'center'}}>
+                <div style={{fontSize:9,color:'#4a7888',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:13,color:'#8ac4e0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{val}</div>
+              </div>
+            ))}
+          </div>
+          {/* Range ring — bottom right, replaces AIM ELEV text */}
+          <div style={{position:'absolute',right:8,bottom:28,zIndex:11,
+            background:'rgba(1,8,22,0.78)',borderRadius:'50%',
+            border:'0.5px solid rgba(77,184,255,0.12)',
+            boxShadow:'0 0 10px rgba(0,0,0,0.5)'}}>
+            <RingRangeControl value={maxDisplayNmi} min={10} max={DIST_MAX}
+              onChange={setMaxDisplayNmi}/>
+          </div>
         </div>
         <div style={{textAlign:'center',fontSize:9,color:'rgba(77,184,255,.3)',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',marginTop:2}}>
           {tiltMode?'TILT PHONE TO AIM · TAP AIRCRAFT FOR DETAILS':'DRAG TO SCAN · TAP AIRCRAFT FOR DETAILS'}
