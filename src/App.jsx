@@ -1930,30 +1930,118 @@ function LbTimeline({data}){
   );
 }
 
-function LbMap({data,onSelect,selected}){
-  const [LAT_MIN,LAT_MAX,LON_MIN,LON_MAX]=[15,72,-175,-52];
-  const W=360,H=220;
-  const proj=(lat,lon)=>({
-    x:((lon-LON_MIN)/(LON_MAX-LON_MIN))*W,
-    y:((LAT_MAX-lat)/(LAT_MAX-LAT_MIN))*H,
-  });
-  const pts=React.useMemo(()=>
-    data.filter(t=>t.lat&&t.lon&&t.lat>=LAT_MIN&&t.lat<=LAT_MAX&&t.lon>=LON_MIN&&t.lon<=LON_MAX)
-  ,[data]);
+function LbMap({data, onSelect, selected, pos}){
+  const mapDivRef    = React.useRef(null);
+  const leafletRef   = React.useRef(null);   // L instance
+  const mapObjRef    = React.useRef(null);   // Leaflet map
+  const markerRefs   = React.useRef([]);     // [{marker, t}]
+  const userMarkerRef= React.useRef(null);
+  const [ready, setReady] = React.useState(!!window.L);
+
+  // ── Load Leaflet from CDN once ───────────────────────────────────
+  React.useEffect(()=>{
+    if(window.L){ setReady(true); return; }
+    if(!document.getElementById('lf-css')){
+      const lk=document.createElement('link');
+      lk.id='lf-css'; lk.rel='stylesheet';
+      lk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(lk);
+    }
+    const sc=document.createElement('script');
+    sc.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    sc.onload=()=>{ leafletRef.current=window.L; setReady(true); };
+    document.head.appendChild(sc);
+  },[]);
+
+  // ── Initialise map after Leaflet is ready ────────────────────────
+  React.useEffect(()=>{
+    if(!ready||!mapDivRef.current||mapObjRef.current) return;
+    const L=window.L;
+    const lat=pos?.lat||38.9, lon=pos?.lon||(-77.0);
+    const map=L.map(mapDivRef.current,{
+      center:[lat,lon], zoom:8,
+      zoomControl:false,
+      attributionControl:false,
+    });
+    // CartoDB dark tiles — free, no key
+    L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {subdomains:'abcd', maxZoom:18}
+    ).addTo(map);
+    // Small attribution tucked away
+    L.control.attribution({position:'bottomleft',prefix:false})
+      .addAttribution('&copy; OSM &amp; CARTO').addTo(map);
+    mapObjRef.current=map;
+    return ()=>{ map.remove(); mapObjRef.current=null; };
+  },[ready]);
+
+  // ── Update aircraft markers when data changes ────────────────────
+  React.useEffect(()=>{
+    if(!mapObjRef.current||!window.L) return;
+    const L=window.L, map=mapObjRef.current;
+    markerRefs.current.forEach(({marker})=>marker.remove());
+    markerRefs.current=[];
+    data.filter(t=>t.lat&&t.lon).forEach(t=>{
+      const col=LB_CAT_COL[t.cat]||'#4db8ff';
+      const m=L.circleMarker([t.lat,t.lon],{
+        radius:6, fillColor:col, fillOpacity:.82,
+        color:'#010a1c', weight:1,
+      }).addTo(map);
+      m.on('click',()=>onSelect(t));
+      markerRefs.current.push({marker:m,t});
+    });
+  },[data, ready]);
+
+  // ── Highlight selected marker ────────────────────────────────────
+  React.useEffect(()=>{
+    markerRefs.current.forEach(({marker,t})=>{
+      const isSel=selected&&selected.cs===t.cs&&selected.timestamp===t.timestamp;
+      const col=LB_CAT_COL[t.cat]||'#4db8ff';
+      marker.setStyle({
+        radius: isSel?9:6,
+        fillColor:col, fillOpacity:isSel?1:.82,
+        color:isSel?'#ffffff':'#010a1c', weight:isSel?2:1,
+      });
+    });
+  },[selected]);
+
+  // ── User position dot ────────────────────────────────────────────
+  React.useEffect(()=>{
+    if(!mapObjRef.current||!window.L||!pos) return;
+    const L=window.L, map=mapObjRef.current;
+    if(userMarkerRef.current) userMarkerRef.current.remove();
+    userMarkerRef.current=L.circleMarker([pos.lat,pos.lon],{
+      radius:7, fillColor:'#4db8ff', fillOpacity:.9,
+      color:'#fff', weight:2,
+    }).addTo(map);
+  },[pos?.lat, pos?.lon, ready]);
+
+  const recenter=()=>{
+    if(mapObjRef.current&&pos)
+      mapObjRef.current.setView([pos.lat,pos.lon], 8, {animate:true});
+  };
+
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',background:'#020c1e',borderRadius:8,overflow:'hidden'}}>
-      {[20,30,40,50,60].map(lat=>{const {y}=proj(lat,LON_MIN);return <line key={lat} x1={0} y1={y} x2={W} y2={y} stroke="rgba(77,184,255,0.07)" strokeWidth=".75"/>;}) }
-      {[-160,-140,-120,-100,-80,-60].map(lon=>{const {x}=proj(LAT_MIN,lon);return <line key={lon} x1={x} y1={0} x2={x} y2={H} stroke="rgba(77,184,255,0.07)" strokeWidth=".75"/>;}) }
-      {pts.map((t,i)=>{
-        const {x,y}=proj(t.lat,t.lon);
-        const col=LB_CAT_COL[t.cat]||'#4db8ff';
-        const isSel=selected&&selected.cs===t.cs&&selected.timestamp===t.timestamp;
-        return <circle key={i} cx={x} cy={y} r={isSel?6:4} fill={col}
-          opacity={isSel?1:.72} stroke={isSel?'#fff':'#020c1e'} strokeWidth={isSel?1.5:.8}
-          onClick={()=>onSelect(t)} style={{cursor:'pointer'}}/>;
-      })}
-      {!pts.length&&<text x={W/2} y={H/2} textAnchor="middle" fontSize="10" fill="#1e3d50" fontFamily="Orbitron,monospace">NO LOCATION DATA IN RANGE</text>}
-    </svg>
+    <div style={{position:'relative',borderRadius:8,overflow:'hidden',
+      border:'1px solid rgba(77,184,255,0.12)',marginBottom:6}}>
+      {!ready?(
+        <div style={{height:300,display:'flex',alignItems:'center',justifyContent:'center',
+          background:'#010a1c',color:'#2a5068',fontSize:9,fontFamily:"'Orbitron',monospace"}}>
+          LOADING MAP…
+        </div>
+      ):(
+        <div ref={mapDivRef} style={{height:300}}/>
+      )}
+      {/* Re-center button */}
+      {ready&&pos&&(
+        <button onClick={recenter} style={{
+          position:'absolute',top:8,right:8,zIndex:1000,
+          background:'rgba(2,10,28,0.85)',border:'1px solid rgba(77,184,255,0.3)',
+          borderRadius:6,color:'#4db8ff',padding:'5px 8px',cursor:'pointer',
+          fontSize:8,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
+        }}>⊕ MY LOC</button>
+      )}
+    </div>
   );
 }
 
@@ -1999,7 +2087,7 @@ function LbAircraftCard({tail,onClose}){
   );
 }
 
-function LogbookCharts({entries, distNmi}){
+function LogbookCharts({entries, distNmi, pos}){
   const [tab,setTab]=React.useState('types');
   const [mapSel,setMapSel]=React.useState(null);
 
@@ -2034,7 +2122,7 @@ function LogbookCharts({entries, distNmi}){
         {tab==='types'&&<LbBarChart data={filtered}/>}
         {tab==='timeline'&&<LbTimeline data={filtered}/>}
         {tab==='map'&&<>
-          <LbMap data={filtered} onSelect={t=>setMapSel(prev=>prev&&prev.cs===t.cs&&prev.timestamp===t.timestamp?null:t)} selected={mapSel}/>
+          <LbMap data={filtered} onSelect={t=>setMapSel(prev=>prev&&prev.cs===t.cs&&prev.timestamp===t.timestamp?null:t)} selected={mapSel} pos={pos}/>
           {mapSel&&<LbAircraftCard tail={mapSel} onClose={()=>setMapSel(null)}/>}
         </>}
       </div>
@@ -2042,7 +2130,7 @@ function LogbookCharts({entries, distNmi}){
   );
 }
 
-function Logbook({ entries, onClose, onClear }) {
+function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
   const [distNmi, setDistNmi] = useState(500);
   const maxDist = useMemo(()=>
@@ -2094,7 +2182,7 @@ function Logbook({ entries, onClose, onClear }) {
 
       {/* Single scrollable area: charts + type list */}
       <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'8px 12px 24px'}}>
-        {entries.length>0&&<LogbookCharts entries={entries} distNmi={distNmi}/>}
+        {entries.length>0&&<LogbookCharts entries={entries} distNmi={distNmi} pos={pos}/>}
         {/* Divider */}
         {entries.length>0&&<div style={{height:1,background:'rgba(77,184,255,0.08)',margin:'4px 0 8px'}}/>}
         <div style={{padding:'0'}}>
@@ -4071,7 +4159,7 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
-            {showLog&&<Logbook entries={logbook}
+            {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
               onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
                 activeEncounters.current.clear();lastLoggedTime.current.clear();}}/>}
