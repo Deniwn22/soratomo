@@ -1719,7 +1719,7 @@ async function shareAircraft(data){
         text:(()=>{
           const acName=typeFullName(data.type)||data.catLabel||'aircraft';
           const city=data.location||'my area';
-          return `Hey! I just spotted this cool ${acName} near ${city} using SoraTomo! :)`;
+          return `Hey! I just spotted an awesome ${acName} near ${city} using SoraTomo! :)`;
         })(),
       });
     } else {
@@ -1821,6 +1821,240 @@ const fmtTime = ts => {
 };
 
 // ── Logbook ────────────────────────────────────────────────────
+
+// ── Logbook Charts ────────────────────────────────────────────────
+const LB_CAT_COL={
+  narrow:'#4db8ff',wide:'#5598d0',super:'#2870c0',jumbo:'#1858b0',
+  regional:'#70d0ff',bizjet:'#90b8e8',
+  military:'#ff8c00',milTransport:'#e8a040',
+  helicopter:'#2dffb4',piston:'#c8eaf8',
+};
+const LB_CAT_LABEL={
+  narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',jumbo:'Jumbo',
+  regional:'Regional Jet',bizjet:'Business Jet',
+  military:'Military',milTransport:'Mil Transport',
+  helicopter:'Helicopter',piston:'Piston/GA',
+};
+
+function LbBarChart({data}){
+  const counts=React.useMemo(()=>{
+    const c={};
+    data.forEach(t=>{const k=t.cat||'unknown';c[k]=(c[k]||0)+1;});
+    return Object.entries(c)
+      .map(([k,v])=>({cat:k,count:v,label:LB_CAT_LABEL[k]||k}))
+      .sort((a,b)=>b.count-a.count);
+  },[data]);
+  if(!counts.length) return <div style={{textAlign:'center',padding:32,color:'#2a5068',fontSize:10,fontFamily:"'Orbitron',monospace"}}>NO DATA IN RANGE</div>;
+  const mx=Math.max(...counts.map(c=>c.count),1);
+  const W=340,H=220,PL=44,PB=72,PT=16,PR=10;
+  const cW=W-PL-PR,cH=H-PT-PB,bW=cW/counts.length;
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',overflow:'visible'}}>
+      {[0,.25,.5,.75,1].map(f=>{
+        const y=PT+cH*(1-f);
+        return <g key={f}>
+          <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(77,184,255,0.08)" strokeWidth="1"/>
+          <text x={PL-4} y={y+3} textAnchor="end" fontSize="8" fill="#3a6878" fontFamily="Orbitron,monospace">{Math.round(mx*f)}</text>
+        </g>;
+      })}
+      {counts.map((c,i)=>{
+        const bH=(c.count/mx)*cH,x=PL+i*bW+bW*.12,y=PT+cH-bH;
+        const col=LB_CAT_COL[c.cat]||'#4db8ff';
+        return <g key={c.cat}>
+          <rect x={x} y={y} width={bW*.76} height={bH} fill={col} rx="2" opacity=".85"/>
+          <text x={x+bW*.38} y={y-4} textAnchor="middle" fontSize="9" fill={col} fontFamily="Orbitron,monospace">{c.count}</text>
+          <text x={x+bW*.38} y={H-PB+14} textAnchor="middle" fontSize="8" fill="#4a7898" fontFamily="Orbitron,monospace"
+            transform={`rotate(-45,${x+bW*.38},${H-PB+14})`}>{c.label.slice(0,9)}</text>
+        </g>;
+      })}
+      <line x1={PL} y1={PT} x2={PL} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+      <line x1={PL} y1={PT+cH} x2={W-PR} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function LbTimeline({data}){
+  const {weeks,cats}=React.useMemo(()=>{
+    const g={};
+    data.forEach(t=>{
+      if(!t.timestamp) return;
+      const d=new Date(t.timestamp);
+      const mon=new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7));
+      const key=mon.toISOString().slice(0,10);
+      if(!g[key]) g[key]={};
+      const cat=t.cat||'unknown';
+      g[key][cat]=(g[key][cat]||0)+1;
+    });
+    const ws=Object.entries(g).sort(([a],[b])=>a.localeCompare(b))
+      .map(([k,v])=>({key:k,cats:v,total:Object.values(v).reduce((s,x)=>s+x,0)}));
+    const cs=[...new Set(data.map(t=>t.cat||'unknown'))];
+    return {weeks:ws,cats:cs};
+  },[data]);
+  if(!weeks.length) return <div style={{textAlign:'center',padding:32,color:'#2a5068',fontSize:10,fontFamily:"'Orbitron',monospace"}}>NO DATA IN RANGE</div>;
+  const mx=Math.max(...weeks.map(w=>w.total),1);
+  const W=360,H=210,PL=36,PB=56,PT=16,PR=10;
+  const cW=W-PL-PR,cH=H-PT-PB,bW=cW/weeks.length;
+  const step=Math.ceil(weeks.length/6);
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',overflow:'visible'}}>
+      {[0,.5,1].map(f=>{
+        const y=PT+cH*(1-f);
+        return <g key={f}>
+          <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(77,184,255,0.08)" strokeWidth="1"/>
+          <text x={PL-3} y={y+3} textAnchor="end" fontSize="8" fill="#3a6878" fontFamily="Orbitron,monospace">{Math.round(mx*f)}</text>
+        </g>;
+      })}
+      {weeks.map((w,i)=>{
+        const x=PL+i*bW+bW*.06; let yOff=0;
+        return <g key={w.key}>
+          {cats.map(cat=>{
+            const v=w.cats[cat]||0; if(!v) return null;
+            const bH=(v/mx)*cH; yOff+=bH;
+            return <rect key={cat} x={x} y={PT+cH-yOff} width={bW*.88} height={bH}
+              fill={LB_CAT_COL[cat]||'#4db8ff'} rx="1" opacity=".82"/>;
+          })}
+          {i%step===0&&<text x={x+bW*.44} y={H-PB+14} textAnchor="middle" fontSize="7" fill="#3a6878"
+            fontFamily="Orbitron,monospace" transform={`rotate(-45,${x+bW*.44},${H-PB+14})`}>{w.key.slice(5)}</text>}
+        </g>;
+      })}
+      {/* Legend */}
+      {cats.slice(0,5).map((cat,i)=>(
+        <g key={cat} transform={`translate(${PL+i*62},${H-8})`}>
+          <rect width="7" height="7" y="-7" fill={LB_CAT_COL[cat]||'#4db8ff'} rx="1"/>
+          <text x="10" y="-1" fontSize="7" fill="#3a6878" fontFamily="Orbitron,monospace">{(LB_CAT_LABEL[cat]||cat).slice(0,8)}</text>
+        </g>
+      ))}
+      <line x1={PL} y1={PT} x2={PL} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+      <line x1={PL} y1={PT+cH} x2={W-PR} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function LbMap({data,onSelect,selected}){
+  const [LAT_MIN,LAT_MAX,LON_MIN,LON_MAX]=[15,72,-175,-52];
+  const W=360,H=220;
+  const proj=(lat,lon)=>({
+    x:((lon-LON_MIN)/(LON_MAX-LON_MIN))*W,
+    y:((LAT_MAX-lat)/(LAT_MAX-LAT_MIN))*H,
+  });
+  const pts=React.useMemo(()=>
+    data.filter(t=>t.lat&&t.lon&&t.lat>=LAT_MIN&&t.lat<=LAT_MAX&&t.lon>=LON_MIN&&t.lon<=LON_MAX)
+  ,[data]);
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',background:'#020c1e',borderRadius:8,overflow:'hidden'}}>
+      {[20,30,40,50,60].map(lat=>{const {y}=proj(lat,LON_MIN);return <line key={lat} x1={0} y1={y} x2={W} y2={y} stroke="rgba(77,184,255,0.07)" strokeWidth=".75"/>;}) }
+      {[-160,-140,-120,-100,-80,-60].map(lon=>{const {x}=proj(LAT_MIN,lon);return <line key={lon} x1={x} y1={0} x2={x} y2={H} stroke="rgba(77,184,255,0.07)" strokeWidth=".75"/>;}) }
+      {pts.map((t,i)=>{
+        const {x,y}=proj(t.lat,t.lon);
+        const col=LB_CAT_COL[t.cat]||'#4db8ff';
+        const isSel=selected&&selected.cs===t.cs&&selected.timestamp===t.timestamp;
+        return <circle key={i} cx={x} cy={y} r={isSel?6:4} fill={col}
+          opacity={isSel?1:.72} stroke={isSel?'#fff':'#020c1e'} strokeWidth={isSel?1.5:.8}
+          onClick={()=>onSelect(t)} style={{cursor:'pointer'}}/>;
+      })}
+      {!pts.length&&<text x={W/2} y={H/2} textAnchor="middle" fontSize="10" fill="#1e3d50" fontFamily="Orbitron,monospace">NO LOCATION DATA IN RANGE</text>}
+    </svg>
+  );
+}
+
+function LbAircraftCard({tail,onClose}){
+  const cat=tail.cat||'unknown';
+  const col=LB_CAT_COL[cat]||'#4db8ff';
+  const stats=[
+    ['CLOSEST',`${tail.closestNmi||'?'} nmi`],
+    ['ALTITUDE',`${tail.alt?Number(tail.alt).toLocaleString()+' ft':'—'}`],
+    ['SPEED',`${tail.spd||'—'} kts`],
+    ['HEADING',`${tail.hdg!=null?String(tail.hdg).padStart(3,'0')+'°':'—'}`],
+    ['SPOTTED',(tail.city||'?').slice(0,14)],
+    ['DATE',tail.timestamp?new Date(tail.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'?'],
+  ];
+  return (
+    <div style={{marginTop:8,background:'rgba(2,10,30,0.98)',border:`1px solid ${col}38`,borderRadius:10,padding:'12px 14px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+        <div>
+          <div style={{fontSize:14,fontFamily:"'Orbitron',monospace",fontWeight:700,color:col}}>{tail.cs||tail.reg||'????'}</div>
+          <div style={{fontSize:9,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{tail.airline||''}{tail.airline&&tail.type?' · ':''}{tail.type||''}</div>
+        </div>
+        <button onClick={onClose} style={{background:'transparent',border:'none',color:'#3a6878',fontSize:18,cursor:'pointer',lineHeight:1}}>×</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,marginBottom:8}}>
+        {stats.map(([l,v])=>(
+          <div key={l} style={{background:'rgba(8,20,48,0.85)',borderRadius:5,padding:'5px 7px'}}>
+            <div style={{fontSize:7,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',marginBottom:2}}>{l}</div>
+            <div style={{fontSize:9,color:'#90c8e8',fontFamily:"'Orbitron',monospace",fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <button onClick={()=>shareAircraft({
+        cs:tail.cs||tail.reg,airline:tail.airline||'',type:tail.type,
+        catLabel:LB_CAT_LABEL[cat]||'Aircraft',
+        altFt:null,closestNmi:tail.closestNmi,logAltFt:tail.alt,
+        spdKts:tail.spd,hdgDeg:tail.hdg,location:tail.city,timestamp:tail.timestamp,
+      })} style={{width:'100%',padding:'7px 0',background:'transparent',borderRadius:6,cursor:'pointer',
+        border:`1px solid ${col}44`,color:col,fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+        display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+        <ShareIcon/> SHARE THIS AIRCRAFT
+      </button>
+    </div>
+  );
+}
+
+function LogbookCharts({entries}){
+  const [tab,setTab]=React.useState('types');
+  const [chartDist,setChartDist]=React.useState(25);
+  const [mapSel,setMapSel]=React.useState(null);
+
+  const allTails=React.useMemo(()=>entries.flatMap(e=>
+    e.tails.map(t=>({...t,type:e.type,cat:e.cat,airline:t.airline||e.airline||''}))
+  ),[entries]);
+
+  const maxDist=React.useMemo(()=>
+    Math.max(Math.ceil(Math.max(...allTails.map(t=>t.closestNmi||0),1)),25)
+  ,[allTails]);
+
+  const filtered=React.useMemo(()=>
+    allTails.filter(t=>(t.closestNmi||999)<=chartDist)
+  ,[allTails,chartDist]);
+
+  const distPct=(chartDist/maxDist)*100;
+  const TABS=[['types','TYPES'],['timeline','TIMELINE'],['map','MAP']];
+
+  return (
+    <div style={{background:'rgba(1,7,20,0.6)',borderRadius:10,margin:'6px 12px 10px',border:'1px solid rgba(77,184,255,0.1)'}}>
+      {/* Sub-tabs */}
+      <div style={{display:'flex',borderBottom:'1px solid rgba(77,184,255,0.1)'}}>
+        {TABS.map(([k,l])=>(
+          <div key={k} onClick={()=>{setTab(k);setMapSel(null);}} style={{
+            flex:1,textAlign:'center',padding:'7px 0',cursor:'pointer',
+            fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+            color:tab===k?'#4db8ff':'#3a6878',
+            borderBottom:`2px solid ${tab===k?'#4db8ff':'transparent'}`,
+          }}>{l}</div>
+        ))}
+      </div>
+      {/* Distance slider */}
+      <div style={{padding:'8px 12px 2px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>MAX DISTANCE</span>
+          <span style={{fontSize:9,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{chartDist} nmi · {filtered.length} enc.</span>
+        </div>
+        <input type="range" min={1} max={maxDist} step={1} value={chartDist}
+          onChange={e=>{setChartDist(+e.target.value);setMapSel(null);}}
+          style={{width:'100%',background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${distPct}%,#060e1e ${distPct}%,#060e1e 100%)`}}/>
+      </div>
+      {/* Chart content */}
+      <div style={{padding:'6px 10px 10px'}}>
+        {tab==='types'&&<LbBarChart data={filtered}/>}
+        {tab==='timeline'&&<LbTimeline data={filtered}/>}
+        {tab==='map'&&<>
+          <LbMap data={filtered} onSelect={t=>setMapSel(prev=>prev&&prev.cs===t.cs&&prev.timestamp===t.timestamp?null:t)} selected={mapSel}/>
+          {mapSel&&<LbAircraftCard tail={mapSel} onClose={()=>setMapSel(null)}/>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
 function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
   const fmt = fmtTime;
   // Filter by range: tails must have come within proximityNmi; hide type if no tails remain
@@ -1869,6 +2103,9 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
             cursor:'pointer',textDecoration:'underline',letterSpacing:'.06em',display:'inline-block'}}>CLEAR ALL</div>
         )}
       </div>
+
+      {/* Charts */}
+      {entries.length>0&&<LogbookCharts entries={entries}/>}
 
       {/* List — one row per aircraft type */}
       <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'6px 0'}}>
