@@ -3469,12 +3469,12 @@ export default function App() {
         }
       } catch(e) {}
 
-      // Fetch failed — show demo, alert user once per outage
-      setFlights([]);         // no demo aircraft — show real data or nothing
-      setApiStatus('demo');
+      // Fetch failed — clear flights, notify user once per outage
+      setFlights([]);
+      setApiStatus('limited');
       if(!demoAlerted.current){
         demoAlerted.current=true;
-        setRangeNote('⚠ NO LIVE DATA — showing demo aircraft');
+        setRangeNote('⚠ NO LIVE DATA — check connection or try again');
       }
       schedule(INTERVAL);
     };
@@ -3762,7 +3762,7 @@ export default function App() {
   useEffect(()=>{
     if(!rangeNote) return;
     // Demo alerts stay longer so the user definitely sees them
-    const ms = rangeNote.includes('demo') ? 8000 : 3000;
+    const ms = rangeNote.includes('NO LIVE DATA') ? 8000 : 3000;
     const t=setTimeout(()=>setRangeNote(null),ms);
     return ()=>clearTimeout(t);
   },[rangeNote]);
@@ -3996,10 +3996,10 @@ export default function App() {
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <div style={{width:6,height:6,borderRadius:'50%',
                   background:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
-                  animation:`pulse ${apiStatus==='demo'?'0.8s':'1.6s'} ease-in-out infinite`}}/>
+                  animation:`pulse ${apiStatus==='limited'?'0.8s':'1.6s'} ease-in-out infinite`}}/>
                 <span style={{
                   fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
-                  fontWeight:apiStatus==='demo'?700:400,
+                  fontWeight:apiStatus==='limited'?700:400,
                   color:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
                 }}>
                   {apiStatus==='live'?'LIVE':apiStatus==='limited'?'RATE LIMITED':'⚠ DEMO'}
