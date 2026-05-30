@@ -1999,30 +1999,24 @@ function LbAircraftCard({tail,onClose}){
   );
 }
 
-function LogbookCharts({entries}){
+function LogbookCharts({entries, distNmi}){
   const [tab,setTab]=React.useState('types');
-  const [chartDist,setChartDist]=React.useState(25);
   const [mapSel,setMapSel]=React.useState(null);
 
   const allTails=React.useMemo(()=>entries.flatMap(e=>
     e.tails.map(t=>({...t,type:e.type,cat:e.cat,airline:t.airline||e.airline||''}))
   ),[entries]);
 
-  const maxDist=React.useMemo(()=>
-    Math.max(Math.ceil(Math.max(...allTails.map(t=>t.closestNmi||0),1)),25)
-  ,[allTails]);
-
   const filtered=React.useMemo(()=>
-    allTails.filter(t=>(t.closestNmi||999)<=chartDist)
-  ,[allTails,chartDist]);
+    allTails.filter(t=>(t.closestNmi||999)<=distNmi)
+  ,[allTails,distNmi]);
 
-  const distPct=(chartDist/maxDist)*100;
   const TABS=[['types','TYPES'],['timeline','TIMELINE'],['map','MAP']];
 
   return (
-    <div style={{background:'rgba(1,7,20,0.6)',borderRadius:10,margin:'6px 12px 10px',border:'1px solid rgba(77,184,255,0.1)'}}>
+    <div style={{margin:'0 0 10px'}}>
       {/* Sub-tabs */}
-      <div style={{display:'flex',borderBottom:'1px solid rgba(77,184,255,0.1)'}}>
+      <div style={{display:'flex',borderBottom:'1px solid rgba(77,184,255,0.1)',marginBottom:4}}>
         {TABS.map(([k,l])=>(
           <div key={k} onClick={()=>{setTab(k);setMapSel(null);}} style={{
             flex:1,textAlign:'center',padding:'7px 0',cursor:'pointer',
@@ -2032,18 +2026,11 @@ function LogbookCharts({entries}){
           }}>{l}</div>
         ))}
       </div>
-      {/* Distance slider */}
-      <div style={{padding:'8px 12px 2px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-          <span style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>MAX DISTANCE</span>
-          <span style={{fontSize:9,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{chartDist} nmi · {filtered.length} enc.</span>
-        </div>
-        <input type="range" min={1} max={maxDist} step={1} value={chartDist}
-          onChange={e=>{setChartDist(+e.target.value);setMapSel(null);}}
-          style={{width:'100%',background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${distPct}%,#060e1e ${distPct}%,#060e1e 100%)`}}/>
+      <div style={{fontSize:8,color:'#2a5068',fontFamily:"'Orbitron',monospace",textAlign:'center',marginBottom:4}}>
+        {filtered.length} ENCOUNTER{filtered.length!==1?'S':''}
       </div>
       {/* Chart content */}
-      <div style={{padding:'6px 10px 10px'}}>
+      <div style={{padding:'0 2px'}}>
         {tab==='types'&&<LbBarChart data={filtered}/>}
         {tab==='timeline'&&<LbTimeline data={filtered}/>}
         {tab==='map'&&<>
@@ -2055,15 +2042,20 @@ function LogbookCharts({entries}){
   );
 }
 
-function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
+function Logbook({ entries, onClose, onClear }) {
   const fmt = fmtTime;
-  // Filter by range: tails must have come within proximityNmi; hide type if no tails remain
+  const [distNmi, setDistNmi] = useState(500);
+  const maxDist = useMemo(()=>
+    Math.max(Math.ceil(Math.max(...entries.flatMap(e=>e.tails.map(t=>t.closestNmi||0)),1)),25)
+  ,[entries]);
   const filtered=entries
-    .map(e=>({...e,tails:e.tails.filter(t=>t.closestNmi<=proximityNmi)}))
+    .map(e=>({...e,tails:e.tails.filter(t=>t.closestNmi<=distNmi)}))
     .filter(e=>e.tails.length>0);
   const totalTails=filtered.reduce((s,e)=>s+e.tails.length,0);
   const catLabel=c=>({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
-    'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military'}[c]||'Aircraft');
+    'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
+    'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[c]||'Aircraft');
+  const distPct=Math.min(100,(distNmi/maxDist)*100);
 
   return (
     <div onClick={e=>e.stopPropagation()} style={{
@@ -2084,19 +2076,15 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
           {filtered.length} TYPE{filtered.length!==1?'S':''} · {totalTails} TAIL{totalTails!==1?'S':''}
         </div>
         <div style={{marginBottom:6}}>
-          <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:5}}>LOG & FILTER WITHIN</div>
-          <div style={{display:'flex',gap:5}}>
-            {[5,10,25].map(n=>(
-              <div key={n} onClick={()=>onProxChange(n)} style={{
-                flex:1,textAlign:'center',padding:'5px 0',
-                background:proximityNmi===n?'rgba(77,184,255,0.18)':'transparent',
-                border:`1px solid ${proximityNmi===n?'#4db8ff':'rgba(77,184,255,0.2)'}`,
-                borderRadius:5,cursor:'pointer',
-                fontSize:11,color:proximityNmi===n?'#4db8ff':'#4a7888',
-                fontFamily:"'Orbitron',monospace",fontWeight:proximityNmi===n?600:400,
-              }}>{n} nmi</div>
-            ))}
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+            <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>FILTER WITHIN</span>
+            <span style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
+              {distNmi>=maxDist?'ALL':distNmi+' nmi'}
+            </span>
           </div>
+          <input type="range" min={1} max={maxDist} step={1} value={Math.min(distNmi,maxDist)}
+            onChange={e=>setDistNmi(+e.target.value)}
+            style={{width:'100%',background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${distPct}%,#060e1e ${distPct}%,#060e1e 100%)`}}/>
         </div>
         {entries.length>0&&(
           <div onClick={onClear} style={{fontSize:9,color:'#3a6878',fontFamily:"'Orbitron',monospace",
@@ -2104,17 +2092,18 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
         )}
       </div>
 
-      {/* Charts */}
-      {entries.length>0&&<LogbookCharts entries={entries}/>}
-
-      {/* List — one row per aircraft type */}
-      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'6px 0'}}>
+      {/* Single scrollable area: charts + type list */}
+      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'8px 12px 24px'}}>
+        {entries.length>0&&<LogbookCharts entries={entries} distNmi={distNmi}/>}
+        {/* Divider */}
+        {entries.length>0&&<div style={{height:1,background:'rgba(77,184,255,0.08)',margin:'4px 0 8px'}}/>}
+        <div style={{padding:'0'}}>
         {filtered.length===0?(
           <div style={{textAlign:'center',padding:'48px 20px',color:'#3a6878',
             fontSize:11,fontFamily:"'Orbitron',monospace",lineHeight:2,letterSpacing:'.08em'}}>
             {entries.length===0
               ?<>NO ENCOUNTERS YET<br/><span style={{fontSize:10,color:'#2a4a58'}}>FLY WITHIN THE LOG RADIUS<br/>TO LOG AN AIRCRAFT</span></>
-              :<>NO ENCOUNTERS WITHIN {proximityNmi} NMI<br/><span style={{fontSize:10,color:'#2a4a58'}}>TRY A LARGER RANGE ABOVE</span></>}
+              :<>NO ENCOUNTERS WITHIN {distNmi} NMI<br/><span style={{fontSize:10,color:'#2a4a58'}}>TRY A LARGER RANGE ABOVE</span></>}
           </div>
         ):filtered.map(e=>{
           const cat=e.cat||getAircraftCat(e.type!=='UNKN'?e.type:'');
@@ -2162,7 +2151,8 @@ function Logbook({ entries, proximityNmi, onProxChange, onClose, onClear }) {
             </div>
           );
         })}
-      </div>
+        </div>{/* end list */}
+      </div>{/* end scroll */}
     </div>
   );
 }
@@ -4081,8 +4071,7 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
-            {showLog&&<Logbook entries={logbook} proximityNmi={proximityNmi}
-              onProxChange={handleProxChange}
+            {showLog&&<Logbook entries={logbook}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
               onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
                 activeEncounters.current.clear();lastLoggedTime.current.clear();}}/>}
