@@ -1719,7 +1719,7 @@ async function shareAircraft(data){
         text:(()=>{
           const acName=typeFullName(data.type)||data.catLabel||'aircraft';
           const city=data.location||'my area';
-          return `Hey! I just spotted an awesome ${acName} near ${city} using SoraTomo! :)`;
+          return `Hey! I just spotted this cool ${acName} near ${city} using SoraTomo! :)`;
         })(),
       });
     } else {
