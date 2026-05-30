@@ -3262,7 +3262,12 @@ export default function App() {
     if(tiltMode){ setTiltMode(false); return; }
     const activate=()=>{ registerOrientation(); setTiltMode(true); };
     if(typeof window.DeviceOrientationEvent?.requestPermission==='function'){
-      window.DeviceOrientationEvent.requestPermission().then(p=>{ if(p==='granted') activate(); }).catch(()=>{});
+      window.DeviceOrientationEvent.requestPermission()
+        .then(p=>{
+          if(p==='granted') activate();
+          else setRangeNote('⚠ Motion sensor permission denied — tap AR again to retry');
+        })
+        .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
     } else { activate(); }
   };
 
@@ -3278,10 +3283,22 @@ export default function App() {
         setArFov(camFov); // start at calibrated FOV
         setTiltMode(true);
         setCameraMode(true);
-      }).catch(()=>{});
+      }).catch(err=>{
+        const msg={
+          NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
+          NotFoundError:  '⚠ No camera found on this device',
+          NotReadableError:'⚠ Camera is in use by another app',
+        }[err?.name]||'⚠ Camera unavailable';
+        setRangeNote(msg);
+      });
     };
     if(typeof window.DeviceOrientationEvent?.requestPermission==='function'){
-      window.DeviceOrientationEvent.requestPermission().then(p=>{ if(p==='granted') activateCam(); }).catch(()=>{});
+      window.DeviceOrientationEvent.requestPermission()
+        .then(p=>{
+          if(p==='granted') activateCam();
+          else setRangeNote('⚠ Motion sensor permission denied — tap Camera again to retry');
+        })
+        .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
     } else { activateCam(); }
   };
 
@@ -3762,7 +3779,7 @@ export default function App() {
   useEffect(()=>{
     if(!rangeNote) return;
     // Demo alerts stay longer so the user definitely sees them
-    const ms = rangeNote.includes('NO LIVE DATA') ? 8000 : 3000;
+    const ms = rangeNote.startsWith('⚠') ? 8000 : 3000;
     const t=setTimeout(()=>setRangeNote(null),ms);
     return ()=>clearTimeout(t);
   },[rangeNote]);
