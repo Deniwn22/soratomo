@@ -2087,7 +2087,7 @@ function LbAircraftCard({tail,onClose}){
   );
 }
 
-function LogbookCharts({entries, distNmi, pos}){
+function LogbookCharts({entries, filterNmi, pos}){
   const [tab,setTab]=React.useState('types');
   const [mapSel,setMapSel]=React.useState(null);
 
@@ -2096,8 +2096,9 @@ function LogbookCharts({entries, distNmi, pos}){
   ),[entries]);
 
   const filtered=React.useMemo(()=>
-    allTails.filter(t=>(t.closestNmi||999)<=distNmi)
-  ,[allTails,distNmi]);
+    // filterNmi = historical close-approach distance at time of logging (NOT current pos)
+  allTails.filter(t=>(t.closestNmi||999)<=filterNmi)
+  ,[allTails,filterNmi]);
 
   const TABS=[['types','TYPES'],['timeline','TIMELINE'],['map','MAP']];
 
@@ -2132,18 +2133,19 @@ function LogbookCharts({entries, distNmi, pos}){
 
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
-  const [distNmi, setDistNmi] = useState(500);
+  // filterNmi = max closestNmi (logged distance) to show — historical, NOT current distance
+  const [filterNmi, setFilterNmi] = useState(500);
   const maxDist = useMemo(()=>
     Math.max(Math.ceil(Math.max(...entries.flatMap(e=>e.tails.map(t=>t.closestNmi||0)),1)),25)
   ,[entries]);
   const filtered=entries
-    .map(e=>({...e,tails:e.tails.filter(t=>t.closestNmi<=distNmi)}))
+    .map(e=>({...e,tails:e.tails.filter(t=>t.closestNmi<=filterNmi)}))
     .filter(e=>e.tails.length>0);
   const totalTails=filtered.reduce((s,e)=>s+e.tails.length,0);
   const catLabel=c=>({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
     'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
     'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[c]||'Aircraft');
-  const distPct=Math.min(100,(distNmi/maxDist)*100);
+  const distPct=Math.min(100,(filterNmi/maxDist)*100);
 
   return (
     <div onClick={e=>e.stopPropagation()} style={{
@@ -2167,11 +2169,11 @@ function Logbook({ entries, pos, onClose, onClear }) {
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
             <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>FILTER WITHIN</span>
             <span style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
-              {distNmi>=maxDist?'ALL':distNmi+' nmi'}
+              {filterNmi>=maxDist?'ALL':filterNmi+' nmi'}
             </span>
           </div>
-          <input type="range" min={1} max={maxDist} step={1} value={Math.min(distNmi,maxDist)}
-            onChange={e=>setDistNmi(+e.target.value)}
+          <input type="range" min={1} max={maxDist} step={1} value={Math.min(filterNmi,maxDist)}
+            onChange={e=>setFilterNmi(+e.target.value)}
             style={{width:'100%',background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${distPct}%,#060e1e ${distPct}%,#060e1e 100%)`}}/>
         </div>
         {entries.length>0&&(
@@ -2182,7 +2184,7 @@ function Logbook({ entries, pos, onClose, onClear }) {
 
       {/* Single scrollable area: charts + type list */}
       <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'8px 12px 24px'}}>
-        {entries.length>0&&<LogbookCharts entries={entries} distNmi={distNmi} pos={pos}/>}
+        {entries.length>0&&<LogbookCharts entries={entries} filterNmi={filterNmi} pos={pos}/>}
         {/* Divider */}
         {entries.length>0&&<div style={{height:1,background:'rgba(77,184,255,0.08)',margin:'4px 0 8px'}}/>}
         <div style={{padding:'0'}}>
@@ -2191,7 +2193,7 @@ function Logbook({ entries, pos, onClose, onClear }) {
             fontSize:11,fontFamily:"'Orbitron',monospace",lineHeight:2,letterSpacing:'.08em'}}>
             {entries.length===0
               ?<>NO ENCOUNTERS YET<br/><span style={{fontSize:10,color:'#2a4a58'}}>FLY WITHIN THE LOG RADIUS<br/>TO LOG AN AIRCRAFT</span></>
-              :<>NO ENCOUNTERS WITHIN {distNmi} NMI<br/><span style={{fontSize:10,color:'#2a4a58'}}>TRY A LARGER RANGE ABOVE</span></>}
+              :<>NO ENCOUNTERS WITHIN {filterNmi} NMI<br/><span style={{fontSize:10,color:'#2a4a58'}}>TRY A LARGER RANGE ABOVE</span></>}
           </div>
         ):filtered.map(e=>{
           const cat=e.cat||getAircraftCat(e.type!=='UNKN'?e.type:'');
@@ -3019,6 +3021,10 @@ export default function App() {
   const [minSpeedKts, setMinSpeedKts] = useState(0);
   const [maxSpeedKts, setMaxSpeedKts] = useState(700);
   const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
+  // Ref so the ADS-B poll closure always reads the latest value
+  // without needing maxDisplayNmi in the effect deps (avoids poll restarts on slider drag)
+  const maxDisplayNmiRef=useRef(400);
+  useEffect(()=>{ maxDisplayNmiRef.current=maxDisplayNmi; },[maxDisplayNmi]);
   const [rangeNote,    setRangeNote]    = useState(null); // auto-range reduction notice
   const [showCoords,  setShowCoords]  = useState(false); // lat/lon toggle
 
@@ -3365,7 +3371,11 @@ export default function App() {
       timer = null;
       try {
         const r = await fetch(
-          `/adsb/v2/lat/${pos.lat}/lon/${pos.lon}/dist/200`
+          // fetchDist: match display range so the fetch covers what the user sees.
+          // Floor=25 nmi: logbook proximity tracking needs 25 nmi of data even when
+          // the display is zoomed in tight.  No artificial upper cap — the UI ring
+          // already limits maxDisplayNmi to DIST_MAX (400 nmi).
+          `/adsb/v2/lat/${pos.lat}/lon/${pos.lon}/dist/${Math.max(maxDisplayNmiRef.current,25)}`
         );
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
