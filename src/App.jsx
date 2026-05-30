@@ -2049,11 +2049,11 @@ function LbAircraftCard({tail,onClose}){
   const cat=tail.cat||'unknown';
   const col=LB_CAT_COL[cat]||'#4db8ff';
   const stats=[
-    ['CLOSEST',`${tail.closestNmi||'?'} nmi`],
+    ['DISTANCE',`${tail.closestNmi||'?'} nmi`],
     ['ALTITUDE',`${tail.alt?Number(tail.alt).toLocaleString()+' ft':'—'}`],
     ['SPEED',`${tail.spd||'—'} kts`],
     ['HEADING',`${tail.hdg!=null?String(tail.hdg).padStart(3,'0')+'°':'—'}`],
-    ['SPOTTED',(tail.city||'?').slice(0,14)],
+    ['YOU WERE IN',(tail.userCity||tail.city||'?').slice(0,14)],
     ['DATE',tail.timestamp?new Date(tail.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'?'],
   ];
   return (
@@ -2077,7 +2077,7 @@ function LbAircraftCard({tail,onClose}){
         cs:tail.cs||tail.reg,airline:tail.airline||'',type:tail.type,
         catLabel:LB_CAT_LABEL[cat]||'Aircraft',
         altFt:null,closestNmi:tail.closestNmi,logAltFt:tail.alt,
-        spdKts:tail.spd,hdgDeg:tail.hdg,location:tail.city,timestamp:tail.timestamp,
+        spdKts:tail.spd,hdgDeg:tail.hdg,location:tail.userCity||tail.city,timestamp:tail.timestamp,
       })} style={{width:'100%',padding:'7px 0',background:'transparent',borderRadius:6,cursor:'pointer',
         border:`1px solid ${col}44`,color:col,fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
         display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
@@ -2232,6 +2232,9 @@ function Logbook({ entries, pos, onClose, onClear }) {
                   }}>
                     {t.reg||t.cs}
                     <span style={{color:'#2a4060',marginLeft:5}}>{t.closestNmi}nm</span>
+                    {(t.userCity||t.city)&&<div style={{fontSize:7,color:'#2a4050',marginTop:1,letterSpacing:'.02em'}}>
+                      📍 {(t.userCity||t.city).slice(0,18)}
+                    </div>}
                     {t.timestamp&&<div style={{fontSize:7,color:'#2a4a5a',marginTop:1,letterSpacing:'.02em'}}>{fmtTime(t.timestamp)}</div>}
                   </div>
                 ))}
@@ -2723,7 +2726,7 @@ function Stats({ entries, onClose }) {
               {/* Stats grid */}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,marginBottom:4}}>
                 {[
-                  ['CLOSEST',  t.closestNmi+' nmi'],
+                  ['DISTANCE', t.closestNmi+' nmi'],
                   ['ALTITUDE', (t.alt||0).toLocaleString()+' ft'],
                   ['SPEED',    (t.spd||0)+' kts'],
                   ['HEADING',  (t.hdg!=null?t.hdg.toString().padStart(3,'0'):'---')+'°'],
@@ -2736,11 +2739,11 @@ function Stats({ entries, onClose }) {
                   </div>
                 ))}
               </div>
-              {/* Location */}
+              {/* User location at time of logging */}
               <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.04em'}}>
-                📍 {t.city||'Unknown'}
-                {t.lat&&t.lon&&<span style={{color:'#2a4050',marginLeft:6}}>
-                  {t.lat.toFixed(2)}° {t.lon.toFixed(2)}°
+                📍 {t.userCity||t.city||'Unknown'}
+                {t.userLat&&t.userLon&&<span style={{color:'#2a4050',marginLeft:6}}>
+                  {t.userLat.toFixed(2)}° {t.userLon.toFixed(2)}°
                 </span>}
               </div>
               {/* Share button */}
@@ -3515,13 +3518,19 @@ export default function App() {
         const tailEntry={
           key:tailKey, reg:f.reg||'', cs:f.cs,
           airline:f.airline||f.cs.slice(0,3),
+          // Aircraft position + city
           city:nearestCity(f.lat,f.lon),
+          lat:parseFloat(f.lat.toFixed(4)),
+          lon:parseFloat(f.lon.toFixed(4)),
+          // User position at time of logging
+          userLat:parseFloat(pos.lat.toFixed(4)),
+          userLon:parseFloat(pos.lon.toFixed(4)),
+          userCity:nearestCity(pos.lat,pos.lon),
+          // Distance from user to aircraft at logging
           closestNmi:parseFloat(distNmi(dist)),
           alt:Math.round(f.alt*3.28084/100)*100,
           hdg:Math.round(f.hdg),
           spd:Math.round(msToKts(f.spd)),
-          lat:parseFloat(f.lat.toFixed(4)),
-          lon:parseFloat(f.lon.toFixed(4)),
           isNew, timestamp:Date.now(),
         };
         activeEncounters.current.set(tailKey,{minDist:dist,typeKey});
