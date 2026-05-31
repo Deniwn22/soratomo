@@ -2923,10 +2923,12 @@ function Logbook({ entries, pos, onClose, onClear }) {
                   </div>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
-                  <div style={{fontSize:11,color:'#6a98b8',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
-                    {e.closestNmi} nmi</div>
-                  <div style={{fontSize:8,color:'#2a4a58',fontFamily:"'Orbitron',monospace",marginTop:2}}>
-                    {fmt(e.lastSeen)}</div>
+                  {e.tails.length>1&&<>
+                    <div style={{fontSize:11,color:'#6a98b8',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
+                      {e.closestNmi} nmi</div>
+                    <div style={{fontSize:8,color:'#2a4a58',fontFamily:"'Orbitron',monospace",marginTop:2}}>
+                      {fmt(e.lastSeen)}</div>
+                  </>}
                 </div>
               </div>
               {/* Tail entries — full-width rows, easy to tap */}
