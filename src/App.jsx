@@ -1301,7 +1301,8 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   // Red ring: first-ever sighting of this ICAO type (takes priority over green/amber)
   const isNewType  = isNearby && f.type && f.type!=='UNKN' && !(loggedTypes||new Set()).has(f.type);
 
-  // Ring priority: red (new type) > green (new tail) > amber (seen tail) > altitude color
+  // Ring = encounter newness: red (new type) > teal (new tail) > amber (seen before)
+  // Dot  = AR accuracy: green (HIGH) > yellow (MED) > orange (LOW)  — tilt mode only
   const ringColor  = isNearby
     ? (isNewType ? '#ff3b3b' : (isNewAc ? '#2dffb4' : '#ffb84d'))
     : (isNewAc ? '#2dffb455' : color);
@@ -1378,15 +1379,19 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
           }}>
           <PlaneShape cat={cat} color={color} fc={wingFC}/>
         </svg>
-        {/* NEW dot: anchored to SVG top-right corner, always outside the icon */}
-        {isNewAc && (
-          <div style={{
-            position:'absolute',top:-4,right:-4,
-            width:10,height:10,borderRadius:'50%',
-            background:'#2dffb4',border:'2px solid #010a18',
-            pointerEvents:'none',
-          }}/>
-        )}
+        {/* Accuracy dot — green=HIGH, yellow=MED, orange=LOW confidence (tilt mode only) */}
+        {tiltMode && f.confidence && (()=>{
+          const dc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
+          return (
+            <div style={{
+              position:'absolute',top:-4,right:-4,
+              width:10,height:10,borderRadius:'50%',
+              background:dc,border:'2px solid #010a18',
+              boxShadow:`0 0 5px ${dc}99`,
+              pointerEvents:'none',
+            }}/>
+          );
+        })()}
       </div>
 
       {/* Callsign label */}
@@ -1398,19 +1403,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         background:'rgba(1,8,20,0.6)',padding:'1px 5px',borderRadius:3,pointerEvents:'none',
       }}>{f.cs}</div>
 
-      {/* Confidence label — tilt/camera mode, selected aircraft only */}
-      {isSelected && tiltMode && f.confidence && (()=>{
-        const cc={HIGH:'#2dffb4',MED:'#ffb84d',LOW:'#ff5555'}[f.confidence];
-        return (
-          <div style={{
-            position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
-            marginTop:20,fontSize:7,color:cc,
-            fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
-            whiteSpace:'nowrap',pointerEvents:'none',
-            textShadow:`0 0 6px ${cc}`,
-          }}>● {f.confidence}</div>
-        );
-      })()}
+
 
       {/* Proximity badge */}
       {isNearby && (
@@ -1436,6 +1429,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   if(prev.f.id!==next.f.id||prev.f.cs!==next.f.cs||prev.f.type!==next.f.type) return false;
   if(prev.f.alt!==next.f.alt||prev.f.hdg!==next.f.hdg||prev.f.spd!==next.f.spd) return false;
   if(prev.f.confidence!==next.f.confidence||prev.f.uncertRadiusVw!==next.f.uncertRadiusVw) return false;
+  if(prev.tiltMode!==next.tiltMode) return false;
   if(Math.abs(prev.f.x-next.f.x)>0.05||Math.abs(prev.f.y-next.f.y)>0.05) return false;
   if((prev.f.trail?.length??0)!==(next.f.trail?.length??0)) return false;
   return true; // equal — skip re-render
@@ -1795,7 +1789,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
       </div>
       {/* Confidence / accuracy indicator */}
       {f.confidence&&(()=>{
-        const cc={HIGH:'#2dffb4',MED:'#ffb84d',LOW:'#ff5555'}[f.confidence];
+        const cc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
         const desc={HIGH:'Position accurate · DR error < 150 m',MED:'Moderate uncertainty · DR error 150–600 m',LOW:'Low confidence · AR marker may be offset'}[f.confidence];
         return (
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
