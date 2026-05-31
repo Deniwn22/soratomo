@@ -2683,10 +2683,165 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
 }
 
 
+// ── Logbook Tail Detail — bottom-sheet shown when user taps a tail chip ──
+function LogbookTailDetail({ tail, entry, onClose }) {
+  const cat   = entry?.cat || tail?.cat || '';
+  const col   = LB_CAT_COL[cat] || '#4db8ff';
+  const catLbl= LB_CAT_LABEL[cat] || 'Aircraft';
+
+  if(!tail) return null;
+
+  const stats = [
+    ['ALTITUDE',  tail.alt  ? Number(tail.alt).toLocaleString()+' ft' : '—'],
+    ['SPEED',     tail.spd  ? tail.spd+' kts'                         : '—'],
+    ['HEADING',   tail.hdg!=null ? String(tail.hdg).padStart(3,'0')+'°': '—'],
+    ['DISTANCE',  tail.closestNmi ? tail.closestNmi+' nmi'            : '—'],
+  ];
+
+  return (
+    <div onClick={onClose} style={{
+      position:'absolute',inset:0,zIndex:70,
+      background:'rgba(0,5,15,0.55)',
+      display:'flex',alignItems:'flex-end',
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:'100%',
+        background:'rgba(3,11,30,0.98)',
+        border:`1px solid ${col}30`,
+        borderRadius:'14px 14px 0 0',
+        padding:'0 0 env(safe-area-inset-bottom,0)',
+        maxHeight:'82vh',
+        overflowY:'auto',
+        WebkitOverflowScrolling:'touch',
+      }}>
+        {/* Drag handle */}
+        <div style={{display:'flex',justifyContent:'center',padding:'10px 0 4px'}}>
+          <div style={{width:36,height:4,borderRadius:2,background:'rgba(77,184,255,0.2)'}}/>
+        </div>
+
+        <div style={{padding:'4px 18px 20px'}}>
+          {/* Header */}
+          <div style={{display:'flex',justifyContent:'space-between',
+            alignItems:'flex-start',marginBottom:12}}>
+            <div>
+              <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",
+                fontWeight:700,color:col,letterSpacing:'.1em',lineHeight:1.1}}>
+                {tail.cs||tail.reg||'????'}
+              </div>
+              {tail.reg&&tail.cs&&tail.reg!==tail.cs&&(
+                <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+                  marginTop:2}}>{tail.reg}</div>
+              )}
+              <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+                marginTop:3}}>
+                {tail.airline||entry?.airline||''}{(tail.airline||entry?.airline)&&entry?.type?' · ':''}
+                {entry?.type||''}
+              </div>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
+              <button onClick={onClose} style={{background:'transparent',border:'none',
+                color:'#3a6878',fontSize:20,cursor:'pointer',padding:'0 2px',lineHeight:1}}>×</button>
+              <div style={{fontSize:8,color:`${col}99`,fontFamily:"'Orbitron',monospace",
+                background:`${col}15`,border:`0.5px solid ${col}30`,
+                borderRadius:4,padding:'2px 7px',letterSpacing:'.08em'}}>
+                {catLbl.toUpperCase()}
+              </div>
+            </div>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10}}>
+            {stats.map(([lbl,val])=>(
+              <div key={lbl} style={{background:'rgba(8,20,48,0.8)',
+                borderRadius:7,padding:'8px 10px'}}>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
+                  fontWeight:600}}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Location block */}
+          <div style={{background:'rgba(8,20,48,0.6)',borderRadius:8,
+            padding:'10px 12px',marginBottom:10}}>
+            {(tail.userCity||tail.city)&&(
+              <div style={{marginBottom:6}}>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:2}}>YOU WERE IN</div>
+                <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",
+                  fontWeight:600}}>{(tail.userCity||tail.city).toUpperCase()}</div>
+                {tail.userLat!=null&&(
+                  <div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
+                    marginTop:1}}>{tail.userLat.toFixed(3)}° {tail.userLon.toFixed(3)}°</div>
+                )}
+              </div>
+            )}
+            {tail.city&&tail.userCity&&tail.city!==tail.userCity&&(
+              <div>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:2}}>AIRCRAFT OVER</div>
+                <div style={{fontSize:11,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>
+                  {tail.city.toUpperCase()}</div>
+                {tail.lat!=null&&(
+                  <div style={{fontSize:8,color:'#2a4a5a',fontFamily:"'Exo 2',sans-serif",
+                    marginTop:1}}>{tail.lat.toFixed(3)}° {tail.lon.toFixed(3)}°</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Timestamp */}
+          {tail.timestamp&&(
+            <div style={{fontSize:9,color:'#2a5068',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.06em',marginBottom:14,textAlign:'center'}}>
+              {new Date(tail.timestamp).toLocaleDateString('en-US',
+                {weekday:'short',year:'numeric',month:'short',day:'numeric'})}
+              {' · '}
+              {new Date(tail.timestamp).toLocaleTimeString('en-US',
+                {hour:'2-digit',minute:'2-digit'})}
+            </div>
+          )}
+
+          {/* Share button */}
+          <button
+            onClick={()=>shareAircraft({
+              cs: tail.cs||tail.reg,
+              airline: tail.airline||entry?.airline||'',
+              type: entry?.type||tail.type||'',
+              catLabel: catLbl,
+              altFt: null,
+              closestNmi: tail.closestNmi,
+              logAltFt: tail.alt,
+              spdKts: tail.spd,
+              hdgDeg: tail.hdg,
+              location: tail.userCity||tail.city,
+              timestamp: tail.timestamp,
+            })}
+            style={{
+              width:'100%',padding:'12px 0',
+              background:'transparent',
+              border:`1px solid ${col}50`,
+              borderRadius:10,cursor:'pointer',
+              color:col,fontSize:10,
+              fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',fontWeight:600,
+              display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+            }}>
+            <ShareIcon/> SHARE THIS AIRCRAFT
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
   // filterNmi = max closestNmi (logged distance) to show — historical, NOT current distance
   const [filterNmi, setFilterNmi] = useState(500);
+  const [selectedTail, setSelectedTail] = useState(null); // {tail, entry}
   const maxDist = useMemo(()=>
     Math.max(Math.ceil(Math.max(...entries.flatMap(e=>e.tails.map(t=>t.closestNmi||0)),1)),25)
   ,[entries]);
@@ -2776,13 +2931,16 @@ function Logbook({ entries, pos, onClose, onClear }) {
               {/* Tail chips */}
               <div style={{display:'flex',flexWrap:'wrap',gap:4,paddingLeft:36}}>
                 {e.tails.map(t=>(
-                  <div key={t.key} style={{
-                    padding:'2px 7px',borderRadius:3,
+                  <div key={t.key}
+                    onClick={()=>setSelectedTail({tail:t,entry:e})}
+                    style={{
+                    padding:'2px 7px',borderRadius:3,cursor:'pointer',
                     background:'rgba(77,184,255,0.05)',
                     border:`0.5px solid ${t.isNew?'rgba(45,255,180,0.3)':'rgba(77,184,255,0.15)'}`,
                     fontSize:9,fontFamily:"'Orbitron',monospace",
                     color:t.isNew?'#2dffb4':'#5a8898',
                     whiteSpace:'nowrap',
+                    transition:'background 0.15s',
                   }}>
                     {t.reg||t.cs}
                     <span style={{color:'#2a4060',marginLeft:5}}>{t.closestNmi}nm</span>
@@ -2798,6 +2956,13 @@ function Logbook({ entries, pos, onClose, onClear }) {
         })}
         </div>{/* end list */}
       </div>{/* end scroll */}
+
+      {/* Tail detail bottom sheet */}
+      <LogbookTailDetail
+        tail={selectedTail?.tail}
+        entry={selectedTail?.entry}
+        onClose={()=>setSelectedTail(null)}/>
+
     </div>
   );
 }
