@@ -1790,7 +1790,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
       {/* Confidence / accuracy indicator */}
       {f.confidence&&(()=>{
         const cc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
-        const desc={HIGH:'AR pointing accurate · < 2.5° angular error',MED:'Normal accuracy · 2.5–10° angular error',LOW:'Low confidence · stale data or compass drift'}[f.confidence];
+        const desc={HIGH:'AR pointing accurate · < 3° angular error',MED:'Normal accuracy · 3–8.5° angular error',LOW:'Low confidence · stale data or compass drift'}[f.confidence];
         return (
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
             background:`${cc}10`,border:`0.5px solid ${cc}35`,
@@ -4523,10 +4523,10 @@ export default function App() {
     // Confidence = angular pointing error in degrees — the right metric for AR.
     // totalUncertM at 10 nmi is ~650m but that's only 4° pointing error (usable).
     // The same 650m at 0.5 nmi would be 40° off (useless). Degrees captures this.
-    //   < 2.5° → HIGH  (well-calibrated compass, fresh data, or aircraft close)
-    //   2.5–10° → MED  (typical compass + some DR age — normal conditions)
-    //   > 10° → LOW  (stale DR on a fast aircraft, or significant compass error)
-    const confidence = angUncertDeg < 2.5 ? 'HIGH' : angUncertDeg < 10 ? 'MED' : 'LOW';
+    //   < 3°   → HIGH  (well-calibrated compass, fresh data, or aircraft close)
+    //   3–8.5° → MED   (typical compass + some DR age — normal conditions)
+    //   > 8.5° → LOW   (stale DR on a fast aircraft, or significant compass error)
+    const confidence = angUncertDeg < 3 ? 'HIGH' : angUncertDeg < 8.5 ? 'MED' : 'LOW';
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
   }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
 
