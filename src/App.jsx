@@ -26,13 +26,14 @@ const altColor = altM => {
   if(ft>10000) return '#2b9de0'; // blue:           low-mid 10k-18k ft
   return '#0ea5e9';              // bright cyan:    low altitude <10k ft
 };
-const ALT_MAX=45000, HFOV=85, VFOV=55;
+const ALT_MAX   = 45000;      // ft — altitude slider ceiling
+const HFOV      = 85;          // degrees — default horizontal AR FOV
+const VFOV      = 55;          // degrees — default vertical AR FOV
+const M_PER_NMI = 1852;        // metres per nautical mile (exact)
+const CAM_MAX_DIST_M = 30*1852;// 30 nmi — hide aircraft beyond this in camera mode
+const LOG_PROX_NMI   = 25;     // nmi — logbook proximity logging cap
+const DR_MAX_AGE_S   = 30;     // seconds — dead-reckoning projection limit
 
-const toScreen = (bear,elev,hdg,fov=HFOV) => {
-  let diff=((bear-hdg+540)%360)-180;
-  if(Math.abs(diff)>fov/2) return {on:false};
-  return {x:50+(diff/(fov/2))*50, y:58-Math.min(Math.max(elev,0)/35,1)*42, on:true};
-};
 const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
   let hDiff=((bear-dHdg+540)%360)-180;
   if(Math.abs(hDiff)>hfov/2) return {on:false};
@@ -421,25 +422,6 @@ const PlaneShape = ({cat, color, fc}) => {
 };
 
 
-const MOCK = [
-  {id:'AAL194', cs:'AAL194', airline:'American Airlines',  lat:39.52, lon:-76.18, alt:11200, spd:245, hdg:75,  type:'B738'},
-  {id:'UAL872', cs:'UAL872', airline:'United Airlines',    lat:40.08, lon:-77.92, alt:10700, spd:238, hdg:270, type:'B77W'},
-  {id:'DAL441', cs:'DAL441', airline:'Delta Air Lines',    lat:38.12, lon:-75.82, alt:9100,  spd:231, hdg:140, type:'A321'},
-  {id:'SWA2210',cs:'SWA2210',airline:'Southwest Airlines', lat:37.82, lon:-78.48, alt:7600,  spd:225, hdg:220, type:'B737'},
-  {id:'BAW266', cs:'BAW266', airline:'British Airways',    lat:39.88, lon:-75.41, alt:12100, spd:260, hdg:90,  type:'B789'},
-  {id:'DLH421', cs:'DLH421', airline:'Lufthansa',          lat:38.51, lon:-76.03, alt:11800, spd:255, hdg:350, type:'A350'},
-  {id:'FFT327', cs:'FFT327', airline:'Frontier Airlines',  lat:38.21, lon:-77.82, alt:8200,  spd:220, hdg:185, type:'A320'},
-  {id:'UAE210', cs:'UAE210', airline:'Emirates',           lat:40.28, lon:-76.81, alt:12800, spd:268, hdg:30,  type:'A388'},
-  {id:'AFR062', cs:'AFR062', airline:'Air France',         lat:39.62, lon:-78.61, alt:11500, spd:252, hdg:315, type:'B77W'},
-  {id:'SKW5522',cs:'SKW5522',airline:'SkyWest Airlines',   lat:37.52, lon:-77.21, alt:5800,  spd:195, hdg:160, type:'CRJ2'},
-  {id:'FDX1191',cs:'FDX1191',airline:'FedEx Express',      lat:38.72, lon:-79.12, alt:9800,  spd:242, hdg:265, type:'B763'},
-  {id:'JBU514', cs:'JBU514', airline:'JetBlue Airways',    lat:39.28, lon:-75.12, alt:10200, spd:235, hdg:95,  type:'A321'},
-  {id:'WJA331', cs:'WJA331', airline:'WestJet',            lat:40.52, lon:-77.38, alt:11000, spd:248, hdg:340, type:'B737'},
-  {id:'ASA621', cs:'ASA621', airline:'Alaska Airlines',    lat:38.28, lon:-75.52, alt:9400,  spd:233, hdg:120, type:'B738'},
-  // Military demo traffic (Dover AFB / Andrews area)
-  {id:'RCH291', cs:'RCH291', airline:'USAF',               lat:38.61, lon:-76.44, alt:7600,  spd:230, hdg:260, type:'C17'},
-  {id:'HAWK01', cs:'HAWK01', airline:'USAF',               lat:38.82, lon:-77.12, alt:4900,  spd:380, hdg:170, type:'F16'},
-];
 
 const CITIES = [
   {name:'New York',st:'NY',lat:40.7128,lon:-74.006},
@@ -1295,7 +1277,16 @@ const saveTypeCache=map=>{
   }catch{}
 };
 const loadGallery=()=>{try{return JSON.parse(localStorage.getItem(GAL_KEY)||'[]');}catch{return [];}};
-const saveGallery=g=>{try{localStorage.setItem(GAL_KEY,JSON.stringify(g));}catch{}};
+// Gallery already capped at 20 in-memory (see setGallery call).
+// saveGallery enforces same cap on disk so stale localStorage entries can't exceed it.
+// TODO: migrate photos to IndexedDB — localStorage quota (~5MB) is insufficient for many photos.
+const GAL_MAX=20;
+const saveGallery=g=>{
+  const capped=g.length>GAL_MAX?g.slice(0,GAL_MAX):g;
+  try{localStorage.setItem(GAL_KEY,JSON.stringify(capped));}catch(e){
+    console.warn('SoraTomo: gallery save failed (localStorage quota?)',e);
+  }
+};
 const loadLog   = () => {try{const r=JSON.parse(localStorage.getItem(LOG_KEY)||'[]');return r.filter(e=>Array.isArray(e.tails));}catch{return [];}};
 const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}catch{}};
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
@@ -1304,7 +1295,7 @@ const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PR
 const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
-  const dNmi       = f.dist/1852;
+  const dNmi       = f.dist/M_PER_NMI;
   const isNearby   = f.dist <= proximityM;
   const isNewAc    = !loggedCallsigns.has(f.cs);
   // Red ring: first-ever sighting of this ICAO type (takes priority over green/amber)
@@ -3423,7 +3414,7 @@ export default function App() {
           // Floor=25 nmi: logbook proximity tracking needs 25 nmi of data even when
           // the display is zoomed in tight.  No artificial upper cap — the UI ring
           // already limits maxDisplayNmi to DIST_MAX (400 nmi).
-          `/adsb/v2/lat/${pos.lat}/lon/${pos.lon}/dist/${Math.max(maxDisplayNmiRef.current,25)}`
+          `/adsb/v2/lat/${pos.lat}/lon/${pos.lon}/dist/${Math.max(maxDisplayNmiRef.current,LOG_PROX_NMI)}`
         );
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
@@ -3534,7 +3525,7 @@ export default function App() {
   // Proximity / logbook tracking — grouped by aircraft type
   useEffect(()=>{
     const COOLDOWN=4*60*60*1000;
-    const threshM=Math.min(proximityNmi,25)*1852; // hard cap: never log beyond 25 nmi
+    const threshM=Math.min(proximityNmi,LOG_PROX_NMI)*M_PER_NMI; // hard cap: never log beyond LOG_PROX_NMI
     const currentlyNear=new Set();
 
     flights.forEach(f=>{
@@ -3775,7 +3766,7 @@ export default function App() {
     //   compassUncertM : ~2° phone compass error projected at aircraft distance.
     // Old approach used full extraM — ~10× too conservative (modelled offset as error).
     const compassUncertM  = dist * Math.sin(2 * D2R);
-    const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, 30) : 0;
+    const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, DR_MAX_AGE_S) : 0;
     const userUncertM     = drVel.current.speedMs * drAgeSec2;
     const drErrM          = extraM * 0.12 + 30;
     const totalUncertM    = Math.sqrt(drErrM**2 + userUncertM**2 + compassUncertM**2);
@@ -3785,7 +3776,7 @@ export default function App() {
     // Confidence label — derived from total position error at time of render
     const confidence = totalUncertM < 150 ? 'HIGH' : totalUncertM < 600 ? 'MED' : 'LOW';
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
-  }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
+  }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
 
 
   // One-shot range reduction at sign-on — fires once if >80 aircraft load immediately.
@@ -3825,8 +3816,6 @@ export default function App() {
     prevMappedRef.current=new Set(mapped.map(f=>f.id));
   },[mapped]);
 
-  const maxRange=visibleFlights.length
-    ?Math.round(Math.max(...visibleFlights.map(f=>haversine(pos.lat,pos.lon,f.lat,f.lon)))/1852):0;
   const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   const horizonY=tiltMode?Math.max(5,Math.min(92,50+(devicePitch/(activeVFov/2))*50)):58;
