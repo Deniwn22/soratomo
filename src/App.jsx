@@ -2154,18 +2154,114 @@ function LogbookCharts({entries, filterNmi, pos}){
 }
 
 
+// ── Landmark fetch for AR calibration ─────────────────────────────
+// Queries OpenStreetMap Overpass API for named, visually-precise
+// landmarks within 5 nmi.  No API key required.
+// Falls back to airports-only if the query fails.
+const CALIB_RADIUS_M = 5 * 1852; // 5 nmi
+const LANDMARK_SCORE = {
+  // man_made
+  tower:10, lighthouse:10, mast:8, chimney:7, water_tower:7,
+  // historic
+  monument:9, castle:8, fort:8, memorial:7, ruins:5,
+  // building
+  cathedral:8, church:5, chapel:4, skyscraper:9, stadium:7,
+  // tourism
+  attraction:6, viewpoint:8, museum:5, gallery:4,
+  // amenity
+  place_of_worship:5,
+};
+
+async function fetchCalibLandmarks(lat, lon) {
+  const R = CALIB_RADIUS_M;
+  // Query precise point features — towers, spires, monuments, viewpoints.
+  // 'out body center' gives centre coordinates for way/relation elements.
+  const q = `[out:json][timeout:10];
+(
+  node["man_made"~"^(tower|lighthouse|water_tower|mast|chimney)$"](around:${R},${lat},${lon});
+  node["historic"~"^(monument|memorial|castle|fort|ruins)$"](around:${R},${lat},${lon});
+  node["tourism"~"^(attraction|viewpoint|museum)$"](around:${R},${lat},${lon});
+  node["building"~"^(cathedral|church|chapel|skyscraper)$"](around:${R},${lat},${lon});
+  node["amenity"="place_of_worship"]["name"](around:${R},${lat},${lon});
+  way["man_made"~"^(tower|lighthouse)$"](around:${R},${lat},${lon});
+  way["historic"~"^(monument|memorial|castle)$"](around:${R},${lat},${lon});
+  way["tourism"="attraction"]["name"](around:${R},${lat},${lon});
+  way["building"~"^(cathedral|skyscraper|stadium)$"]["name"](around:${R},${lat},${lon});
+);
+out body center;`;
+  try {
+    const resp = await fetch('https://overpass-api.de/api/interpreter',{
+      method:'POST', body:q,
+      signal: AbortSignal.timeout(12000),
+    });
+    if(!resp.ok) throw new Error('overpass '+resp.status);
+    const data = await resp.json();
+    const results = (data.elements||[])
+      .filter(e=>e.tags?.name)
+      .map(e=>{
+        const elat = e.lat ?? e.center?.lat;
+        const elon = e.lon ?? e.center?.lon;
+        if(!elat||!elon) return null;
+        const tags   = e.tags;
+        const kind   = tags.man_made||tags.historic||tags.building||tags.tourism||tags.amenity||'';
+        const score  = LANDMARK_SCORE[kind]||3;
+        const height = parseFloat(tags.height||tags['building:height']||'0')||0;
+        const name   = tags.name;
+        return {
+          name, kind, height,
+          lat:elat, lon:elon,
+          dist:  haversine(lat,lon,elat,elon)/M_PER_NMI,
+          bearing: getBearing(lat,lon,elat,elon),
+          score: score + Math.min(height/50, 3), // taller = better calibration target
+        };
+      })
+      .filter(Boolean)
+      .filter(lm=>lm.dist>=0.1&&lm.dist<=5) // ignore landmarks right on top of user
+      .sort((a,b)=>(b.score-a.score)||(a.dist-b.dist))
+      .slice(0,6); // keep top-6 so user can skip ones they can't see
+    if(results.length) return results;
+  } catch(err){
+    console.warn('Overpass calib query failed:',err?.message);
+  }
+  // ── Fallback: airports within 5 nmi ──────────────────────────────
+  return AIRPORTS
+    .map(a=>({
+      name:a.name, kind:'airport',
+      lat:a.lat, lon:a.lon,
+      dist: haversine(lat,lon,a.lat,a.lon)/M_PER_NMI,
+      bearing: getBearing(lat,lon,a.lat,a.lon),
+      score:6,
+    }))
+    .filter(lm=>lm.dist<=5)
+    .sort((a,b)=>a.dist-b.dist)
+    .slice(0,3);
+}
+
 // ── Landmark Calibration Overlay ──────────────────────────────────
 // The user taps known landmarks to calibrate the compass (hdgBias) and
 // optionally the camera FOV.  Math per tap:
 //   hdgBias = landmarkBearing - rawHeadingAtTap - (xPct-50)*fov/100
 // Two taps also solve for FOV:
 //   fov = 100 * (relBear1 - relBear2) / (x1 - x2)
-function CalibrationOverlay({ landmarks, headingRef, arFov, onComplete, onSkip }) {
-  const [step,   setStep]   = React.useState(0);
+function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComplete, onSkip }) {
+  const [step,   setStep]   = React.useState(0);  // index into allLandmarks
   const [taps,   setTaps]   = React.useState([]);
-  const [tapFx,  setTapFx]  = React.useState(null); // {x,y} screen-% for visual confirmation
+  const [tapFx,  setTapFx]  = React.useState(null);
 
-  const lm  = landmarks[step];
+  // loading state
+  if(loading) return (
+    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:10}}>
+      <div style={{background:'rgba(2,10,28,0.92)',border:'1px solid rgba(77,184,255,0.2)',borderRadius:12,padding:'18px 28px',textAlign:'center'}}>
+        <div style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',marginBottom:8}}>FINDING LANDMARKS…</div>
+        <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>Querying OpenStreetMap nearby</div>
+      </div>
+      <button onClick={onSkip} style={{background:'transparent',border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#4a7898',padding:'5px 14px',cursor:'pointer',fontSize:9,fontFamily:"'Orbitron',monospace"}}>SKIP</button>
+    </div>
+  );
+
+  if(!allLandmarks.length) return null;
+
+  const lm = allLandmarks[step];
   if(!lm) return null;
 
   // Hint arrow: how far off-center is the landmark based on CURRENT raw heading?
@@ -2186,7 +2282,7 @@ function CalibrationOverlay({ landmarks, headingRef, arFov, onComplete, onSkip }
     const newTap = { xPct, bearing: lm.bearing, rawHdg };
     const allTaps = [...taps, newTap];
 
-    if (allTaps.length >= 2 || step + 1 >= landmarks.length) {
+    if (allTaps.length >= 2 || step + 1 >= allLandmarks.length) {
       // ── Solve ────────────────────────────────────────────────────
       let newFov = arFov, newBias;
       if (allTaps.length >= 2) {
@@ -2212,7 +2308,13 @@ function CalibrationOverlay({ landmarks, headingRef, arFov, onComplete, onSkip }
     }
   };
 
-  const total = Math.min(landmarks.length, 2);
+  const skipLandmark = e => {
+    e.stopPropagation();
+    if(step + 1 < allLandmarks.length) setStep(s=>s+1);
+    else onSkip();
+  };
+
+  const total = Math.min(allLandmarks.length, 2);
   const CC = '#2dffb4';
 
   return (
@@ -2249,14 +2351,26 @@ function CalibrationOverlay({ landmarks, headingRef, arFov, onComplete, onSkip }
           ))}
         </div>
         {/* Landmark info */}
-        <div style={{fontSize:11,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:3}}>
-          {lm.name.toUpperCase()}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}}>
+          <div style={{fontSize:11,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",fontWeight:700,flex:1}}>
+            {lm.name.toUpperCase()}
+          </div>
+          {allLandmarks.length>taps.length+1&&(
+            <button onClick={skipLandmark} style={{
+              background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
+              borderRadius:5,color:'#3a6878',padding:'2px 8px',cursor:'pointer',
+              fontSize:8,fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
+              whiteSpace:'nowrap',marginLeft:8,flexShrink:0,
+            }}>CAN'T SEE IT →</button>
+          )}
         </div>
-        <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:10}}>
-          {lm.dist.toFixed(1)} nmi away · bearing {Math.round(lm.bearing)}°
+        <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:6}}>
+          {lm.kind?<span style={{color:'#3a7898',marginRight:6,textTransform:'capitalize'}}>{lm.kind}</span>:null}
+          {lm.dist.toFixed(1)} nmi · {Math.round(lm.bearing)}°
+          {lm.height>10?<span style={{color:'#2a5068',marginLeft:6}}>{Math.round(lm.height)}m tall</span>:null}
         </div>
         <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
-          Find <strong style={{color:CC}}>{lm.name}</strong> and tap exactly where you see it.
+          Find <strong style={{color:CC}}>{lm.name}</strong> and tap its tip or centre.
         </div>
       </div>
 
@@ -3189,6 +3303,7 @@ export default function App() {
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
   const [calibShow,   setCalibShow]   = useState(false);
   const [calibLandmarks, setCalibLandmarks] = useState([]);
+  // calibLandmarks.length===0 while fetch is in-flight → overlay shows loading spinner
   // ref so CalibrationOverlay always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
@@ -3469,23 +3584,13 @@ export default function App() {
         setArFov(camFov);
         setTiltMode(true);
         setCameraMode(true);
-        // Find landmarks within 5 nmi for calibration
-        const NMI5 = 5 * M_PER_NMI;
-        const nearby = [
-          ...CITIES.map(c=>({name:c.name,lat:c.lat,lon:c.lon})),
-          ...AIRPORTS.map(a=>({name:a.name,lat:a.lat,lon:a.lon})),
-        ]
-          .map(lm=>({...lm,
-            dist: haversine(pos.lat,pos.lon,lm.lat,lm.lon)/M_PER_NMI,
-            bearing: getBearing(pos.lat,pos.lon,lm.lat,lm.lon),
-          }))
-          .filter(lm=>lm.dist<=5)
-          .sort((a,b)=>a.dist-b.dist)
-          .slice(0,2);
-        if(nearby.length){
-          setCalibLandmarks(nearby);
-          setCalibShow(true);
-        }
+        // Fetch precise OSM landmarks for calibration (async, falls back to airports)
+        setCalibLandmarks([]);
+        setCalibShow(true);   // show loading state immediately
+        fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{
+          if(lms.length) setCalibLandmarks(lms);
+          else           setCalibShow(false); // nothing found, skip silently
+        });
       }).catch(err=>{
         const msg={
           NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
@@ -4050,7 +4155,8 @@ export default function App() {
       {/* Camera feed — behind everything */}
       {cameraMode&&calibShow&&(
         <CalibrationOverlay
-          landmarks={calibLandmarks}
+          allLandmarks={calibLandmarks}
+          loading={calibLandmarks.length===0}
           headingRef={headingRef}
           arFov={arFov}
           onSkip={()=>setCalibShow(false)}
