@@ -2156,16 +2156,25 @@ function LogbookCharts({entries, filterNmi, pos}){
 
 // ── Landmark fetch for AR calibration ─────────────────────────────
 // Queries OpenStreetMap Overpass for visually-precise, named landmarks
-// within 5 nmi.  Uses GET + URL-encoding (more compatible than POST).
-// Falls back to a second Overpass mirror, then to local airports.
+// within 5 nmi.  Uses POST form-encoding (avoids GET URL-length limits).
+// Scoring key insight: OSM `wikipedia`/`wikidata` tags are the best proxy
+// for "famous enough to be recognisable" — Washington Monument, Lincoln
+// Memorial, National Cathedral etc. all have them; random TV towers don't.
 const CALIB_RADIUS_M = 5 * 1852;
-const LANDMARK_SCORE = {
-  tower:10,lighthouse:10,mast:8,chimney:7,water_tower:7,
-  monument:9,castle:8,fort:8,memorial:7,ruins:5,
-  cathedral:8,church:5,chapel:4,skyscraper:9,stadium:7,
-  attraction:6,viewpoint:8,museum:5,gallery:4,
-  place_of_worship:5,
+const LANDMARK_TYPE_SCORE = {
+  // Visually distinctive monuments / structures
+  monument:10, memorial:9, castle:9, fort:8, ruins:5,
+  cathedral:9, church:5,  chapel:4,
+  lighthouse:9, tower:7,
+  viewpoint:8,  attraction:7, museum:6, gallery:4,
+  skyscraper:7, stadium:6,
+  place_of_worship:4,
+  // Generic infrastructure — recognisable only if famous (wiki bonus saves them)
+  mast:2, chimney:2, water_tower:3, communications_tower:2,
 };
+// Famous landmarks almost always have OSM wikipedia/wikidata tags.
+// This is the primary sort key — it puts DC monuments above cell towers.
+const wikiBonus = t => (t.wikipedia||t.wikidata) ? 8 : 0;
 
 async function overpassFetch(endpoint, query, timeoutMs) {
   // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController + setTimeout
@@ -2211,17 +2220,19 @@ async function fetchCalibLandmarks(lat, lon) {
         const t    = e.tags;
         const kind = t.man_made||t.historic||t.building||t.tourism||t.amenity||'';
         const height = parseFloat(t.height||t['building:height']||'0')||0;
-        return {
-          name: t.name, kind, height,
-          lat:elat, lon:elon,
-          dist:    haversine(lat,lon,elat,elon)/M_PER_NMI,
-          bearing: getBearing(lat,lon,elat,elon),
-          score: (LANDMARK_SCORE[kind]||3) + Math.min(height/50,3),
-          tip: kind==='tower'||kind==='lighthouse'?'tap the very tip'
-              :kind==='cathedral'||kind==='church'?'tap the spire or cross'
-              :kind==='monument'||kind==='memorial'?'tap the top of the structure'
-              :'tap the centre',
-        };
+        const score  = (LANDMARK_TYPE_SCORE[kind]||3)
+                     + wikiBonus(t)                    // +8 if has wikipedia/wikidata tag
+                     + Math.min(height/100, 2);        // small height bonus, capped at 2
+        const tip = kind==='lighthouse'              ? 'tap the very tip of the light'
+                  : kind==='tower'&&wikiBonus(t)>0   ? 'tap the very top'
+                  : kind==='tower'                   ? 'tap the top of the tower'
+                  : kind==='cathedral'||kind==='church' ? 'tap the spire or cross'
+                  : kind==='monument'||kind==='memorial' ? 'tap the top of the structure'
+                  : 'tap the centre';
+        return { name:t.name, kind, height, score, tip,
+                 lat:elat, lon:elon,
+                 dist:    haversine(lat,lon,elat,elon)/M_PER_NMI,
+                 bearing: getBearing(lat,lon,elat,elon) };
       })
       .filter(Boolean)
       .filter(lm=>lm.dist>=0.15&&lm.dist<=5)
