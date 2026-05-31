@@ -3043,10 +3043,12 @@ export default function App() {
   const [minSpeedKts, setMinSpeedKts] = useState(0);
   const [maxSpeedKts, setMaxSpeedKts] = useState(700);
   const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
-  // Ref so the ADS-B poll closure always reads the latest value
-  // without needing maxDisplayNmi in the effect deps (avoids poll restarts on slider drag)
+  // Refs so the ADS-B poll closure always reads the latest values
+  // without adding them to the effect deps (avoids poll teardown/restart on every GPS update)
   const maxDisplayNmiRef=useRef(400);
   useEffect(()=>{ maxDisplayNmiRef.current=maxDisplayNmi; },[maxDisplayNmi]);
+  const posRef=useRef(pos);
+  useEffect(()=>{ posRef.current=pos; },[pos]);
   const [rangeNote,    setRangeNote]    = useState(null); // auto-range reduction notice
   const [showCoords,  setShowCoords]  = useState(false); // lat/lon toggle
 
@@ -3402,19 +3404,28 @@ export default function App() {
     // adsb.lol — free, no auth, no rate limits, same ADS-B data
     // API: /v2/lat/{lat}/lon/{lon}/dist/{dist_nm}  →  { ac: [...] }
     // Units returned: alt_baro in FEET, gs in KNOTS — converted to meters/m/s on ingest
+    //
+    // Deps=[] so the effect mounts once and never restarts.
+    // pos and maxDisplayNmi are read via refs — always current, zero timer churn.
+    // AbortController cancels any in-flight fetch on unmount.
     let timer = null;
+    let cancelled = false;
+    let abortCtrl = null;
     const INTERVAL = 1000;  // 1s
-    const schedule = (delay) => { timer = setTimeout(poll, delay); };
+    const schedule = (delay) => { if(!cancelled) timer = setTimeout(poll, delay); };
 
     const poll = async () => {
       timer = null;
+      if(cancelled) return;
+      abortCtrl = new AbortController();
       try {
+        const {lat,lon} = posRef.current;          // read latest pos via ref
         const r = await fetch(
           // fetchDist: match display range so the fetch covers what the user sees.
-          // Floor=25 nmi: logbook proximity tracking needs 25 nmi of data even when
-          // the display is zoomed in tight.  No artificial upper cap — the UI ring
-          // already limits maxDisplayNmi to DIST_MAX (400 nmi).
-          `/adsb/v2/lat/${pos.lat}/lon/${pos.lon}/dist/${Math.max(maxDisplayNmiRef.current,LOG_PROX_NMI)}`
+          // Floor=LOG_PROX_NMI: logbook proximity tracking needs that data even when
+          // the display ring is zoomed in tight.
+          `/adsb/v2/lat/${lat}/lon/${lon}/dist/${Math.max(maxDisplayNmiRef.current,LOG_PROX_NMI)}`,
+          {signal: abortCtrl.signal}
         );
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
@@ -3442,6 +3453,7 @@ export default function App() {
             }));
           // Merge new positions into state, carrying history forward (survives re-renders)
           lastFetchMs.current = Date.now(); // record when live data arrived
+          if(cancelled) return;
           setFlights(prev=>{
             const prevMap=new Map(prev.map(p=>[p.id,p]));
             return parsed.map(f=>{
@@ -3519,8 +3531,12 @@ export default function App() {
     };
 
     poll();
-    return () => { if(timer) clearTimeout(timer); };
-  },[pos]);
+    return () => {
+      cancelled = true;
+      if(timer) clearTimeout(timer);
+      if(abortCtrl) abortCtrl.abort();
+    };
+  },[]);  // mount-once — pos and maxDisplayNmi read via refs
 
   // Proximity / logbook tracking — grouped by aircraft type
   useEffect(()=>{
