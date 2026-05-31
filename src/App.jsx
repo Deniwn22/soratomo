@@ -1790,7 +1790,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
       {/* Confidence / accuracy indicator */}
       {f.confidence&&(()=>{
         const cc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
-        const desc={HIGH:'Position accurate · DR error < 150 m',MED:'Moderate uncertainty · DR error 150–600 m',LOW:'Low confidence · AR marker may be offset'}[f.confidence];
+        const desc={HIGH:'AR pointing accurate · < 4° angular error',MED:'Normal accuracy · 4–10° angular error',LOW:'Low confidence · stale data or compass drift'}[f.confidence];
         return (
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
             background:`${cc}10`,border:`0.5px solid ${cc}35`,
@@ -4520,8 +4520,13 @@ export default function App() {
     const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
     // Floor: 3° = minimum AR pointing + display uncertainty (ensures visible bubble)
     const uncertRadiusVw  = Math.max(9, Math.min(28, (Math.max(angUncertDeg, 3)/activeFov)*50));
-    // Confidence label — derived from total position error at time of render
-    const confidence = totalUncertM < 150 ? 'HIGH' : totalUncertM < 600 ? 'MED' : 'LOW';
+    // Confidence = angular pointing error in degrees — the right metric for AR.
+    // totalUncertM at 10 nmi is ~650m but that's only 4° pointing error (usable).
+    // The same 650m at 0.5 nmi would be 40° off (useless). Degrees captures this.
+    //   < 4° → HIGH  (compass well-calibrated, fresh data, or aircraft close)
+    //   4–10° → MED  (typical compass + some DR age — normal conditions)
+    //   > 10° → LOW  (stale DR on a fast aircraft, or significant compass error)
+    const confidence = angUncertDeg < 4 ? 'HIGH' : angUncertDeg < 10 ? 'MED' : 'LOW';
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
   }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
 
