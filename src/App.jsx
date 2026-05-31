@@ -2153,6 +2153,163 @@ function LogbookCharts({entries, filterNmi, pos}){
   );
 }
 
+
+// ── Landmark Calibration Overlay ──────────────────────────────────
+// The user taps known landmarks to calibrate the compass (hdgBias) and
+// optionally the camera FOV.  Math per tap:
+//   hdgBias = landmarkBearing - rawHeadingAtTap - (xPct-50)*fov/100
+// Two taps also solve for FOV:
+//   fov = 100 * (relBear1 - relBear2) / (x1 - x2)
+function CalibrationOverlay({ landmarks, headingRef, arFov, onComplete, onSkip }) {
+  const [step,   setStep]   = React.useState(0);
+  const [taps,   setTaps]   = React.useState([]);
+  const [tapFx,  setTapFx]  = React.useState(null); // {x,y} screen-% for visual confirmation
+
+  const lm  = landmarks[step];
+  if(!lm) return null;
+
+  // Hint arrow: how far off-center is the landmark based on CURRENT raw heading?
+  const normAngle = a => ((a % 360) + 540) % 360 - 180;
+  const relDeg    = normAngle(lm.bearing - headingRef.current);
+  const offscreen = Math.abs(relDeg) > arFov / 2;
+  const hintDir   = relDeg < -15 ? '← LOOK LEFT' : relDeg > 15 ? 'LOOK RIGHT →' : '↑ LOOK AHEAD';
+  const hintDeg   = Math.abs(Math.round(relDeg));
+
+  const handleTap = e => {
+    const r   = e.currentTarget.getBoundingClientRect();
+    const xPct = (e.clientX - r.left) / r.width  * 100;
+    const yPct = (e.clientY - r.top)  / r.height * 100;
+    const rawHdg = headingRef.current;               // compass at THIS instant
+    setTapFx({x: xPct, y: yPct});
+    setTimeout(() => setTapFx(null), 800);
+
+    const newTap = { xPct, bearing: lm.bearing, rawHdg };
+    const allTaps = [...taps, newTap];
+
+    if (allTaps.length >= 2 || step + 1 >= landmarks.length) {
+      // ── Solve ────────────────────────────────────────────────────
+      let newFov = arFov, newBias;
+      if (allTaps.length >= 2) {
+        const [t1, t2] = allTaps;
+        const rb1 = normAngle(t1.bearing - t1.rawHdg);
+        const rb2 = normAngle(t2.bearing - t2.rawHdg);
+        const dx  = t1.xPct - t2.xPct;
+        if (Math.abs(dx) > 8) {                      // enough separation to solve FOV
+          const solvedFov = 100 * normAngle(rb1 - rb2) / dx;
+          if (solvedFov > 30 && solvedFov < 130) newFov = solvedFov;
+        }
+        newBias = normAngle(rb1 - (t1.xPct - 50) * newFov / 100);
+      } else {
+        const [t1] = allTaps;
+        const rb1  = normAngle(t1.bearing - t1.rawHdg);
+        newBias    = normAngle(rb1 - (t1.xPct - 50) * newFov / 100);
+      }
+      newBias = Math.max(-90, Math.min(90, newBias));  // sanity clamp
+      onComplete(newBias, newFov);
+    } else {
+      setTaps(allTaps);
+      setStep(s => s + 1);
+    }
+  };
+
+  const total = Math.min(landmarks.length, 2);
+  const CC = '#2dffb4';
+
+  return (
+    <div onClick={handleTap} style={{
+      position:'absolute', inset:0, zIndex:80,
+      display:'flex', flexDirection:'column',
+    }}>
+      {/* ── Header card ── */}
+      <div onClick={e=>e.stopPropagation()} style={{
+        margin:'14px 14px 0',
+        background:'rgba(2,10,28,0.93)',
+        border:`1px solid ${CC}40`, borderRadius:12,
+        padding:'12px 14px',
+      }}>
+        {/* Title row */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',fontWeight:700}}>
+            AR CALIBRATION — STEP {step+1}/{total}
+          </div>
+          <button onClick={onSkip} style={{
+            background:'transparent',border:'1px solid rgba(77,184,255,0.25)',
+            borderRadius:5,color:'#4a7898',padding:'3px 10px',cursor:'pointer',
+            fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
+          }}>SKIP</button>
+        </div>
+        {/* Step dots */}
+        <div style={{display:'flex',gap:5,marginBottom:10}}>
+          {Array.from({length:total}).map((_,i)=>(
+            <div key={i} style={{
+              height:3,flex:1,borderRadius:2,
+              background: i < step ? CC : i===step ? `${CC}88` : 'rgba(77,184,255,0.15)',
+              transition:'background 0.3s',
+            }}/>
+          ))}
+        </div>
+        {/* Landmark info */}
+        <div style={{fontSize:11,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:3}}>
+          {lm.name.toUpperCase()}
+        </div>
+        <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:10}}>
+          {lm.dist.toFixed(1)} nmi away · bearing {Math.round(lm.bearing)}°
+        </div>
+        <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
+          Find <strong style={{color:CC}}>{lm.name}</strong> and tap exactly where you see it.
+        </div>
+      </div>
+
+      {/* ── Direction hint bar ── */}
+      <div onClick={e=>e.stopPropagation()} style={{
+        margin:'8px 14px 0',
+        background:'rgba(2,10,28,0.85)',
+        border:'1px solid rgba(77,184,255,0.15)', borderRadius:8,
+        padding:'8px 14px',
+        display:'flex',justifyContent:'space-between',alignItems:'center',
+      }}>
+        <span style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+          {offscreen ? `ROTATE ${hintDeg}° ${relDeg<0?'LEFT':'RIGHT'}` : hintDir}
+        </span>
+        <span style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace"}}>
+          {hintDeg}° {relDeg<0?'L':'R'} of centre
+        </span>
+      </div>
+
+      {/* ── Tap feedback flash ── */}
+      {tapFx&&(
+        <div style={{
+          position:'absolute',
+          left:`${tapFx.x}%`, top:`${tapFx.y}%`,
+          transform:'translate(-50%,-50%)',
+          width:44, height:44,
+          border:`2px solid ${CC}`,
+          borderRadius:'50%',
+          pointerEvents:'none',
+          animation:'ping 0.7s ease-out 1 forwards',
+          zIndex:90,
+        }}/>
+      )}
+
+      {/* ── Bottom instruction ── */}
+      <div style={{
+        flex:1, display:'flex', alignItems:'flex-end', justifyContent:'center',
+        paddingBottom:36, pointerEvents:'none',
+      }}>
+        <div style={{
+          background:'rgba(2,10,28,0.8)',
+          border:`1px solid ${CC}30`, borderRadius:20,
+          padding:'8px 18px',
+          fontSize:10, color:`${CC}cc`,
+          fontFamily:"'Orbitron',monospace", letterSpacing:'.1em',
+        }}>
+          TAP THE LANDMARK ON SCREEN
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
   // filterNmi = max closestNmi (logged distance) to show — historical, NOT current distance
@@ -3030,6 +3187,11 @@ export default function App() {
   const [showStats,   setShowStats]   = useState(false);
   const [density,     setDensity]     = useState('compact'); // compact|normal
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
+  const [calibShow,   setCalibShow]   = useState(false);
+  const [calibLandmarks, setCalibLandmarks] = useState([]);
+  // ref so CalibrationOverlay always reads instantaneous compass value at tap time
+  const headingRef = useRef(heading);
+  useEffect(()=>{ headingRef.current = heading; },[heading]);
   const [showCalib,   setShowCalib]   = useState(false);
   const [hdgBias,     setHdgBias]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
   const [pitchBias,   setPitchBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
@@ -3304,9 +3466,26 @@ export default function App() {
       }).then(stream=>{
         streamRef.current=stream;
         registerOrientation();
-        setArFov(camFov); // start at calibrated FOV
+        setArFov(camFov);
         setTiltMode(true);
         setCameraMode(true);
+        // Find landmarks within 5 nmi for calibration
+        const NMI5 = 5 * M_PER_NMI;
+        const nearby = [
+          ...CITIES.map(c=>({name:c.name,lat:c.lat,lon:c.lon})),
+          ...AIRPORTS.map(a=>({name:a.name,lat:a.lat,lon:a.lon})),
+        ]
+          .map(lm=>({...lm,
+            dist: haversine(pos.lat,pos.lon,lm.lat,lm.lon)/M_PER_NMI,
+            bearing: getBearing(pos.lat,pos.lon,lm.lat,lm.lon),
+          }))
+          .filter(lm=>lm.dist<=5)
+          .sort((a,b)=>a.dist-b.dist)
+          .slice(0,2);
+        if(nearby.length){
+          setCalibLandmarks(nearby);
+          setCalibShow(true);
+        }
       }).catch(err=>{
         const msg={
           NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
@@ -3869,6 +4048,23 @@ export default function App() {
       <style>{STYLES}</style>
 
       {/* Camera feed — behind everything */}
+      {cameraMode&&calibShow&&(
+        <CalibrationOverlay
+          landmarks={calibLandmarks}
+          headingRef={headingRef}
+          arFov={arFov}
+          onSkip={()=>setCalibShow(false)}
+          onComplete={(bias,fov)=>{
+            setHdgBias(bias);
+            try{localStorage.setItem('soratomo_hdg_bias',String(bias));}catch{}
+            if(Math.abs(fov-arFov)>2){
+              setArFov(fov); setCamFov(fov);
+              try{localStorage.setItem('soratomo_cam_fov',String(fov));}catch{}
+            }
+            setCalibShow(false);
+            setRangeNote(`✓ Calibrated — heading offset ${bias>0?'+':''}${Math.round(bias)}°`);
+          }}/>
+      )}
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
         style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',zIndex:0}}/>}
       {/* Capture flash overlay */}
