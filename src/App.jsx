@@ -2701,8 +2701,9 @@ function LogbookTailDetail({ tail, entry, onClose }) {
   return (
     <div onClick={onClose} style={{
       position:'absolute',inset:0,zIndex:70,
-      background:'rgba(0,5,15,0.55)',
+      background:'rgba(0,5,15,0.6)',
       display:'flex',alignItems:'flex-end',
+      touchAction:'manipulation',
     }}>
       <div onClick={e=>e.stopPropagation()} style={{
         width:'100%',
@@ -2928,28 +2929,52 @@ function Logbook({ entries, pos, onClose, onClear }) {
                     {fmt(e.lastSeen)}</div>
                 </div>
               </div>
-              {/* Tail chips */}
-              <div style={{display:'flex',flexWrap:'wrap',gap:4,paddingLeft:36}}>
-                {e.tails.map(t=>(
-                  <div key={t.key}
-                    onClick={()=>setSelectedTail({tail:t,entry:e})}
-                    style={{
-                    padding:'2px 7px',borderRadius:3,cursor:'pointer',
-                    background:'rgba(77,184,255,0.05)',
-                    border:`0.5px solid ${t.isNew?'rgba(45,255,180,0.3)':'rgba(77,184,255,0.15)'}`,
-                    fontSize:9,fontFamily:"'Orbitron',monospace",
-                    color:t.isNew?'#2dffb4':'#5a8898',
-                    whiteSpace:'nowrap',
-                    transition:'background 0.15s',
-                  }}>
-                    {t.reg||t.cs}
-                    <span style={{color:'#2a4060',marginLeft:5}}>{t.closestNmi}nm</span>
-                    {(t.userCity||t.city)&&<div style={{fontSize:7,color:'#2a4050',marginTop:1,letterSpacing:'.02em'}}>
-                      📍 {(t.userCity||t.city).slice(0,18)}
-                    </div>}
-                    {t.timestamp&&<div style={{fontSize:7,color:'#2a4a5a',marginTop:1,letterSpacing:'.02em'}}>{fmtTime(t.timestamp)}</div>}
-                  </div>
-                ))}
+              {/* Tail entries — full-width rows, easy to tap */}
+              <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:4}}>
+                {e.tails.map(t=>{
+                  const rowCol = t.isNew ? '#2dffb4' : '#4db8ff';
+                  return (
+                    <div key={t.key}
+                      onClick={()=>setSelectedTail({tail:{...t,type:e.type,cat:e.cat,airline:t.airline||e.airline},entry:e})}
+                      style={{
+                        display:'flex',alignItems:'center',justifyContent:'space-between',
+                        padding:'8px 10px',borderRadius:6,cursor:'pointer',
+                        background:'rgba(77,184,255,0.04)',
+                        border:`0.5px solid ${t.isNew?'rgba(45,255,180,0.25)':'rgba(77,184,255,0.12)'}`,
+                        WebkitTapHighlightColor:'rgba(77,184,255,0.15)',
+                        touchAction:'manipulation',   // prevents iOS scroll-vs-tap ambiguity
+                        userSelect:'none',
+                      }}>
+                      {/* Left: callsign + city */}
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",
+                          fontWeight:700,color:rowCol,letterSpacing:'.08em'}}>
+                          {t.cs||t.reg||'????'}
+                          {t.isNew&&<span style={{fontSize:8,color:'#2dffb4',marginLeft:6,
+                            fontWeight:400}}>NEW</span>}
+                        </div>
+                        {(t.userCity||t.city)&&(
+                          <div style={{fontSize:9,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
+                            marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                            📍 {(t.userCity||t.city)}
+                          </div>
+                        )}
+                      </div>
+                      {/* Right: distance + time + chevron */}
+                      <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0,marginLeft:8}}>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                            fontWeight:600}}>{t.closestNmi} nm</div>
+                          {t.timestamp&&(
+                            <div style={{fontSize:8,color:'#2a4a5a',fontFamily:"'Orbitron',monospace",
+                              marginTop:1}}>{fmtTime(t.timestamp)}</div>
+                          )}
+                        </div>
+                        <div style={{color:'#2a4a5a',fontSize:14,lineHeight:1}}>›</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
