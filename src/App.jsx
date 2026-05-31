@@ -2167,12 +2167,18 @@ const LANDMARK_SCORE = {
   place_of_worship:5,
 };
 
-async function overpassFetch(url, timeoutMs) {
-  // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController
+async function overpassFetch(endpoint, query, timeoutMs) {
+  // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController + setTimeout
   const ctrl = new AbortController();
   const tid  = setTimeout(()=>ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(url, {signal: ctrl.signal});
+    // POST with x-www-form-urlencoded avoids GET URL-length limits (~2000 chars)
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: 'data=' + encodeURIComponent(query),
+      signal: ctrl.signal,
+    });
     clearTimeout(tid);
     if(!r.ok) throw new Error('HTTP '+r.status);
     return await r.json();
@@ -2181,18 +2187,18 @@ async function overpassFetch(url, timeoutMs) {
 
 async function fetchCalibLandmarks(lat, lon) {
   const R = CALIB_RADIUS_M;
-  // Single-line query avoids multiline POST body encoding issues
-  const q = `[out:json][timeout:9];(node["man_made"~"^(tower|lighthouse|water_tower|mast|chimney)$"](around:${R},${lat},${lon});node["historic"~"^(monument|memorial|castle|fort)$"](around:${R},${lat},${lon});node["tourism"~"^(attraction|viewpoint)$"](around:${R},${lat},${lon});node["building"~"^(cathedral|skyscraper|stadium)$"](around:${R},${lat},${lon});way["man_made"~"^(tower|lighthouse)$"](around:${R},${lat},${lon});way["historic"~"^(monument|memorial|castle)$"](around:${R},${lat},${lon});way["tourism"="attraction"]["name"](around:${R},${lat},${lon});way["building"~"^(cathedral|skyscraper|stadium)$"]["name"](around:${R},${lat},${lon}););out body center;`;
-  const enc = encodeURIComponent(q);
+  // Broad query — no strict regex so partial tag values (e.g. "communications_tower") match too.
+  // nwr = node + way + relation in one clause; "out body center" gives coords for ways/relations.
+  const q = `[out:json][timeout:10];(nwr["man_made"]["name"](around:${R},${lat},${lon});nwr["historic"]["name"](around:${R},${lat},${lon});nwr["tourism"]["name"](around:${R},${lat},${lon});nwr["building"~"cathedral|skyscraper|stadium"]["name"](around:${R},${lat},${lon}););out body center;`;
   const ENDPOINTS = [
-    `https://overpass-api.de/api/interpreter?data=${enc}`,
-    `https://overpass.kumi.systems/api/interpreter?data=${enc}`,
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
   ];
 
   let data = null;
-  for(const url of ENDPOINTS) {
-    try { data = await overpassFetch(url, 11000); break; }
-    catch(e) { console.warn('Overpass endpoint failed:', url, e?.message); }
+  for(const ep of ENDPOINTS) {
+    try { data = await overpassFetch(ep, q, 12000); break; }
+    catch(e) { console.warn('Overpass endpoint failed:', ep, e?.message); }
   }
 
   if(data?.elements?.length) {
@@ -2249,23 +2255,106 @@ async function fetchCalibLandmarks(lat, lon) {
 
 
 // ── Landmark Calibration Overlay ──────────────────────────────────
-function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComplete, onSkip }) {
-  const [step,  setStep]  = React.useState(0);
-  const [taps,  setTaps]  = React.useState([]);
-  const [tapFx, setTapFx] = React.useState(null);
-  // Live heading for the sweep arrow — re-render each animation frame
-  const [liveHdg, setLiveHdg] = React.useState(headingRef.current||0);
+function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
+                               arFov, vfov, onComplete, onSkip }) {
+  const [phase,     setPhase]   = React.useState('landmark');
+  const [step,      setStep]    = React.useState(0);
+  const [taps,      setTaps]    = React.useState([]);
+  const [hTaps,     setHTaps]   = React.useState([]);
+  const [tapFx,     setTapFx]   = React.useState(null);
+  const [liveHdg,   setLiveHdg] = React.useState(headingRef.current||0);
+  const [livePitch, setLivePitch]= React.useState(pitchRef?.current||0);
+  const solvedRef = React.useRef({hdgBias:0,newFov:arFov});
+
   React.useEffect(()=>{
-    let af; const tick=()=>{ setLiveHdg(headingRef.current||0); af=requestAnimationFrame(tick); };
+    let af;
+    const tick=()=>{
+      setLiveHdg(headingRef.current||0);
+      setLivePitch(pitchRef?.current||0);
+      af=requestAnimationFrame(tick);
+    };
     af=requestAnimationFrame(tick);
-    return ()=>cancelAnimationFrame(af);
-  },[headingRef]);
+    return()=>cancelAnimationFrame(af);
+  },[headingRef,pitchRef]);
 
-  const normAngle = a => ((a%360)+540)%360-180;
-  const CC = '#2dffb4';
+  const normAngle=a=>((a%360)+540)%360-180;
+  const CC='#2dffb4';
+  const HORIZ_TAPS=3;
 
-  // Loading state
-  if(loading) return (
+  const solveLandmark=allT=>{
+    let newFov=arFov,newBias;
+    if(allT.length>=2){
+      const[t1,t2]=allT;
+      const rb1=normAngle(t1.bearing-t1.rawHdg),rb2=normAngle(t2.bearing-t2.rawHdg);
+      const dx=t1.xPct-t2.xPct;
+      if(Math.abs(dx)>8){const sf=100*normAngle(rb1-rb2)/dx;if(sf>30&&sf<130)newFov=sf;}
+      newBias=normAngle(rb1-(t1.xPct-50)*newFov/100);
+    }else{
+      const rb1=normAngle(allT[0].bearing-allT[0].rawHdg);
+      newBias=normAngle(rb1-(allT[0].xPct-50)*newFov/100);
+    }
+    return{hdgBias:Math.max(-90,Math.min(90,newBias)),newFov};
+  };
+
+  const solveHorizon=htaps=>{
+    let usedVfov=vfov;
+    if(htaps.length>=2){
+      const[t1,t2]=htaps;
+      const dy=t1.yPct-t2.yPct,dp=t1.dp-t2.dp;
+      if(Math.abs(dy)>3&&Math.abs(dp)>3){const sf=dp*100/dy;if(sf>15&&sf<90)usedVfov=sf;}
+    }
+    const biases=htaps.map(t=>(t.yPct-50)*usedVfov/100-t.dp);
+    return Math.max(-45,Math.min(45,biases.reduce((s,b)=>s+b,0)/biases.length));
+  };
+
+  const lm=allLandmarks[step];
+  const relDeg=lm?normAngle(lm.bearing-liveHdg):0;
+  const onscreen=lm&&Math.abs(relDeg)<=arFov*0.45;
+  const horizonYpct=Math.max(5,Math.min(95,50+livePitch/(vfov/2)*50));
+
+  const handleLandmarkTap=e=>{
+    if(!lm) return;
+    const r=e.currentTarget.getBoundingClientRect();
+    const xPct=(e.clientX-r.left)/r.width*100;
+    const yPct=(e.clientY-r.top)/r.height*100;
+    setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
+    const newTap={xPct,bearing:lm.bearing,rawHdg:headingRef.current};
+    const allTaps=[...taps,newTap];
+    if(allTaps.length>=2||step+1>=allLandmarks.length){
+      solvedRef.current=solveLandmark(allTaps);
+      setTaps(allTaps);
+      setPhase('horizon');
+    }else{setTaps(allTaps);setStep(s=>s+1);}
+  };
+
+  const handleHorizonTap=e=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    const xPct=(e.clientX-r.left)/r.width*100;
+    const yPct=(e.clientY-r.top)/r.height*100;
+    setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
+    const newHTap={yPct,dp:pitchRef?.current||0};
+    const allHTaps=[...hTaps,newHTap];
+    setHTaps(allHTaps);
+    if(allHTaps.length>=HORIZ_TAPS){
+      const pb=solveHorizon(allHTaps);
+      const{hdgBias,newFov}=solvedRef.current;
+      onComplete(hdgBias,newFov,pb);
+    }
+  };
+
+  const skipHorizon=e=>{
+    e.stopPropagation();
+    const{hdgBias,newFov}=solvedRef.current;
+    onComplete(hdgBias,newFov,null);
+  };
+
+  const skipLandmark=e=>{
+    e.stopPropagation();
+    if(step+1<allLandmarks.length)setStep(s=>s+1);
+    else{solvedRef.current={hdgBias:0,newFov:arFov};setPhase('horizon');}
+  };
+
+  if(loading) return(
     <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
       alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12}}>
       <div style={{background:'rgba(2,10,28,0.92)',border:`1px solid ${CC}30`,
@@ -2273,8 +2362,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComple
         <div style={{fontSize:10,color:CC,fontFamily:"'Orbitron',monospace",
           letterSpacing:'.14em',marginBottom:6}}>FINDING LANDMARKS…</div>
         <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>
-          Querying OpenStreetMap nearby
-        </div>
+          Querying OpenStreetMap nearby</div>
       </div>
       <button onClick={onSkip} style={{background:'transparent',
         border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#4a7898',
@@ -2282,86 +2370,106 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComple
         fontFamily:"'Orbitron',monospace"}}>SKIP</button>
     </div>
   );
-  if(!allLandmarks.length) return null;
-  const lm = allLandmarks[step];
-  if(!lm) return null;
 
-  // Bearing of landmark relative to current (uncalibrated) heading
-  const relDeg   = normAngle(lm.bearing - liveHdg);
-  const onscreen = Math.abs(relDeg) <= arFov * 0.45; // within ~90% of FOV edge
-  // Arrow angle: clamp to ±80° so it's always visible even when landmark is behind
-  const arrowDeg = Math.max(-80, Math.min(80, relDeg));
-  const inFront  = Math.abs(relDeg) < 90;
+  // ── HORIZON PHASE ─────────────────────────────────────────────────
+  if(phase==='horizon'){
+    const done=hTaps.length;
+    const lastDP=hTaps.length?hTaps[hTaps.length-1].dp:null;
+    const tiltDiff=lastDP!=null?Math.abs(livePitch-lastDP):99;
+    const needsTilt=tiltDiff<8;
+    return(
+      <div onClick={!needsTilt?handleHorizonTap:undefined}
+        style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
+          cursor:needsTilt?'default':'crosshair'}}>
+        <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
+          background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
+          borderRadius:12,padding:'12px 14px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',fontWeight:700}}>
+              HORIZON CALIBRATION — {done}/{HORIZ_TAPS}
+            </div>
+            <button onClick={skipHorizon} style={{background:'transparent',
+              border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
+              padding:'3px 10px',cursor:'pointer',fontSize:9,
+              fontFamily:"'Orbitron',monospace"}}>SKIP</button>
+          </div>
+          <div style={{display:'flex',gap:5,marginBottom:8}}>
+            {Array.from({length:HORIZ_TAPS}).map((_,i)=>(
+              <div key={i} style={{height:3,flex:1,borderRadius:2,
+                background:i<done?CC:i===done?`${CC}55`:'rgba(77,184,255,0.15)'}}/>
+            ))}
+          </div>
+          <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
+            {needsTilt&&done>0
+              ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch<(lastDP||0)?'UP':'DOWN'} more, then tap</span>
+              :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
+          </div>
+        </div>
+        {/* Live horizon estimate line */}
+        <div style={{position:'absolute',left:0,right:0,top:`${horizonYpct}%`,pointerEvents:'none'}}>
+          <div style={{height:1,background:'rgba(77,184,255,0.2)',width:'100%'}}/>
+          <div style={{position:'absolute',right:8,top:-10,fontSize:7,
+            color:'rgba(77,184,255,0.4)',fontFamily:"'Orbitron',monospace"}}>← CURRENT EST.</div>
+        </div>
+        <div style={{flex:1,display:'flex',alignItems:'flex-end',
+          justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
+          {needsTilt&&done===0?(
+            <div style={{background:'rgba(2,10,28,0.85)',border:`1px solid ${CC}30`,
+              borderRadius:20,padding:'7px 18px',fontSize:10,color:`${CC}bb`,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+              TILT PHONE — THEN TAP THE HORIZON
+            </div>
+          ):needsTilt?(
+            <div style={{background:'rgba(2,10,28,0.85)',border:'1px solid #ffb84d40',
+              borderRadius:20,padding:'7px 18px',fontSize:10,color:'#ffb84d',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+              ↕ TILT MORE BEFORE TAPPING
+            </div>
+          ):(
+            <div style={{background:`${CC}18`,border:`1px solid ${CC}50`,
+              borderRadius:20,padding:'7px 18px',fontSize:10,color:CC,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+              ✦ TAP THE HORIZON
+            </div>
+          )}
+        </div>
+        {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
+          transform:'translate(-50%,-50%)',width:44,height:44,
+          border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
+          animation:'ping 0.7s ease-out 1 forwards'}}/>}
+      </div>
+    );
+  }
 
-  const handleTap = e => {
-    const r    = e.currentTarget.getBoundingClientRect();
-    const xPct = (e.clientX - r.left) / r.width  * 100;
-    const yPct = (e.clientY - r.top)  / r.height * 100;
-    setTapFx({x:xPct, y:yPct});
-    setTimeout(()=>setTapFx(null), 800);
-    const rawHdg  = headingRef.current;
-    const newTap  = {xPct, bearing:lm.bearing, rawHdg};
-    const allTaps = [...taps, newTap];
-
-    if(allTaps.length >= 2 || step+1 >= allLandmarks.length) {
-      let newFov = arFov, newBias;
-      if(allTaps.length >= 2) {
-        const [t1,t2] = allTaps;
-        const rb1 = normAngle(t1.bearing - t1.rawHdg);
-        const rb2 = normAngle(t2.bearing - t2.rawHdg);
-        const dx  = t1.xPct - t2.xPct;
-        if(Math.abs(dx) > 8){
-          const sf = 100 * normAngle(rb1-rb2) / dx;
-          if(sf>30&&sf<130) newFov=sf;
-        }
-        newBias = normAngle(rb1 - (t1.xPct-50)*newFov/100);
-      } else {
-        const [t1] = allTaps;
-        newBias = normAngle(normAngle(t1.bearing-t1.rawHdg) - (t1.xPct-50)*newFov/100);
-      }
-      onComplete(Math.max(-90,Math.min(90,newBias)), newFov);
-    } else {
-      setTaps(allTaps);
-      setStep(s=>s+1);
-    }
-  };
-
-  const skipLandmark = e => {
-    e.stopPropagation();
-    if(step+1 < allLandmarks.length) setStep(s=>s+1);
-    else onSkip();
-  };
-
-  const total = Math.min(allLandmarks.length, 2);
-
-  return (
-    <div onClick={onscreen ? handleTap : undefined}
+  // ── LANDMARK PHASE ────────────────────────────────────────────────
+  if(!allLandmarks.length||!lm) return null;
+  const arrowDeg=Math.max(-80,Math.min(80,relDeg));
+  const inFront=Math.abs(relDeg)<90;
+  const total=Math.min(allLandmarks.length,2);
+  return(
+    <div onClick={onscreen?handleLandmarkTap:undefined}
       style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
-        cursor: onscreen ? 'crosshair' : 'default'}}>
-
-      {/* ── Header ── */}
-      <div onClick={e=>e.stopPropagation()} style={{
-        margin:'14px 14px 0',background:'rgba(2,10,28,0.93)',
-        border:`1px solid ${CC}40`,borderRadius:12,padding:'12px 14px',
-      }}>
+        cursor:onscreen?'crosshair':'default'}}>
+      <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
+        background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
+        borderRadius:12,padding:'12px 14px'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',fontWeight:700}}>
-            AR CALIBRATION — STEP {taps.length+1}/{total}
+          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.14em',fontWeight:700}}>
+            BEARING CALIBRATION — STEP {taps.length+1}/{total}
           </div>
           <button onClick={onSkip} style={{background:'transparent',
             border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
             padding:'3px 10px',cursor:'pointer',fontSize:9,
-            fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>SKIP</button>
+            fontFamily:"'Orbitron',monospace"}}>SKIP ALL</button>
         </div>
-        {/* Progress bar */}
         <div style={{display:'flex',gap:5,marginBottom:8}}>
           {Array.from({length:total}).map((_,i)=>(
             <div key={i} style={{height:3,flex:1,borderRadius:2,
-              background:i<taps.length?CC:i===taps.length?`${CC}66`:'rgba(77,184,255,0.15)',
-              transition:'background 0.3s'}}/>
+              background:i<taps.length?CC:i===taps.length?`${CC}66`:'rgba(77,184,255,0.15)'}}/>
           ))}
         </div>
-        {/* Landmark name + skip */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <div style={{flex:1}}>
             <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",
@@ -2372,98 +2480,56 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComple
               {lm.height>10&&<span style={{color:'#2a5068',marginLeft:6}}>{Math.round(lm.height)}m</span>}
             </div>
           </div>
-          {allLandmarks.length > taps.length+1 && (
-            <button onClick={skipLandmark} style={{background:'transparent',flexShrink:0,marginLeft:8,
-              border:'1px solid rgba(77,184,255,0.2)',borderRadius:5,color:'#3a6878',
-              padding:'2px 8px',cursor:'pointer',fontSize:8,
+          {allLandmarks.length>taps.length+1&&(
+            <button onClick={skipLandmark} style={{background:'transparent',flexShrink:0,
+              marginLeft:8,border:'1px solid rgba(77,184,255,0.2)',borderRadius:5,
+              color:'#3a6878',padding:'2px 8px',cursor:'pointer',fontSize:8,
               fontFamily:"'Orbitron',monospace"}}>CAN'T SEE IT →</button>
           )}
         </div>
       </div>
-
-      {/* ── Sweep arrow — visible on camera feed ── */}
-      <div onClick={e=>e.stopPropagation()} style={{
-        position:'absolute',
-        left:'50%', bottom: onscreen ? 100 : 80,
-        transform:'translateX(-50%)',
-        display:'flex',flexDirection:'column',alignItems:'center',gap:4,
-        pointerEvents:'none',
-      }}>
-        {!inFront ? (
-          /* Behind you */
+      <div style={{position:'absolute',left:'50%',bottom:onscreen?100:80,
+        transform:'translateX(-50%)',display:'flex',flexDirection:'column',
+        alignItems:'center',gap:4,pointerEvents:'none'}}>
+        {!inFront?(
           <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884480',
             borderRadius:8,padding:'6px 14px',fontSize:9,color:'#ff8844',
-            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-            ↩ TURN AROUND — LANDMARK IS BEHIND YOU
-          </div>
-        ) : onscreen ? (
-          /* On-screen — show tap prompt */
+            fontFamily:"'Orbitron',monospace"}}>↩ TURN AROUND — BEHIND YOU</div>
+        ):onscreen?(
           <div style={{background:`${CC}18`,border:`1px solid ${CC}60`,
             borderRadius:20,padding:'6px 18px',fontSize:10,color:CC,
             fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-            ✦ TAP {lm.tip ? lm.tip.toUpperCase() : 'THE LANDMARK'}
+            ✦ TAP {(lm.tip||'the landmark').toUpperCase()}
           </div>
-        ) : (
-          /* Off-screen — show rotation arrow */
+        ):(
           <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
             <svg width="64" height="64" viewBox="0 0 64 64">
-              <defs>
-                <marker id="ah" markerWidth="6" markerHeight="6" refX="3" refY="3"
-                  orient="auto">
-                  <polygon points="0,0 6,3 0,6" fill={CC}/>
-                </marker>
-              </defs>
-              {/* Curved rotation arrow */}
-              <path d={arrowDeg<0
-                ? "M 44,32 A 18,18 0 0,0 20,32"
-                : "M 20,32 A 18,18 0 0,1 44,32"}
-                stroke={CC} strokeWidth="2.5" fill="none" markerEnd="url(#ah)"/>
+              <defs><marker id="ah2" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                <polygon points="0,0 6,3 0,6" fill={CC}/></marker></defs>
+              <path d={arrowDeg<0?"M 44,32 A 18,18 0 0,0 20,32":"M 20,32 A 18,18 0 0,1 44,32"}
+                stroke={CC} strokeWidth="2.5" fill="none" markerEnd="url(#ah2)"/>
               <text x="32" y="58" textAnchor="middle" fontSize="10" fill={CC}
                 fontFamily="Orbitron,monospace">{Math.abs(Math.round(relDeg))}°</text>
             </svg>
             <div style={{background:'rgba(2,10,28,0.88)',border:`1px solid ${CC}40`,
               borderRadius:8,padding:'5px 14px',fontSize:9,color:'#c8eaf8',
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
+              fontFamily:"'Orbitron',monospace"}}>
               ROTATE {relDeg<0?'LEFT':'RIGHT'} {Math.abs(Math.round(relDeg))}°
             </div>
           </div>
         )}
       </div>
-
-      {/* ── Horizon line showing where landmark sits vertically ── */}
-      {onscreen&&(
-        <div style={{
-          position:'absolute',
-          top:'42%', left:0, right:0,
-          height:1, background:`${CC}30`,
-          pointerEvents:'none',
-        }}>
-          <div style={{
-            position:'absolute',
-            left: `${50 + relDeg/arFov*50}%`,
-            transform:'translateX(-50%) translateY(-50%)',
-            width:12, height:12,
-            border:`2px solid ${CC}`,
-            borderRadius:'50%',
-            background:`${CC}30`,
-          }}/>
-        </div>
-      )}
-
-      {/* ── Tap feedback ring ── */}
-      {tapFx&&(
-        <div style={{position:'absolute',
-          left:`${tapFx.x}%`,top:`${tapFx.y}%`,
-          transform:'translate(-50%,-50%)',
-          width:44,height:44,border:`2px solid ${CC}`,
-          borderRadius:'50%',pointerEvents:'none',zIndex:90,
-          animation:'ping 0.7s ease-out 1 forwards',
-        }}/>
-      )}
+      {onscreen&&<div style={{position:'absolute',left:`${50+relDeg/arFov*50}%`,top:'42%',
+        transform:'translate(-50%,-50%)',width:12,height:12,
+        border:`2px solid ${CC}`,borderRadius:'50%',background:`${CC}30`,
+        pointerEvents:'none'}}/>}
+      {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
+        transform:'translate(-50%,-50%)',width:44,height:44,
+        border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
+        animation:'ping 0.7s ease-out 1 forwards'}}/>}
     </div>
   );
 }
-
 
 
 function Logbook({ entries, pos, onClose, onClear }) {
@@ -3349,6 +3415,8 @@ export default function App() {
   // ref so CalibrationOverlay always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
+  const pitchRef = useRef(devicePitch);
+  useEffect(()=>{ pitchRef.current = devicePitch; },[devicePitch]);
   const [showCalib,   setShowCalib]   = useState(false);
   const [hdgBias,     setHdgBias]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
   const [pitchBias,   setPitchBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
@@ -4200,17 +4268,25 @@ export default function App() {
           allLandmarks={calibLandmarks}
           loading={calibLandmarks.length===0}
           headingRef={headingRef}
+          pitchRef={pitchRef}
           arFov={arFov}
+          vfov={activeVFov}
           onSkip={()=>setCalibShow(false)}
-          onComplete={(bias,fov)=>{
-            setHdgBias(bias);
-            try{localStorage.setItem('soratomo_hdg_bias',String(bias));}catch{}
+          onComplete={(hdgBias,fov,pitchBias)=>{
+            setHdgBias(hdgBias);
+            try{localStorage.setItem('soratomo_hdg_bias',String(hdgBias));}catch{}
             if(Math.abs(fov-arFov)>2){
               setArFov(fov); setCamFov(fov);
               try{localStorage.setItem('soratomo_cam_fov',String(fov));}catch{}
             }
+            if(pitchBias!=null){
+              setPitchBias(pitchBias);
+              try{localStorage.setItem('soratomo_pitch_bias',String(pitchBias));}catch{}
+            }
             setCalibShow(false);
-            setRangeNote(`✓ Calibrated — heading offset ${bias>0?'+':''}${Math.round(bias)}°`);
+            const hMsg=`hdg ${hdgBias>0?'+':''}${Math.round(hdgBias)}°`;
+            const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:''
+            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}`);
           }}/>
       )}
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
