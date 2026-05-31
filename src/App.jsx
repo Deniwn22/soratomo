@@ -2157,24 +2157,31 @@ function LogbookCharts({entries, filterNmi, pos}){
 // ── Landmark fetch for AR calibration ─────────────────────────────
 // Queries OpenStreetMap Overpass for visually-precise, named landmarks
 // within 5 nmi.  Uses POST form-encoding (avoids GET URL-length limits).
-// Scoring key insight: OSM `wikipedia`/`wikidata` tags are the best proxy
-// for "famous enough to be recognisable" — Washington Monument, Lincoln
-// Memorial, National Cathedral etc. all have them; random TV towers don't.
+//
+// Scoring ranks by CALIBRATION QUALITY — how precisely can the user tap
+// one unambiguous point?
+//   Height is the dominant signal:
+//     heightBonus = min(height/15, 8)
+//     Washington Monument 169m → +8   WWII Memorial 6m → +0.4
+//   Type score reflects pointability, not prestige:
+//     tower/lighthouse > monument/cathedral > memorial/flat plaza
+//   wikipedia/wikidata = famous enough to identify visually (+6)
 const CALIB_RADIUS_M = 5 * 1852;
 const LANDMARK_TYPE_SCORE = {
-  // Visually distinctive monuments / structures
-  monument:10, memorial:9, castle:9, fort:8, ruins:5,
-  cathedral:9, church:5,  chapel:4,
-  lighthouse:9, tower:7,
-  viewpoint:8,  attraction:7, museum:6, gallery:4,
-  skyscraper:7, stadium:6,
-  place_of_worship:4,
-  // Generic infrastructure — recognisable only if famous (wiki bonus saves them)
+  // Single precise tip — best calibration targets
+  lighthouse:9, tower:8, skyscraper:8,
+  // Identifiable focal point (dome, spire, top)
+  monument:7, cathedral:7, church:6, chapel:5, fort:6, castle:6,
+  // Attractions and viewpoints — useful mainly when tall
+  viewpoint:6, attraction:5, museum:4, gallery:3, stadium:5,
+  // Memorials are often flat plazas — poor for precise tap
+  memorial:4, ruins:3, place_of_worship:4,
+  // Unrecognisable infrastructure unless famous
   mast:2, chimney:2, water_tower:3, communications_tower:2,
 };
-// Famous landmarks almost always have OSM wikipedia/wikidata tags.
-// This is the primary sort key — it puts DC monuments above cell towers.
-const wikiBonus = t => (t.wikipedia||t.wikidata) ? 8 : 0;
+// wikipedia/wikidata = recognisable landmark (+6).
+// Lower than height cap so height stays the primary sort key.
+const wikiBonus = t => (t.wikipedia||t.wikidata) ? 6 : 0;
 
 async function overpassFetch(endpoint, query, timeoutMs) {
   // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController + setTimeout
@@ -2222,7 +2229,7 @@ async function fetchCalibLandmarks(lat, lon) {
         const height = parseFloat(t.height||t['building:height']||'0')||0;
         const score  = (LANDMARK_TYPE_SCORE[kind]||3)
                      + wikiBonus(t)                    // +8 if has wikipedia/wikidata tag
-                     + Math.min(height/100, 2);        // small height bonus, capped at 2
+                     + Math.min(height/15, 8);         // dominant: 120m+ gets full +8
         const tip = kind==='lighthouse'              ? 'tap the very tip of the light'
                   : kind==='tower'&&wikiBonus(t)>0   ? 'tap the very top'
                   : kind==='tower'                   ? 'tap the top of the tower'
@@ -2275,7 +2282,10 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
   const [tapFx,     setTapFx]   = React.useState(null);
   const [liveHdg,   setLiveHdg] = React.useState(headingRef.current||0);
   const [livePitch, setLivePitch]= React.useState(pitchRef?.current||0);
-  const solvedRef = React.useRef({hdgBias:0,newFov:arFov});
+  const solvedRef = React.useRef({hdgBias:0,newFov:arFov,pitchBias:null,
+                                   fovWide:null,fovTele:null,zoomLm:null});
+  const [zoomStep, setZoomStep] = React.useState(0); // 0=wide 1=tele
+  const [zoomTaps, setZoomTaps] = React.useState([]);
 
   React.useEffect(()=>{
     let af;
@@ -2318,6 +2328,16 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     return Math.max(-45,Math.min(45,biases.reduce((s,b)=>s+b,0)/biases.length));
   };
 
+  // FOV from a single tap: fov = angularOffset * 100 / (xPct - 50)
+  // Requires |xPct-50| > 4 for numerical stability
+  const solveZoomFov=(xPct,bearing,rawHdg,hdgBias)=>{
+    const offset=normAngle(bearing-rawHdg-hdgBias);
+    const dx=xPct-50;
+    if(Math.abs(dx)<4) return null;  // landmark too close to centre
+    const fov=Math.abs(offset*100/dx);
+    return(fov>5&&fov<130)?fov:null;
+  };
+
   const lm=allLandmarks[step];
   const relDeg=lm?normAngle(lm.bearing-liveHdg):0;
   const onscreen=lm&&Math.abs(relDeg)<=arFov*0.45;
@@ -2331,8 +2351,11 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
     const newTap={xPct,bearing:lm.bearing,rawHdg:headingRef.current};
     const allTaps=[...taps,newTap];
+    // Store the actually-tapped landmark on the first tap so zoom phase uses it
+    if(taps.length===0) solvedRef.current={...solvedRef.current,zoomLm:lm};
     if(allTaps.length>=2||step+1>=allLandmarks.length){
-      solvedRef.current=solveLandmark(allTaps);
+      // Spread so zoomLm (set above) survives the solveLandmark assignment
+      solvedRef.current={...solvedRef.current,...solveLandmark(allTaps)};
       setTaps(allTaps);
       setPhase('horizon');
     }else{setTaps(allTaps);setStep(s=>s+1);}
@@ -2348,21 +2371,53 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     setHTaps(allHTaps);
     if(allHTaps.length>=HORIZ_TAPS){
       const pb=solveHorizon(allHTaps);
-      const{hdgBias,newFov}=solvedRef.current;
-      onComplete(hdgBias,newFov,pb);
+      // zoomLm already set in handleLandmarkTap (the landmark the user actually tapped)
+      solvedRef.current={...solvedRef.current,pitchBias:pb};
+      setZoomStep(0); setZoomTaps([]);
+      setPhase('zoom');
     }
   };
 
   const skipHorizon=e=>{
     e.stopPropagation();
-    const{hdgBias,newFov}=solvedRef.current;
-    onComplete(hdgBias,newFov,null);
+    // zoomLm already set from the bearing tap (or falls back via || in handleZoomTap)
+    solvedRef.current={...solvedRef.current,pitchBias:null};
+    setZoomStep(0); setZoomTaps([]);
+    setPhase('zoom');
   };
 
   const skipLandmark=e=>{
     e.stopPropagation();
     if(step+1<allLandmarks.length)setStep(s=>s+1);
-    else{solvedRef.current={hdgBias:0,newFov:arFov};setPhase('horizon');}
+    else{solvedRef.current={...solvedRef.current,hdgBias:0,newFov:arFov};setPhase('horizon');}
+  };
+
+  const skipZoom=e=>{
+    e.stopPropagation();
+    const{hdgBias,newFov,pitchBias}=solvedRef.current;
+    onComplete(hdgBias,newFov,pitchBias,null,null);
+  };
+
+  const handleZoomTap=e=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    const xPct=(e.clientX-r.left)/r.width*100;
+    const yPct=(e.clientY-r.top)/r.height*100;
+    const zl=solvedRef.current.zoomLm||allLandmarks[0];
+    if(!zl) return;
+    const fov=solveZoomFov(xPct,zl.bearing,
+                          headingRef.current,solvedRef.current.hdgBias);
+    setTapFx({x:xPct,y:yPct}); setTimeout(()=>setTapFx(null),800);
+    if(zoomStep===0){
+      // Wide tap — store and advance to tele
+      solvedRef.current={...solvedRef.current,fovWide:fov};
+      setZoomTaps([{xPct,fov}]);
+      setZoomStep(1);
+    } else {
+      // Tele tap — finalise
+      solvedRef.current={...solvedRef.current,fovTele:fov};
+      const{hdgBias,newFov,pitchBias,fovWide}=solvedRef.current;
+      onComplete(hdgBias,newFov,pitchBias,fovWide,fov);
+    }
   };
 
   if(loading) return(
@@ -2445,6 +2500,91 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
             </div>
           )}
         </div>
+        {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
+          transform:'translate(-50%,-50%)',width:44,height:44,
+          border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
+          animation:'ping 0.7s ease-out 1 forwards'}}/>}
+      </div>
+    );
+  }
+
+  // ── ZOOM PHASE ───────────────────────────────────────────────────
+  if(phase==='zoom'){
+    const zl=solvedRef.current.zoomLm||allLandmarks[0];
+    // Current estimated position of landmark using calibrated hdgBias + arFov
+    const zRelDeg=zl?normAngle(zl.bearing-(liveHdg+solvedRef.current.hdgBias)):0;
+    const zXpct  =50+zRelDeg/(arFov/2)*50;         // where landmark appears now
+    const tooClose=Math.abs(zXpct-50)<8;            // within 8% of centre = unstable
+    const offscreen=Math.abs(zRelDeg)>arFov*0.48;
+    const label=zoomStep===0?'ZOOM ALL THE WAY OUT':'ZOOM ALL THE WAY IN';
+    const icon =zoomStep===0?'⊖':'⊕';
+    return(
+      <div onClick={(!tooClose&&!offscreen)?handleZoomTap:undefined}
+        style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
+          cursor:(!tooClose&&!offscreen)?'crosshair':'default'}}>
+        {/* Header */}
+        <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
+          background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
+          borderRadius:12,padding:'12px 14px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',fontWeight:700}}>
+              ZOOM CALIBRATION — {icon} {label}
+            </div>
+            <button onClick={skipZoom} style={{background:'transparent',
+              border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
+              padding:'3px 10px',cursor:'pointer',fontSize:9,
+              fontFamily:"'Orbitron',monospace"}}>SKIP</button>
+          </div>
+          {/* Step dots */}
+          <div style={{display:'flex',gap:5,marginBottom:8}}>
+            {[0,1].map(i=>(
+              <div key={i} style={{height:3,flex:1,borderRadius:2,
+                background:i<zoomStep?CC:i===zoomStep?`${CC}66`:'rgba(77,184,255,0.15)'}}/>
+            ))}
+          </div>
+          <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
+            {zoomStep===0
+              ?<>Zoom camera <strong style={{color:CC}}>all the way OUT</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
+              :<>Now zoom camera <strong style={{color:CC}}>all the way IN</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>}
+          </div>
+        </div>
+
+        {/* Landmark position indicator — vertical line showing approx landmark position */}
+        {!offscreen&&(
+          <div style={{position:'absolute',top:0,bottom:0,
+            left:`${Math.max(2,Math.min(98,zXpct))}%`,
+            width:1,background:'rgba(77,184,255,0.18)',pointerEvents:'none'}}>
+            <div style={{position:'absolute',top:'38%',left:6,
+              fontSize:8,color:'rgba(77,184,255,0.5)',fontFamily:"'Orbitron',monospace",
+              whiteSpace:'nowrap'}}>← {zl?.name?.split(' ')[0]}</div>
+          </div>
+        )}
+
+        {/* Centre instruction / warning */}
+        <div style={{flex:1,display:'flex',alignItems:'flex-end',
+          justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
+          {offscreen?(
+            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884480',
+              borderRadius:8,padding:'6px 14px',fontSize:9,color:'#ff8844',
+              fontFamily:"'Orbitron',monospace"}}>
+              ROTATE {zRelDeg<0?'LEFT':'RIGHT'} — LANDMARK OFF SCREEN
+            </div>
+          ):tooClose?(
+            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ffb84d50',
+              borderRadius:20,padding:'7px 18px',fontSize:10,color:'#ffb84d',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+              ROTATE SLIGHTLY — DON'T CENTER THE LANDMARK
+            </div>
+          ):(
+            <div style={{background:`${CC}18`,border:`1px solid ${CC}50`,
+              borderRadius:20,padding:'7px 18px',fontSize:10,color:CC,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+              ✦ TAP {(zl?.tip||'the landmark').toUpperCase()}
+            </div>
+          )}
+        </div>
+
         {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
           transform:'translate(-50%,-50%)',width:44,height:44,
           border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
@@ -4283,12 +4423,17 @@ export default function App() {
           arFov={arFov}
           vfov={activeVFov}
           onSkip={()=>setCalibShow(false)}
-          onComplete={(hdgBias,fov,pitchBias)=>{
+          onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele)=>{
             setHdgBias(hdgBias);
             try{localStorage.setItem('soratomo_hdg_bias',String(hdgBias));}catch{}
-            if(Math.abs(fov-arFov)>2){
-              setArFov(fov); setCamFov(fov);
-              try{localStorage.setItem('soratomo_cam_fov',String(fov));}catch{}
+            // Use fovWide from zoom calib if available, else bearing-solved fov
+            const bestFov=fovWide||fov;
+            if(Math.abs(bestFov-arFov)>1){
+              setArFov(bestFov); setCamFov(bestFov);
+              try{localStorage.setItem('soratomo_cam_fov',String(bestFov));}catch{}
+            }
+            if(fovTele!=null){
+              try{localStorage.setItem('soratomo_cam_fov_tele',String(fovTele));}catch{}
             }
             if(pitchBias!=null){
               setPitchBias(pitchBias);
@@ -4296,8 +4441,9 @@ export default function App() {
             }
             setCalibShow(false);
             const hMsg=`hdg ${hdgBias>0?'+':''}${Math.round(hdgBias)}°`;
-            const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:''
-            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}`);
+            const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:'';
+            const zMsg=fovWide!=null?` · wide ${Math.round(fovWide)}°${fovTele?'/tele '+Math.round(fovTele)+'°':''}`:'';
+            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}${zMsg}`);
           }}/>
       )}
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
