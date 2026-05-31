@@ -1407,6 +1407,20 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         background:'rgba(1,8,20,0.6)',padding:'1px 5px',borderRadius:3,pointerEvents:'none',
       }}>{f.cs}</div>
 
+      {/* Confidence label — tilt/camera mode, selected aircraft only */}
+      {isSelected && tiltMode && f.confidence && (()=>{
+        const cc={HIGH:'#2dffb4',MED:'#ffb84d',LOW:'#ff5555'}[f.confidence];
+        return (
+          <div style={{
+            position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
+            marginTop:20,fontSize:7,color:cc,
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+            whiteSpace:'nowrap',pointerEvents:'none',
+            textShadow:`0 0 6px ${cc}`,
+          }}>● {f.confidence}</div>
+        );
+      })()}
+
       {/* Proximity badge */}
       {isNearby && (
         <div style={{
@@ -1430,6 +1444,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   if(prev.onSelect!==next.onSelect) return false;
   if(prev.f.id!==next.f.id||prev.f.cs!==next.f.cs||prev.f.type!==next.f.type) return false;
   if(prev.f.alt!==next.f.alt||prev.f.hdg!==next.f.hdg||prev.f.spd!==next.f.spd) return false;
+  if(prev.f.confidence!==next.f.confidence||prev.f.uncertRadiusVw!==next.f.uncertRadiusVw) return false;
   if(Math.abs(prev.f.x-next.f.x)>0.05||Math.abs(prev.f.y-next.f.y)>0.05) return false;
   if((prev.f.trail?.length??0)!==(next.f.trail?.length??0)) return false;
   return true; // equal — skip re-render
@@ -1783,10 +1798,26 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           fontFamily:"'Orbitron',monospace",letterSpacing:'0.06em'}}>X CLOSE</button>
       </div>
       <div style={{background:'rgba(4,15,36,0.9)',borderRadius:7,border:`0.5px solid ${color}18`,
-        padding:'6px 10px',marginBottom:10,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        padding:'6px 10px',marginBottom:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>OVER</span>
         <span style={{fontSize:12,color:'#a8d8f0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{over}</span>
       </div>
+      {/* Confidence / accuracy indicator */}
+      {f.confidence&&(()=>{
+        const cc={HIGH:'#2dffb4',MED:'#ffb84d',LOW:'#ff5555'}[f.confidence];
+        const desc={HIGH:'Position accurate · DR error < 150 m',MED:'Moderate uncertainty · DR error 150–600 m',LOW:'Low confidence · AR marker may be offset'}[f.confidence];
+        return (
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+            background:`${cc}10`,border:`0.5px solid ${cc}35`,
+            borderRadius:7,padding:'5px 10px',marginBottom:10}}>
+            <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>ACCURACY</span>
+            <div style={{textAlign:'right'}}>
+              <span style={{fontSize:11,color:cc,fontFamily:"'Orbitron',monospace",fontWeight:700,letterSpacing:'.1em'}}>● {f.confidence}</span>
+              <div style={{fontSize:8,color:`${cc}99`,fontFamily:"'Exo 2',sans-serif",marginTop:1}}>{desc}</div>
+            </div>
+          </div>
+        );
+      })()}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
         {stats.map(s=>(
           <div key={s.l} style={{background:'rgba(8,20,48,0.85)',borderRadius:8,
@@ -3751,7 +3782,9 @@ export default function App() {
     const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
     // Floor: 3° = minimum AR pointing + display uncertainty (ensures visible bubble)
     const uncertRadiusVw  = Math.max(9, Math.min(28, (Math.max(angUncertDeg, 3)/activeFov)*50));
-    return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw};
+    // Confidence label — derived from total position error at time of render
+    const confidence = totalUncertM < 150 ? 'HIGH' : totalUncertM < 600 ? 'MED' : 'LOW';
+    return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
   }).filter(f=>f.on && (!cameraMode || f.dist<=55560)); // 55560m = 30 nmi in cam mode
 
 
