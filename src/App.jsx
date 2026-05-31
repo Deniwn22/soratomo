@@ -2155,274 +2155,316 @@ function LogbookCharts({entries, filterNmi, pos}){
 
 
 // ── Landmark fetch for AR calibration ─────────────────────────────
-// Queries OpenStreetMap Overpass API for named, visually-precise
-// landmarks within 5 nmi.  No API key required.
-// Falls back to airports-only if the query fails.
-const CALIB_RADIUS_M = 5 * 1852; // 5 nmi
+// Queries OpenStreetMap Overpass for visually-precise, named landmarks
+// within 5 nmi.  Uses GET + URL-encoding (more compatible than POST).
+// Falls back to a second Overpass mirror, then to local airports.
+const CALIB_RADIUS_M = 5 * 1852;
 const LANDMARK_SCORE = {
-  // man_made
-  tower:10, lighthouse:10, mast:8, chimney:7, water_tower:7,
-  // historic
-  monument:9, castle:8, fort:8, memorial:7, ruins:5,
-  // building
-  cathedral:8, church:5, chapel:4, skyscraper:9, stadium:7,
-  // tourism
-  attraction:6, viewpoint:8, museum:5, gallery:4,
-  // amenity
+  tower:10,lighthouse:10,mast:8,chimney:7,water_tower:7,
+  monument:9,castle:8,fort:8,memorial:7,ruins:5,
+  cathedral:8,church:5,chapel:4,skyscraper:9,stadium:7,
+  attraction:6,viewpoint:8,museum:5,gallery:4,
   place_of_worship:5,
 };
 
+async function overpassFetch(url, timeoutMs) {
+  // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController
+  const ctrl = new AbortController();
+  const tid  = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, {signal: ctrl.signal});
+    clearTimeout(tid);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  } catch(e) { clearTimeout(tid); throw e; }
+}
+
 async function fetchCalibLandmarks(lat, lon) {
   const R = CALIB_RADIUS_M;
-  // Query precise point features — towers, spires, monuments, viewpoints.
-  // 'out body center' gives centre coordinates for way/relation elements.
-  const q = `[out:json][timeout:10];
-(
-  node["man_made"~"^(tower|lighthouse|water_tower|mast|chimney)$"](around:${R},${lat},${lon});
-  node["historic"~"^(monument|memorial|castle|fort|ruins)$"](around:${R},${lat},${lon});
-  node["tourism"~"^(attraction|viewpoint|museum)$"](around:${R},${lat},${lon});
-  node["building"~"^(cathedral|church|chapel|skyscraper)$"](around:${R},${lat},${lon});
-  node["amenity"="place_of_worship"]["name"](around:${R},${lat},${lon});
-  way["man_made"~"^(tower|lighthouse)$"](around:${R},${lat},${lon});
-  way["historic"~"^(monument|memorial|castle)$"](around:${R},${lat},${lon});
-  way["tourism"="attraction"]["name"](around:${R},${lat},${lon});
-  way["building"~"^(cathedral|skyscraper|stadium)$"]["name"](around:${R},${lat},${lon});
-);
-out body center;`;
-  try {
-    const resp = await fetch('https://overpass-api.de/api/interpreter',{
-      method:'POST', body:q,
-      signal: AbortSignal.timeout(12000),
-    });
-    if(!resp.ok) throw new Error('overpass '+resp.status);
-    const data = await resp.json();
-    const results = (data.elements||[])
+  // Single-line query avoids multiline POST body encoding issues
+  const q = `[out:json][timeout:9];(node["man_made"~"^(tower|lighthouse|water_tower|mast|chimney)$"](around:${R},${lat},${lon});node["historic"~"^(monument|memorial|castle|fort)$"](around:${R},${lat},${lon});node["tourism"~"^(attraction|viewpoint)$"](around:${R},${lat},${lon});node["building"~"^(cathedral|skyscraper|stadium)$"](around:${R},${lat},${lon});way["man_made"~"^(tower|lighthouse)$"](around:${R},${lat},${lon});way["historic"~"^(monument|memorial|castle)$"](around:${R},${lat},${lon});way["tourism"="attraction"]["name"](around:${R},${lat},${lon});way["building"~"^(cathedral|skyscraper|stadium)$"]["name"](around:${R},${lat},${lon}););out body center;`;
+  const enc = encodeURIComponent(q);
+  const ENDPOINTS = [
+    `https://overpass-api.de/api/interpreter?data=${enc}`,
+    `https://overpass.kumi.systems/api/interpreter?data=${enc}`,
+  ];
+
+  let data = null;
+  for(const url of ENDPOINTS) {
+    try { data = await overpassFetch(url, 11000); break; }
+    catch(e) { console.warn('Overpass endpoint failed:', url, e?.message); }
+  }
+
+  if(data?.elements?.length) {
+    const results = data.elements
       .filter(e=>e.tags?.name)
       .map(e=>{
         const elat = e.lat ?? e.center?.lat;
         const elon = e.lon ?? e.center?.lon;
         if(!elat||!elon) return null;
-        const tags   = e.tags;
-        const kind   = tags.man_made||tags.historic||tags.building||tags.tourism||tags.amenity||'';
-        const score  = LANDMARK_SCORE[kind]||3;
-        const height = parseFloat(tags.height||tags['building:height']||'0')||0;
-        const name   = tags.name;
+        const t    = e.tags;
+        const kind = t.man_made||t.historic||t.building||t.tourism||t.amenity||'';
+        const height = parseFloat(t.height||t['building:height']||'0')||0;
         return {
-          name, kind, height,
+          name: t.name, kind, height,
           lat:elat, lon:elon,
-          dist:  haversine(lat,lon,elat,elon)/M_PER_NMI,
+          dist:    haversine(lat,lon,elat,elon)/M_PER_NMI,
           bearing: getBearing(lat,lon,elat,elon),
-          score: score + Math.min(height/50, 3), // taller = better calibration target
+          score: (LANDMARK_SCORE[kind]||3) + Math.min(height/50,3),
+          tip: kind==='tower'||kind==='lighthouse'?'tap the very tip'
+              :kind==='cathedral'||kind==='church'?'tap the spire or cross'
+              :kind==='monument'||kind==='memorial'?'tap the top of the structure'
+              :'tap the centre',
         };
       })
       .filter(Boolean)
-      .filter(lm=>lm.dist>=0.1&&lm.dist<=5) // ignore landmarks right on top of user
-      .sort((a,b)=>(b.score-a.score)||(a.dist-b.dist))
-      .slice(0,6); // keep top-6 so user can skip ones they can't see
-    if(results.length) return results;
-  } catch(err){
-    console.warn('Overpass calib query failed:',err?.message);
+      .filter(lm=>lm.dist>=0.15&&lm.dist<=5)
+      .sort((a,b)=>(b.score-a.score)||(a.dist-b.dist));
+
+    // Deduplicate by proximity (same physical structure may be node + way)
+    const deduped=[];
+    for(const lm of results){
+      if(!deduped.some(d=>haversine(d.lat,d.lon,lm.lat,lm.lon)<100&&d.name===lm.name))
+        deduped.push(lm);
+    }
+    if(deduped.length) return deduped.slice(0,6);
   }
-  // ── Fallback: airports within 5 nmi ──────────────────────────────
-  return AIRPORTS
+
+  // Fallback: airports — show ICAO code + "ATC Tower" so the tap target is unambiguous
+  const airportFallback = AIRPORTS
     .map(a=>({
-      name:a.name, kind:'airport',
-      lat:a.lat, lon:a.lon,
-      dist: haversine(lat,lon,a.lat,a.lon)/M_PER_NMI,
+      name: a.id.toUpperCase() + ' — ATC Tower',  // e.g. "DCA — ATC Tower"
+      kind:'airport',
+      lat:a.lat, lon:a.lon, height:50,             // ~50m typical tower height for scoring
+      dist:    haversine(lat,lon,a.lat,a.lon)/M_PER_NMI,
       bearing: getBearing(lat,lon,a.lat,a.lon),
       score:6,
+      tip:'tap the top of the control tower',
     }))
-    .filter(lm=>lm.dist<=5)
+    .filter(lm=>lm.dist>=0.3&&lm.dist<=5)
     .sort((a,b)=>a.dist-b.dist)
-    .slice(0,3);
+    .slice(0,2);
+  return airportFallback;
 }
 
-// ── Landmark Calibration Overlay ──────────────────────────────────
-// The user taps known landmarks to calibrate the compass (hdgBias) and
-// optionally the camera FOV.  Math per tap:
-//   hdgBias = landmarkBearing - rawHeadingAtTap - (xPct-50)*fov/100
-// Two taps also solve for FOV:
-//   fov = 100 * (relBear1 - relBear2) / (x1 - x2)
-function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComplete, onSkip }) {
-  const [step,   setStep]   = React.useState(0);  // index into allLandmarks
-  const [taps,   setTaps]   = React.useState([]);
-  const [tapFx,  setTapFx]  = React.useState(null);
 
-  // loading state
+// ── Landmark Calibration Overlay ──────────────────────────────────
+function CalibrationOverlay({ allLandmarks, loading, headingRef, arFov, onComplete, onSkip }) {
+  const [step,  setStep]  = React.useState(0);
+  const [taps,  setTaps]  = React.useState([]);
+  const [tapFx, setTapFx] = React.useState(null);
+  // Live heading for the sweep arrow — re-render each animation frame
+  const [liveHdg, setLiveHdg] = React.useState(headingRef.current||0);
+  React.useEffect(()=>{
+    let af; const tick=()=>{ setLiveHdg(headingRef.current||0); af=requestAnimationFrame(tick); };
+    af=requestAnimationFrame(tick);
+    return ()=>cancelAnimationFrame(af);
+  },[headingRef]);
+
+  const normAngle = a => ((a%360)+540)%360-180;
+  const CC = '#2dffb4';
+
+  // Loading state
   if(loading) return (
-    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:10}}>
-      <div style={{background:'rgba(2,10,28,0.92)',border:'1px solid rgba(77,184,255,0.2)',borderRadius:12,padding:'18px 28px',textAlign:'center'}}>
-        <div style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',marginBottom:8}}>FINDING LANDMARKS…</div>
-        <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>Querying OpenStreetMap nearby</div>
+    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
+      alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12}}>
+      <div style={{background:'rgba(2,10,28,0.92)',border:`1px solid ${CC}30`,
+        borderRadius:12,padding:'20px 28px',textAlign:'center'}}>
+        <div style={{fontSize:10,color:CC,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.14em',marginBottom:6}}>FINDING LANDMARKS…</div>
+        <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>
+          Querying OpenStreetMap nearby
+        </div>
       </div>
-      <button onClick={onSkip} style={{background:'transparent',border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#4a7898',padding:'5px 14px',cursor:'pointer',fontSize:9,fontFamily:"'Orbitron',monospace"}}>SKIP</button>
+      <button onClick={onSkip} style={{background:'transparent',
+        border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#4a7898',
+        padding:'5px 14px',cursor:'pointer',fontSize:9,
+        fontFamily:"'Orbitron',monospace"}}>SKIP</button>
     </div>
   );
-
   if(!allLandmarks.length) return null;
-
   const lm = allLandmarks[step];
   if(!lm) return null;
 
-  // Hint arrow: how far off-center is the landmark based on CURRENT raw heading?
-  const normAngle = a => ((a % 360) + 540) % 360 - 180;
-  const relDeg    = normAngle(lm.bearing - headingRef.current);
-  const offscreen = Math.abs(relDeg) > arFov / 2;
-  const hintDir   = relDeg < -15 ? '← LOOK LEFT' : relDeg > 15 ? 'LOOK RIGHT →' : '↑ LOOK AHEAD';
-  const hintDeg   = Math.abs(Math.round(relDeg));
+  // Bearing of landmark relative to current (uncalibrated) heading
+  const relDeg   = normAngle(lm.bearing - liveHdg);
+  const onscreen = Math.abs(relDeg) <= arFov * 0.45; // within ~90% of FOV edge
+  // Arrow angle: clamp to ±80° so it's always visible even when landmark is behind
+  const arrowDeg = Math.max(-80, Math.min(80, relDeg));
+  const inFront  = Math.abs(relDeg) < 90;
 
   const handleTap = e => {
-    const r   = e.currentTarget.getBoundingClientRect();
+    const r    = e.currentTarget.getBoundingClientRect();
     const xPct = (e.clientX - r.left) / r.width  * 100;
     const yPct = (e.clientY - r.top)  / r.height * 100;
-    const rawHdg = headingRef.current;               // compass at THIS instant
-    setTapFx({x: xPct, y: yPct});
-    setTimeout(() => setTapFx(null), 800);
-
-    const newTap = { xPct, bearing: lm.bearing, rawHdg };
+    setTapFx({x:xPct, y:yPct});
+    setTimeout(()=>setTapFx(null), 800);
+    const rawHdg  = headingRef.current;
+    const newTap  = {xPct, bearing:lm.bearing, rawHdg};
     const allTaps = [...taps, newTap];
 
-    if (allTaps.length >= 2 || step + 1 >= allLandmarks.length) {
-      // ── Solve ────────────────────────────────────────────────────
+    if(allTaps.length >= 2 || step+1 >= allLandmarks.length) {
       let newFov = arFov, newBias;
-      if (allTaps.length >= 2) {
-        const [t1, t2] = allTaps;
+      if(allTaps.length >= 2) {
+        const [t1,t2] = allTaps;
         const rb1 = normAngle(t1.bearing - t1.rawHdg);
         const rb2 = normAngle(t2.bearing - t2.rawHdg);
         const dx  = t1.xPct - t2.xPct;
-        if (Math.abs(dx) > 8) {                      // enough separation to solve FOV
-          const solvedFov = 100 * normAngle(rb1 - rb2) / dx;
-          if (solvedFov > 30 && solvedFov < 130) newFov = solvedFov;
+        if(Math.abs(dx) > 8){
+          const sf = 100 * normAngle(rb1-rb2) / dx;
+          if(sf>30&&sf<130) newFov=sf;
         }
-        newBias = normAngle(rb1 - (t1.xPct - 50) * newFov / 100);
+        newBias = normAngle(rb1 - (t1.xPct-50)*newFov/100);
       } else {
         const [t1] = allTaps;
-        const rb1  = normAngle(t1.bearing - t1.rawHdg);
-        newBias    = normAngle(rb1 - (t1.xPct - 50) * newFov / 100);
+        newBias = normAngle(normAngle(t1.bearing-t1.rawHdg) - (t1.xPct-50)*newFov/100);
       }
-      newBias = Math.max(-90, Math.min(90, newBias));  // sanity clamp
-      onComplete(newBias, newFov);
+      onComplete(Math.max(-90,Math.min(90,newBias)), newFov);
     } else {
       setTaps(allTaps);
-      setStep(s => s + 1);
+      setStep(s=>s+1);
     }
   };
 
   const skipLandmark = e => {
     e.stopPropagation();
-    if(step + 1 < allLandmarks.length) setStep(s=>s+1);
+    if(step+1 < allLandmarks.length) setStep(s=>s+1);
     else onSkip();
   };
 
   const total = Math.min(allLandmarks.length, 2);
-  const CC = '#2dffb4';
 
   return (
-    <div onClick={handleTap} style={{
-      position:'absolute', inset:0, zIndex:80,
-      display:'flex', flexDirection:'column',
-    }}>
-      {/* ── Header card ── */}
+    <div onClick={onscreen ? handleTap : undefined}
+      style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
+        cursor: onscreen ? 'crosshair' : 'default'}}>
+
+      {/* ── Header ── */}
       <div onClick={e=>e.stopPropagation()} style={{
-        margin:'14px 14px 0',
-        background:'rgba(2,10,28,0.93)',
-        border:`1px solid ${CC}40`, borderRadius:12,
-        padding:'12px 14px',
+        margin:'14px 14px 0',background:'rgba(2,10,28,0.93)',
+        border:`1px solid ${CC}40`,borderRadius:12,padding:'12px 14px',
       }}>
-        {/* Title row */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',fontWeight:700}}>
-            AR CALIBRATION — STEP {step+1}/{total}
+            AR CALIBRATION — STEP {taps.length+1}/{total}
           </div>
-          <button onClick={onSkip} style={{
-            background:'transparent',border:'1px solid rgba(77,184,255,0.25)',
-            borderRadius:5,color:'#4a7898',padding:'3px 10px',cursor:'pointer',
-            fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
-          }}>SKIP</button>
+          <button onClick={onSkip} style={{background:'transparent',
+            border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
+            padding:'3px 10px',cursor:'pointer',fontSize:9,
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>SKIP</button>
         </div>
-        {/* Step dots */}
-        <div style={{display:'flex',gap:5,marginBottom:10}}>
+        {/* Progress bar */}
+        <div style={{display:'flex',gap:5,marginBottom:8}}>
           {Array.from({length:total}).map((_,i)=>(
-            <div key={i} style={{
-              height:3,flex:1,borderRadius:2,
-              background: i < step ? CC : i===step ? `${CC}88` : 'rgba(77,184,255,0.15)',
-              transition:'background 0.3s',
-            }}/>
+            <div key={i} style={{height:3,flex:1,borderRadius:2,
+              background:i<taps.length?CC:i===taps.length?`${CC}66`:'rgba(77,184,255,0.15)',
+              transition:'background 0.3s'}}/>
           ))}
         </div>
-        {/* Landmark info */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}}>
-          <div style={{fontSize:11,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",fontWeight:700,flex:1}}>
-            {lm.name.toUpperCase()}
+        {/* Landmark name + skip */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",
+              fontWeight:700,marginBottom:2}}>{lm.name.toUpperCase()}</div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif"}}>
+              {lm.kind&&<span style={{color:'#3a7898',textTransform:'capitalize',marginRight:6}}>{lm.kind}</span>}
+              {lm.dist.toFixed(1)} nmi · {Math.round(lm.bearing)}°
+              {lm.height>10&&<span style={{color:'#2a5068',marginLeft:6}}>{Math.round(lm.height)}m</span>}
+            </div>
           </div>
-          {allLandmarks.length>taps.length+1&&(
-            <button onClick={skipLandmark} style={{
-              background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
-              borderRadius:5,color:'#3a6878',padding:'2px 8px',cursor:'pointer',
-              fontSize:8,fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
-              whiteSpace:'nowrap',marginLeft:8,flexShrink:0,
-            }}>CAN'T SEE IT →</button>
+          {allLandmarks.length > taps.length+1 && (
+            <button onClick={skipLandmark} style={{background:'transparent',flexShrink:0,marginLeft:8,
+              border:'1px solid rgba(77,184,255,0.2)',borderRadius:5,color:'#3a6878',
+              padding:'2px 8px',cursor:'pointer',fontSize:8,
+              fontFamily:"'Orbitron',monospace"}}>CAN'T SEE IT →</button>
           )}
         </div>
-        <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:6}}>
-          {lm.kind?<span style={{color:'#3a7898',marginRight:6,textTransform:'capitalize'}}>{lm.kind}</span>:null}
-          {lm.dist.toFixed(1)} nmi · {Math.round(lm.bearing)}°
-          {lm.height>10?<span style={{color:'#2a5068',marginLeft:6}}>{Math.round(lm.height)}m tall</span>:null}
-        </div>
-        <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
-          Find <strong style={{color:CC}}>{lm.name}</strong> and tap its tip or centre.
-        </div>
       </div>
 
-      {/* ── Direction hint bar ── */}
+      {/* ── Sweep arrow — visible on camera feed ── */}
       <div onClick={e=>e.stopPropagation()} style={{
-        margin:'8px 14px 0',
-        background:'rgba(2,10,28,0.85)',
-        border:'1px solid rgba(77,184,255,0.15)', borderRadius:8,
-        padding:'8px 14px',
-        display:'flex',justifyContent:'space-between',alignItems:'center',
+        position:'absolute',
+        left:'50%', bottom: onscreen ? 100 : 80,
+        transform:'translateX(-50%)',
+        display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+        pointerEvents:'none',
       }}>
-        <span style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-          {offscreen ? `ROTATE ${hintDeg}° ${relDeg<0?'LEFT':'RIGHT'}` : hintDir}
-        </span>
-        <span style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace"}}>
-          {hintDeg}° {relDeg<0?'L':'R'} of centre
-        </span>
+        {!inFront ? (
+          /* Behind you */
+          <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884480',
+            borderRadius:8,padding:'6px 14px',fontSize:9,color:'#ff8844',
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+            ↩ TURN AROUND — LANDMARK IS BEHIND YOU
+          </div>
+        ) : onscreen ? (
+          /* On-screen — show tap prompt */
+          <div style={{background:`${CC}18`,border:`1px solid ${CC}60`,
+            borderRadius:20,padding:'6px 18px',fontSize:10,color:CC,
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+            ✦ TAP {lm.tip ? lm.tip.toUpperCase() : 'THE LANDMARK'}
+          </div>
+        ) : (
+          /* Off-screen — show rotation arrow */
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+            <svg width="64" height="64" viewBox="0 0 64 64">
+              <defs>
+                <marker id="ah" markerWidth="6" markerHeight="6" refX="3" refY="3"
+                  orient="auto">
+                  <polygon points="0,0 6,3 0,6" fill={CC}/>
+                </marker>
+              </defs>
+              {/* Curved rotation arrow */}
+              <path d={arrowDeg<0
+                ? "M 44,32 A 18,18 0 0,0 20,32"
+                : "M 20,32 A 18,18 0 0,1 44,32"}
+                stroke={CC} strokeWidth="2.5" fill="none" markerEnd="url(#ah)"/>
+              <text x="32" y="58" textAnchor="middle" fontSize="10" fill={CC}
+                fontFamily="Orbitron,monospace">{Math.abs(Math.round(relDeg))}°</text>
+            </svg>
+            <div style={{background:'rgba(2,10,28,0.88)',border:`1px solid ${CC}40`,
+              borderRadius:8,padding:'5px 14px',fontSize:9,color:'#c8eaf8',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
+              ROTATE {relDeg<0?'LEFT':'RIGHT'} {Math.abs(Math.round(relDeg))}°
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Tap feedback flash ── */}
-      {tapFx&&(
+      {/* ── Horizon line showing where landmark sits vertically ── */}
+      {onscreen&&(
         <div style={{
           position:'absolute',
-          left:`${tapFx.x}%`, top:`${tapFx.y}%`,
-          transform:'translate(-50%,-50%)',
-          width:44, height:44,
-          border:`2px solid ${CC}`,
-          borderRadius:'50%',
+          top:'42%', left:0, right:0,
+          height:1, background:`${CC}30`,
           pointerEvents:'none',
-          animation:'ping 0.7s ease-out 1 forwards',
-          zIndex:90,
-        }}/>
+        }}>
+          <div style={{
+            position:'absolute',
+            left: `${50 + relDeg/arFov*50}%`,
+            transform:'translateX(-50%) translateY(-50%)',
+            width:12, height:12,
+            border:`2px solid ${CC}`,
+            borderRadius:'50%',
+            background:`${CC}30`,
+          }}/>
+        </div>
       )}
 
-      {/* ── Bottom instruction ── */}
-      <div style={{
-        flex:1, display:'flex', alignItems:'flex-end', justifyContent:'center',
-        paddingBottom:36, pointerEvents:'none',
-      }}>
-        <div style={{
-          background:'rgba(2,10,28,0.8)',
-          border:`1px solid ${CC}30`, borderRadius:20,
-          padding:'8px 18px',
-          fontSize:10, color:`${CC}cc`,
-          fontFamily:"'Orbitron',monospace", letterSpacing:'.1em',
-        }}>
-          TAP THE LANDMARK ON SCREEN
-        </div>
-      </div>
+      {/* ── Tap feedback ring ── */}
+      {tapFx&&(
+        <div style={{position:'absolute',
+          left:`${tapFx.x}%`,top:`${tapFx.y}%`,
+          transform:'translate(-50%,-50%)',
+          width:44,height:44,border:`2px solid ${CC}`,
+          borderRadius:'50%',pointerEvents:'none',zIndex:90,
+          animation:'ping 0.7s ease-out 1 forwards',
+        }}/>
+      )}
     </div>
   );
 }
+
+
 
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
