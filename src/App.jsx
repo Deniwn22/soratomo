@@ -2682,7 +2682,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
           </div>
           <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
             {needsTilt&&done>0
-              ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch<(lastDP||0)?'UP':'DOWN'} more, then tap</span>
+              ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch>(lastDP||0)?'UP':'DOWN'} more, then tap</span>
               :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
           </div>
         </div>
