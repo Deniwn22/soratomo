@@ -2764,12 +2764,12 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     return(
       <div
         onTouchStart={(e)=>{ if(e.touches.length>1) suppressClick.current=true; }}
-        onClick={(!tooClose&&!offscreen)?(e)=>{
+        onClick={(!tooClose)?(e)=>{
           if(suppressClick.current){suppressClick.current=false;return;}
           handleZoomTap(e);
         }:undefined}
         style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
-          cursor:(!tooClose&&!offscreen)?'crosshair':'default'}}>
+          cursor:(!tooClose)?'crosshair':'default'}}>
         {/* Header */}
         <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
           background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
@@ -2825,31 +2825,34 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
           </div>
         </div>
 
-        {/* Landmark position indicator — vertical line showing approx landmark position */}
-        {!offscreen&&(
-          <div style={{position:'absolute',top:0,bottom:0,
-            left:`${Math.max(2,Math.min(98,zXpct))}%`,
-            width:1,background:'rgba(77,184,255,0.18)',pointerEvents:'none'}}>
-            <div style={{position:'absolute',top:'38%',left:6,
-              fontSize:8,color:'rgba(77,184,255,0.5)',fontFamily:"'Orbitron',monospace",
-              whiteSpace:'nowrap'}}>← {zl?.name?.split(' ')[0]}</div>
-          </div>
-        )}
+        {/* Landmark position indicator — always shown; dashed when app thinks it's offscreen
+             since the pre-calibration compass may be wrong about the landmark's location */}
+        <div style={{position:'absolute',top:0,bottom:0,
+          left:`${Math.max(2,Math.min(98,zXpct))}%`,
+          width:1,
+          background:offscreen?'rgba(255,136,68,0.25)':'rgba(77,184,255,0.18)',
+          borderLeft:offscreen?'1px dashed rgba(255,136,68,0.4)':undefined,
+          pointerEvents:'none'}}>
+          <div style={{position:'absolute',top:'38%',left:6,
+            fontSize:8,color:offscreen?'rgba(255,136,68,0.6)':'rgba(77,184,255,0.5)',
+            fontFamily:"'Orbitron',monospace",
+            whiteSpace:'nowrap'}}>← {zl?.name?.split(' ')[0]}</div>
+        </div>
 
         {/* Centre instruction / warning */}
         <div style={{flex:1,display:'flex',alignItems:'flex-end',
           justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
-          {offscreen?(
-            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884480',
-              borderRadius:8,padding:'6px 14px',fontSize:9,color:'#ff8844',
-              fontFamily:"'Orbitron',monospace"}}>
-              ROTATE {zRelDeg<0?'LEFT':'RIGHT'} — LANDMARK OFF SCREEN
-            </div>
-          ):tooClose?(
+          {tooClose?(
             <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ffb84d50',
               borderRadius:20,padding:'7px 18px',fontSize:10,color:'#ffb84d',
               fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
               ROTATE SLIGHTLY — DON'T CENTER THE LANDMARK
+            </div>
+          ):offscreen?(
+            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884440',
+              borderRadius:20,padding:'7px 18px',fontSize:9,color:'#ff8844bb',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
+              ⚠ LANDMARK MAY BE OFF SCREEN — TAP IF YOU CAN SEE IT
             </div>
           ):(
             <div style={{background:`${CC}18`,border:`1px solid ${CC}50`,
