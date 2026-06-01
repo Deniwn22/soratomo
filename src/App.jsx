@@ -1736,7 +1736,10 @@ function AircraftInfoButton({ typeCode, style }) {
     if(loading) return;
     setLoading(true);
     // Open blank window NOW (synchronous — iOS allows it; async calls block popups)
-    const win = window.open('', '_blank', 'noopener');
+    // NOTE: no 'noopener' — that flag makes window.open() return null,
+    // which would prevent navigating the window after the async API call.
+    // Wikipedia/DuckDuckGo are trusted destinations so omitting it is safe.
+    const win = window.open('', '_blank');
     try {
       const wikiUrl = await fetchWikiArticleUrl(typeCode);
       if(wikiUrl) {
