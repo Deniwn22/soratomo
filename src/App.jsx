@@ -4207,8 +4207,13 @@ export default function App() {
   const [scanPitch,   setScanPitch]   = useState(0);   // free-pan pitch in scan mode (-60..60)
   const [cameraMode,  setCameraMode]  = useState(false);
   const [captureFlash,setCaptureFlash]= useState(false); // white flash on capture
-  const videoRef   = useRef(null);
-  const streamRef  = useRef(null); // increments each fetch → resets sweep animation
+  const videoRef        = useRef(null);
+  const streamRef       = useRef(null);
+  // Refs for stale-closure access inside the mount-once mv/pinch handler
+  const cameraModeRef   = useRef(false);
+  const camFovRef       = useRef(77);
+  const camFovTeleRef   = useRef(null);
+  const lastPinchTime   = useRef(0); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
   const [showStats,   setShowStats]   = useState(false);
@@ -4228,7 +4233,10 @@ export default function App() {
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
   const pitchRef = useRef(devicePitch);
-  useEffect(()=>{ pitchRef.current = devicePitch; },[devicePitch]);
+  useEffect(()=>{ pitchRef.current   = devicePitch;     },[devicePitch]);
+  useEffect(()=>{ cameraModeRef.current = cameraMode;   },[cameraMode]);
+  useEffect(()=>{ camFovRef.current     = camFov;       },[camFov]);
+  useEffect(()=>{ camFovTeleRef.current = camFovTele;   },[camFovTele]);
   const [hdgBias,     setHdgBias]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
   const [pitchBias,   setPitchBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
   const [gallery,     setGallery]     = useState(()=>loadGallery());
@@ -4911,6 +4919,8 @@ export default function App() {
     let cancelled=false;
     const poll=()=>{
       if(cancelled) return;
+      // Skip if a pinch just happened — give applyConstraints time to settle
+      if(Date.now()-lastPinchTime.current<300) return;
       try{
         const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
         const settings=track?.getSettings?.();
@@ -4959,6 +4969,28 @@ export default function App() {
         // Spread fingers → smaller FOV (zoom in); pinch → larger FOV (zoom out)
         const newFov=Math.max(20,Math.min(120, pinchRef.current.fov*(pinchRef.current.dist/dist)));
         setArFov(newFov);
+        lastPinchTime.current=Date.now();
+        // In camera mode: sync hardware zoom so poll reads the correct level
+        if(cameraModeRef.current){
+          try{
+            const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
+            const cap=track?.getCapabilities?.();
+            if(cap?.zoom&&camFovRef.current>0){
+              // Inverse of geometric interpolation: t = log(fov/camFov)/log(camFovTele/camFov)
+              // Fallback estimate: zoom = zMin * camFov / newFov
+              const zMin=cap.zoom.min, zMax=cap.zoom.max;
+              let targetZ;
+              const tele=camFovTeleRef.current;
+              if(tele!=null&&tele<camFovRef.current&&zMax>zMin){
+                const t=Math.log(newFov/camFovRef.current)/Math.log(tele/camFovRef.current);
+                targetZ=zMin+Math.max(0,Math.min(1,t))*(zMax-zMin);
+              }else{
+                targetZ=zMin*camFovRef.current/newFov;
+              }
+              track.applyConstraints({advanced:[{zoom:Math.max(zMin,Math.min(zMax,targetZ))}]}).catch(()=>{});
+            }
+          }catch{}
+        }
         return;
       }
       // Single-finger drag — pan scanHeading (H) and scanPitch (V)
@@ -5177,6 +5209,12 @@ export default function App() {
               try{localStorage.setItem('soratomo_pitch_bias',String(pitchBias));}catch{}
             }
             setCalibShow(false);
+            // Reset hardware zoom to min after calibration (ZOOM IN button leaves it at max)
+            try{
+              const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
+              const cap=track?.getCapabilities?.();
+              if(cap?.zoom) track.applyConstraints({advanced:[{zoom:cap.zoom.min}]}).catch(()=>{});
+            }catch{}
             // Record when calibration was last completed
             const now=Date.now(); setLastCalibTs(now);
             try{localStorage.setItem('soratomo_calib_ts',String(now));}catch{}
