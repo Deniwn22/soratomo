@@ -2475,7 +2475,7 @@ function CalibrationPrompt({ lastCalibTs, airborne, speedKts, onCalibrate, onSki
 // ── Landmark Calibration Overlay ──────────────────────────────────
 function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
                                arFov, vfov, airborne, currentHdgBias,
-                               onComplete, onSkip }) {
+                               videoRef, onComplete, onSkip }) {
   // Airborne: skip landmark (phase 1) and zoom (phase 3), horizon only
   const [phase,     setPhase]   = React.useState(airborne?'horizon':'landmark');
   const [step,      setStep]    = React.useState(0);
@@ -2488,6 +2488,27 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
   const solvedRef = React.useRef({hdgBias:airborne?(currentHdgBias||0):0,
                                    newFov:arFov,pitchBias:null,
                                    fovWide:null,fovTele:null,zoomLm:null});
+  // Multi-touch suppression: ignore click events that follow a pinch gesture
+  const suppressClick = React.useRef(false);
+  // Programmatic zoom via MediaStream API (iOS 15+, Chrome)
+  const [zoomCap, setZoomCap] = React.useState(null); // {min,max} or null
+  React.useEffect(()=>{
+    const check=()=>{
+      const track=videoRef?.current?.srcObject?.getVideoTracks?.()?.[0];
+      const cap=track?.getCapabilities?.();
+      if(cap?.zoom) setZoomCap({min:cap.zoom.min,max:cap.zoom.max});
+    };
+    // Video track may not be ready immediately — retry briefly
+    check(); const t=setTimeout(check,600);
+    return ()=>clearTimeout(t);
+  },[videoRef]);
+  const applyZoom=React.useCallback(async(level)=>{
+    try{
+      const track=videoRef?.current?.srcObject?.getVideoTracks?.()?.[0];
+      if(!track||!zoomCap) return;
+      await track.applyConstraints({advanced:[{zoom:level==='wide'?zoomCap.min:zoomCap.max}]});
+    }catch(err){ console.warn('Zoom API:',err); }
+  },[videoRef,zoomCap]);
   const [zoomStep, setZoomStep] = React.useState(0); // 0=wide 1=tele
   const [zoomTaps, setZoomTaps] = React.useState([]);
 
@@ -2741,7 +2762,12 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     const label=zoomStep===0?'ZOOM ALL THE WAY OUT':'ZOOM ALL THE WAY IN';
     const icon =zoomStep===0?'⊖':'⊕';
     return(
-      <div onClick={(!tooClose&&!offscreen)?handleZoomTap:undefined}
+      <div
+        onTouchStart={(e)=>{ if(e.touches.length>1) suppressClick.current=true; }}
+        onClick={(!tooClose&&!offscreen)?(e)=>{
+          if(suppressClick.current){suppressClick.current=false;return;}
+          handleZoomTap(e);
+        }:undefined}
         style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
           cursor:(!tooClose&&!offscreen)?'crosshair':'default'}}>
         {/* Header */}
@@ -2749,9 +2775,32 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
           background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
           borderRadius:12,padding:'12px 14px'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-            <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-              letterSpacing:'.14em',fontWeight:700}}>
-              ZOOM CALIBRATION — {icon} {label}
+            <div>
+              <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.14em',fontWeight:700,marginBottom:zoomCap?4:0}}>
+                ZOOM CALIBRATION — {icon} {label}
+              </div>
+              {zoomCap&&(
+                // API available: buttons snap zoom so user never needs to pinch
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={(e)=>{e.stopPropagation();applyZoom('wide');}} style={{
+                    background:zoomStep===0?`${CC}20`:'transparent',
+                    border:`1px solid ${zoomStep===0?CC:'rgba(77,184,255,0.25)'}`,
+                    borderRadius:5,padding:'3px 10px',cursor:'pointer',
+                    color:zoomStep===0?CC:'#3a6878',fontSize:8,
+                    fontFamily:"'Orbitron',monospace",letterSpacing:'.06em'}}>
+                    ⊖ ZOOM OUT
+                  </button>
+                  <button onClick={(e)=>{e.stopPropagation();applyZoom('tele');}} style={{
+                    background:zoomStep===1?`${CC}20`:'transparent',
+                    border:`1px solid ${zoomStep===1?CC:'rgba(77,184,255,0.25)'}`,
+                    borderRadius:5,padding:'3px 10px',cursor:'pointer',
+                    color:zoomStep===1?CC:'#3a6878',fontSize:8,
+                    fontFamily:"'Orbitron',monospace",letterSpacing:'.06em'}}>
+                    ⊕ ZOOM IN
+                  </button>
+                </div>
+              )}
             </div>
             <button onClick={skipZoom} style={{background:'transparent',
               border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
@@ -2766,9 +2815,13 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
             ))}
           </div>
           <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
-            {zoomStep===0
-              ?<>Zoom camera <strong style={{color:CC}}>all the way OUT</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
-              :<>Now zoom camera <strong style={{color:CC}}>all the way IN</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>}
+            {zoomCap
+              ?(zoomStep===0
+                ?<>Tap <strong style={{color:CC}}>SET WIDE</strong> above, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
+                :<>Tap <strong style={{color:CC}}>SET TELE</strong> above, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>)
+              :(zoomStep===0
+                ?<>Pinch camera <strong style={{color:CC}}>all the way OUT</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
+                :<>Now pinch camera <strong style={{color:CC}}>all the way IN</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>)}
           </div>
         </div>
 
@@ -4158,6 +4211,7 @@ export default function App() {
   const [showStats,   setShowStats]   = useState(false);
   const [density,     setDensity]     = useState('compact'); // compact|normal
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
+  const [camFovTele,  setCamFovTele]  = useState(()=>{try{const v=localStorage.getItem('soratomo_cam_fov_tele');return v?parseFloat(v):null;}catch{return null;}});
   const [calibShow,   setCalibShow]   = useState(false);
   const [calibPrompt, setCalibPrompt] = useState(false);
   const [calibAirborne, setCalibAirborne] = useState(false);
@@ -4839,7 +4893,43 @@ export default function App() {
 
   useEffect(()=>{const t=setTimeout(()=>setShowHint(false),5000);return()=>clearTimeout(t);},[]);
 
-  // Touch/mouse: drag to scan (non-tilt) + pinch to zoom (any mode)
+  // ── Sync arFov from hardware zoom in camera mode ─────────────────
+  // iOS/WKWebView intercepts pinch gestures for native camera zoom before
+  // the app's touch handler fires, so arFov must be updated by polling
+  // track.getSettings().zoom rather than relying on the pinch handler.
+  //
+  // Formula: geometric interpolation between wide and tele calibrated FOVs.
+  //   With tele cal: camFov * (camFovTele/camFov)^t  (exact)
+  //   Without cal:   camFov * zMin / z               (estimate from zoom ratio)
+  //
+  // Falls back gracefully if zoom API is unavailable.
+  useEffect(()=>{
+    if(!cameraMode) return;
+    let cancelled=false;
+    const poll=()=>{
+      if(cancelled) return;
+      try{
+        const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
+        const settings=track?.getSettings?.();
+        const cap=track?.getCapabilities?.();
+        const z=settings?.zoom, zMin=cap?.zoom?.min, zMax=cap?.zoom?.max;
+        if(z!=null&&zMin!=null&&zMax!=null&&zMax>zMin){
+          let fov;
+          if(camFovTele!=null){
+            // Geometric interpolation — physically correct for optical zoom
+            const t=Math.max(0,Math.min(1,(z-zMin)/(zMax-zMin)));
+            fov=camFov*Math.pow(camFovTele/camFov,t);
+          }else{
+            // Estimate: FOV scales inversely with zoom factor
+            fov=camFov*(zMin/z);
+          }
+          setArFov(Math.max(10,Math.min(120,fov)));
+        }
+      }catch{}
+    };
+    const id=setInterval(poll,120);
+    return()=>{ cancelled=true; clearInterval(id); };
+  },[cameraMode,camFov,camFovTele]);
   const onDown=useCallback(e=>{
     if(e.touches?.length===2){
       // Pinch start — works in both modes
@@ -5064,6 +5154,7 @@ export default function App() {
           pitchRef={pitchRef}
           arFov={arFov}
           vfov={activeVFov}
+          videoRef={videoRef}
           onSkip={()=>setCalibShow(false)}
           onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele)=>{
             setHdgBias(hdgBias);
@@ -5075,6 +5166,7 @@ export default function App() {
               try{localStorage.setItem('soratomo_cam_fov',String(bestFov));}catch{}
             }
             if(fovTele!=null){
+              setCamFovTele(fovTele);
               try{localStorage.setItem('soratomo_cam_fov_tele',String(fovTele));}catch{}
             }
             if(pitchBias!=null){
@@ -5533,16 +5625,22 @@ export default function App() {
         })}
       </svg>
 
-      {/* Aircraft markers */}
-      {mapped.map(f=>(
-        <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
-          dimmed={selectedId!==null&&selectedId!==f.id}
-          tiltMode={tiltMode}
-          onSelect={handleAircraftSelect}
-          loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
-          proximityM={proximityM}
-          isDisplayNew={displayNewIds.has(f.id)}/>
-      ))}
+      {/* Aircraft markers — dimmed and non-interactive during calibration */}
+      <div style={{
+        opacity:(calibShow||calibPrompt)?0.12:1,
+        pointerEvents:(calibShow||calibPrompt)?'none':'auto',
+        transition:'opacity 0.3s ease',
+      }}>
+        {mapped.map(f=>(
+          <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
+            dimmed={selectedId!==null&&selectedId!==f.id}
+            tiltMode={tiltMode}
+            onSelect={handleAircraftSelect}
+            loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
+            proximityM={proximityM}
+            isDisplayNew={displayNewIds.has(f.id)}/>
+        ))}
+      </div>
 
       <div style={{position:'absolute',left:10,bottom:110,zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
