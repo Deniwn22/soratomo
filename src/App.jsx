@@ -2555,10 +2555,12 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
     const newTap={xPct,bearing:lm.bearing,rawHdg:headingRef.current};
     const allTaps=[...taps,newTap];
-    // Store the actually-tapped landmark on the first tap so zoom phase uses it
-    if(taps.length===0) solvedRef.current={...solvedRef.current,zoomLm:lm};
+    // Always update zoomLm to the MOST RECENTLY tapped landmark.
+    // Using the first tap was a bug: if the user tapped landmark A then B,
+    // zoomLm stayed as A even though B is what the user last aimed at.
+    // The last tapped landmark is the most reliable zoom reference.
+    solvedRef.current={...solvedRef.current,zoomLm:lm};
     if(allTaps.length>=2||step+1>=allLandmarks.length){
-      // Spread so zoomLm (set above) survives the solveLandmark assignment
       solvedRef.current={...solvedRef.current,...solveLandmark(allTaps)};
       setTaps(allTaps);
       setPhase('horizon');
@@ -2615,8 +2617,8 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     const r=e.currentTarget.getBoundingClientRect();
     const xPct=(e.clientX-r.left)/r.width*100;
     const yPct=(e.clientY-r.top)/r.height*100;
-    const zl=solvedRef.current.zoomLm||allLandmarks[0];
-    if(!zl) return;
+    const zl=solvedRef.current.zoomLm;
+    if(!zl) return; // no landmark was ever tapped — skip silently
     const fov=solveZoomFov(xPct,zl.bearing,
                           headingRef.current,solvedRef.current.hdgBias);
     setTapFx({x:xPct,y:yPct}); setTimeout(()=>setTapFx(null),800);
@@ -2724,7 +2726,13 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
 
   // ── ZOOM PHASE ───────────────────────────────────────────────────
   if(phase==='zoom'){
-    const zl=solvedRef.current.zoomLm||allLandmarks[0];
+    const zl=solvedRef.current.zoomLm;
+    // If somehow no landmark was ever tapped (user skipped all), skip zoom entirely
+    if(!zl){
+      const{hdgBias,newFov,pitchBias}=solvedRef.current;
+      onComplete(hdgBias,newFov,pitchBias,null,null);
+      return null;
+    }
     // Current estimated position of landmark using calibrated hdgBias + arFov
     const zRelDeg=zl?normAngle(zl.bearing-(liveHdg+solvedRef.current.hdgBias)):0;
     const zXpct  =50+zRelDeg/(arFov/2)*50;         // where landmark appears now
