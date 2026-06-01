@@ -1708,14 +1708,83 @@ function typeFullName(type){
   return null;
 }
 
-// Returns a DuckDuckGo search URL for the aircraft type.
-// Uses human-readable name when available (more reliable than raw ICAO code).
-// e.g. "E55P" → "Embraer Phenom 300 aircraft"
-//      "E545" → "E545 aircraft"
-function getSearchUrl(typeCode) {
-  if(!typeCode) return null;
+
+// ── Aircraft info button — queries Wikipedia OpenSearch on tap ────────────
+// Opens a blank window immediately (avoids iOS popup blocking), then
+// navigates it to the Wikipedia article once the API responds.
+// Falls back to DuckDuckGo if Wikipedia returns no result or the API fails.
+async function fetchWikiArticleUrl(typeCode) {
   const name = typeFullName(typeCode) || typeCode.toUpperCase();
-  return `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
+  try {
+    const res = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(name)}&limit=1&format=json&origin=*`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const data = await res.json();
+    // Response: [query, [titles], [descriptions], [urls]]
+    return data[3]?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function AircraftInfoButton({ typeCode, style }) {
+  const [loading, setLoading] = React.useState(false);
+  if(!typeCode) return null;
+
+  const handleClick = async () => {
+    if(loading) return;
+    setLoading(true);
+    // Open blank window NOW (synchronous — iOS allows it; async calls block popups)
+    const win = window.open('', '_blank', 'noopener');
+    try {
+      const wikiUrl = await fetchWikiArticleUrl(typeCode);
+      if(wikiUrl) {
+        win.location.href = wikiUrl;
+      } else {
+        // No Wikipedia result — fall back to DuckDuckGo
+        const name = typeFullName(typeCode) || typeCode.toUpperCase();
+        win.location.href = `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
+      }
+    } catch {
+      const name = typeFullName(typeCode) || typeCode.toUpperCase();
+      win.location.href = `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const base = {
+    width:'100%', background:'transparent', borderRadius:8, cursor:'pointer',
+    border:'1px solid rgba(77,184,255,0.22)', color: loading ? '#2a4a58' : '#4a7898',
+    fontSize:10, fontFamily:"'Orbitron',monospace", letterSpacing:'.12em',
+    display:'flex', alignItems:'center', justifyContent:'center', gap:7,
+    padding:'9px 0', transition:'color 0.15s',
+  };
+
+  return (
+    <button onClick={handleClick} disabled={loading} style={{...base,...style}}>
+      {loading ? (
+        <>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+            style={{animation:'spin 0.9s linear infinite'}}>
+            <circle cx="6" cy="6" r="4.5" stroke="#2a4a58" strokeWidth="1.5"
+              strokeDasharray="14 8" strokeLinecap="round"/>
+          </svg>
+          LOOKING UP...
+        </>
+      ) : (
+        <>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
+            <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898"
+              strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+          GET AIRCRAFT TYPE INFO
+        </>
+      )}
+    </button>
+  );
 }
 
 
@@ -1837,24 +1906,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
           <ShareIcon/> SHARE THIS AIRCRAFT
         </button>
-        {(()=>{
-          const url=getSearchUrl(f.type);
-          if(!url) return null;
-          return (
-            <button onClick={()=>window.open(url,'_blank','noopener')} style={{
-              width:'100%',padding:'8px 0',
-              background:'transparent',borderRadius:7,cursor:'pointer',
-              border:'1px solid rgba(77,184,255,0.18)',color:'#4a7898',
-              fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
-              display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
-                <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898" strokeWidth="1.2" strokeLinecap="round"/>
-              </svg>
-              GET AIRCRAFT TYPE INFO
-            </button>
-          );
-        })()}
+        <AircraftInfoButton typeCode={f.type} style={{borderRadius:7}}/>
       </div>
     </div>
   );
@@ -2987,31 +3039,7 @@ function LogbookTailDetail({ tail, entry, onClose }) {
               }}>
               <ShareIcon/> SHARE THIS AIRCRAFT
             </button>
-            {(()=>{
-              const url=getSearchUrl(entry?.type||tail.type);
-              if(!url) return null;
-              return (
-                <button
-                  onClick={()=>window.open(url,'_blank','noopener')}
-                  style={{
-                    width:'100%',padding:'11px 0',
-                    background:'transparent',
-                    border:'1px solid rgba(77,184,255,0.25)',
-                    borderRadius:10,cursor:'pointer',
-                    color:'#4a7898',fontSize:10,
-                    fontFamily:"'Orbitron',monospace",
-                    letterSpacing:'.14em',
-                    display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-                  }}>
-                  {/* Search icon */}
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
-                    <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
-                  GET AIRCRAFT TYPE INFO
-                </button>
-              );
-            })()}
+            <AircraftInfoButton typeCode={entry?.type||tail.type} style={{padding:'11px 0',borderRadius:10,letterSpacing:'.14em'}}/>
           </div>
         </div>
       </div>
