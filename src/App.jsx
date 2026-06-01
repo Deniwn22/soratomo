@@ -2266,6 +2266,85 @@ async function fetchCalibLandmarks(lat, lon) {
 }
 
 
+
+// ── Calibration Prompt — shown before running calibration ────────
+// Tells the user when they last calibrated and lets them skip or proceed.
+function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
+  const CC = '#4db8ff';
+
+  const ageLabel = () => {
+    if(!lastCalibTs) return 'Never calibrated';
+    const hrs = (Date.now() - lastCalibTs) / 3600000;
+    if(hrs < 0.017) return 'Just now';                           // < 1 min
+    if(hrs < 1)     return `${Math.round(hrs*60)} min ago`;
+    if(hrs < 24)    return `${hrs.toFixed(1)} hrs ago`;
+    const days = Math.floor(hrs/24);
+    return `${days} day${days>1?'s':''} ago`;
+  };
+
+  const isStale = !lastCalibTs || (Date.now()-lastCalibTs) > 24*3600000; // > 24h
+
+  return (
+    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
+      alignItems:'center',justifyContent:'center',padding:24,
+      background:'rgba(0,5,15,0.72)'}}>
+      <div style={{width:'100%',maxWidth:320,background:'rgba(3,11,30,0.97)',
+        border:`1px solid ${CC}35`,borderRadius:14,padding:'22px 20px'}}>
+
+        {/* Icon */}
+        <div style={{textAlign:'center',marginBottom:12}}>
+          <svg width="36" height="36" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="16" stroke={CC} strokeWidth="1.5" fill="none" opacity=".4"/>
+            <circle cx="18" cy="18" r="2" fill={CC}/>
+            <line x1="18" y1="18" x2="18" y2="9"  stroke={CC} strokeWidth="1.8" strokeLinecap="round"/>
+            <line x1="18" y1="18" x2="24" y2="18" stroke={CC} strokeWidth="1.2" strokeLinecap="round" opacity=".6"/>
+          </svg>
+        </div>
+
+        {/* Message */}
+        <div style={{textAlign:'center',marginBottom:16}}>
+          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.14em',fontWeight:700,marginBottom:6}}>AR CALIBRATION</div>
+          <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
+            fontWeight:600,marginBottom:4}}>
+            {lastCalibTs ? 'Last calibrated' : 'Not yet calibrated'}
+          </div>
+          {lastCalibTs&&(
+            <div style={{fontSize:16,color:isStale?'#ffb84d':CC,
+              fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:6}}>
+              {ageLabel()}
+            </div>
+          )}
+          <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+            lineHeight:1.5,marginTop:4}}>
+            {isStale
+              ? 'Calibration may have drifted. Recommended before spotting.'
+              : 'If the AR overlay looks accurate, you can skip calibration.'}
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <button onClick={onCalibrate} style={{
+            width:'100%',padding:'12px 0',borderRadius:8,cursor:'pointer',
+            background:`${CC}18`,border:`1px solid ${CC}55`,
+            color:CC,fontSize:10,fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.12em',fontWeight:700}}>
+            CALIBRATE NOW
+          </button>
+          <button onClick={onSkip} style={{
+            width:'100%',padding:'11px 0',borderRadius:8,cursor:'pointer',
+            background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
+            color:'#4a7898',fontSize:10,fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.12em'}}>
+            {lastCalibTs ? 'SKIP — USE LAST CALIBRATION' : 'SKIP'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Landmark Calibration Overlay ──────────────────────────────────
 function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
                                arFov, vfov, onComplete, onSkip }) {
@@ -3917,9 +3996,13 @@ export default function App() {
   const [density,     setDensity]     = useState('compact'); // compact|normal
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
   const [calibShow,   setCalibShow]   = useState(false);
+  const [calibPrompt, setCalibPrompt] = useState(false);
   const [showHelp,    setShowHelp]    = useState(false);
   const [calibLandmarks, setCalibLandmarks] = useState([]);
   // calibLandmarks.length===0 while fetch is in-flight → overlay shows loading spinner
+  const [lastCalibTs, setLastCalibTs] = useState(()=>{
+    try{ const v=localStorage.getItem('soratomo_calib_ts'); return v?parseInt(v):null; }catch{ return null; }
+  });
   // ref so CalibrationOverlay always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
@@ -4205,12 +4288,12 @@ export default function App() {
         setArFov(camFov);
         setTiltMode(true);
         setCameraMode(true);
-        // Fetch precise OSM landmarks for calibration (async, falls back to airports)
+        // Show prompt first; fetch landmarks in parallel so they're ready if user chooses to calibrate
+        setCalibPrompt(true);
         setCalibLandmarks([]);
-        setCalibShow(true);   // show loading state immediately
         fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{
           if(lms.length) setCalibLandmarks(lms);
-          else           setCalibShow(false); // nothing found, skip silently
+          // If no landmarks found, prompt still shows but calibrate button goes to loading→skip
         });
       }).catch(err=>{
         const msg={
@@ -4792,6 +4875,16 @@ export default function App() {
       <style>{STYLES}</style>
 
       {/* Camera feed — behind everything */}
+      {/* Calibration prompt — shown first so user can skip if recently calibrated */}
+      {cameraMode&&calibPrompt&&!calibShow&&(
+        <CalibrationPrompt
+          lastCalibTs={lastCalibTs}
+          onSkip={()=>setCalibPrompt(false)}
+          onCalibrate={()=>{
+            setCalibPrompt(false);
+            setCalibShow(true);
+          }}/>
+      )}
       {cameraMode&&calibShow&&(
         <CalibrationOverlay
           allLandmarks={calibLandmarks}
@@ -4818,6 +4911,9 @@ export default function App() {
               try{localStorage.setItem('soratomo_pitch_bias',String(pitchBias));}catch{}
             }
             setCalibShow(false);
+            // Record when calibration was last completed
+            const now=Date.now(); setLastCalibTs(now);
+            try{localStorage.setItem('soratomo_calib_ts',String(now));}catch{}
             const hMsg=`hdg ${hdgBias>0?'+':''}${Math.round(hdgBias)}°`;
             const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:'';
             const zMsg=fovWide!=null?` · wide ${Math.round(fovWide)}°${fovTele?'/tele '+Math.round(fovTele)+'°':''}`:'';
