@@ -1708,6 +1708,104 @@ function typeFullName(type){
   return null;
 }
 
+// ── Wikipedia slug table — verified article titles for common ICAO codes ──
+// Falls back to Wikipedia search URL for any type not listed here.
+const WIKI_SLUGS={
+  // Airbus narrowbody
+  A318:'Airbus_A318',A319:'Airbus_A319',A320:'Airbus_A320_family',A321:'Airbus_A321',
+  A19N:'Airbus_A319neo',A20N:'Airbus_A320neo_family',A21N:'Airbus_A321neo_family',
+  // Airbus widebody
+  A332:'Airbus_A330',A333:'Airbus_A330',A338:'Airbus_A330neo',A339:'Airbus_A330neo',
+  A342:'Airbus_A340',A343:'Airbus_A340',A345:'Airbus_A340',A346:'Airbus_A340',
+  A359:'Airbus_A350',A35K:'Airbus_A350',A388:'Airbus_A380',
+  // Boeing narrowbody
+  B732:'Boeing_737_Original',
+  B733:'Boeing_737_Classic',B734:'Boeing_737_Classic',B735:'Boeing_737_Classic',
+  B736:'Boeing_737_Next_Generation',B737:'Boeing_737_Next_Generation',
+  B738:'Boeing_737_Next_Generation',B739:'Boeing_737_Next_Generation',
+  B37M:'Boeing_737_MAX',B38M:'Boeing_737_MAX',B39M:'Boeing_737_MAX',B3XM:'Boeing_737_MAX',
+  // Boeing widebody
+  B752:'Boeing_757',B753:'Boeing_757',
+  B762:'Boeing_767',B763:'Boeing_767',B764:'Boeing_767',
+  B772:'Boeing_777',B773:'Boeing_777',B77L:'Boeing_777',B77W:'Boeing_777',
+  B778:'Boeing_777X',B779:'Boeing_777X',
+  B788:'Boeing_787_Dreamliner',B789:'Boeing_787_Dreamliner',B78X:'Boeing_787_Dreamliner',
+  B741:'Boeing_747',B742:'Boeing_747',B743:'Boeing_747',B744:'Boeing_747',B748:'Boeing_747-8',
+  // Regional jets
+  CRJ1:'Bombardier_CRJ200',CRJ2:'Bombardier_CRJ200',
+  CRJ7:'Bombardier_CRJ700_series',CRJ9:'Bombardier_CRJ900',CRJX:'Bombardier_CRJ1000',
+  E135:'Embraer_ERJ_145_family',E145:'Embraer_ERJ_145_family',
+  E170:'Embraer_E-Jet_family',E175:'Embraer_E-Jet_family',
+  E190:'Embraer_E-Jet_family',E195:'Embraer_E-Jet_family',
+  E290:'Embraer_E-Jet_E2_family',E295:'Embraer_E-Jet_E2_family',
+  // Turboprops
+  DH8A:'De_Havilland_Canada_Dash_8',DH8B:'De_Havilland_Canada_Dash_8',
+  DH8C:'De_Havilland_Canada_Dash_8',DH8D:'De_Havilland_Canada_DHC-8-400',
+  AT45:'ATR_42',AT72:'ATR_72',AT75:'ATR_72',
+  // Business jets
+  FA10:'Dassault_Falcon_10',FA20:'Dassault_Falcon_20',FA50:'Dassault_Falcon_50',
+  FA7X:'Dassault_Falcon_7X',FA8X:'Dassault_Falcon_8X',
+  F900:'Dassault_Falcon_900',F2TH:'Dassault_Falcon_2000',
+  GLF4:'Gulfstream_IV',GLF5:'Gulfstream_V',G280:'Gulfstream_G280',
+  G550:'Gulfstream_G550',G650:'Gulfstream_G650',G700:'Gulfstream_G700',G800:'Gulfstream_G800',
+  GLEX:'Bombardier_Global_Express',GL5T:'Bombardier_Global_5000',
+  GL6T:'Bombardier_Global_6000',GL7T:'Bombardier_Global_7500',
+  C25A:'Cessna_CitationJet',C25B:'Cessna_CitationJet',C25C:'Cessna_CitationJet',
+  C56X:'Cessna_Citation_Excel',C68A:'Cessna_Citation_Sovereign',C750:'Cessna_Citation_X',
+  LJ60:'Learjet_60',LJ75:'Learjet_75',
+  CL30:'Bombardier_Challenger_300',CL35:'Bombardier_Challenger_350',
+  CL60:'Bombardier_Challenger_600',CL65:'Bombardier_Challenger_650',
+  PC24:'Pilatus_PC-24',E50P:'Embraer_Phenom_100',E55P:'Embraer_Phenom_300',
+  // Military fighters / attack
+  F15:'McDonnell_Douglas_F-15_Eagle',F16:'General_Dynamics_F-16_Fighting_Falcon',
+  FA18:'McDonnell_Douglas_F/A-18_Hornet',
+  F18A:'McDonnell_Douglas_F/A-18_Hornet',F18B:'McDonnell_Douglas_F/A-18_Hornet',
+  F18C:'McDonnell_Douglas_F/A-18_Hornet',F18D:'McDonnell_Douglas_F/A-18_Hornet',
+  F18E:'Boeing_F/A-18E/F_Super_Hornet',F18F:'Boeing_F/A-18E/F_Super_Hornet',
+  F22:'Lockheed_Martin_F-22_Raptor',F35:'Lockheed_Martin_F-35_Lightning_II',
+  A10:'Fairchild_Republic_A-10_Thunderbolt_II',
+  // Bombers / ISR
+  B52:'Boeing_B-52_Stratofortress',B1:'Rockwell_B-1_Lancer',B2:'Northrop_Grumman_B-2_Spirit',
+  SR71:'Lockheed_SR-71_Blackbird',U2:'Lockheed_U-2',
+  // Military transport / tanker / special
+  C17:'Boeing_C-17_Globemaster_III',C5M:'Lockheed_C-5_Galaxy',C5AM:'Lockheed_C-5_Galaxy',
+  C130:'Lockheed_C-130_Hercules',C130J:'Lockheed_C-130_Hercules',
+  KC135:'Boeing_KC-135_Stratotanker',KC46:'Boeing_KC-46_Pegasus',
+  E3CF:'Boeing_E-3_Sentry',P8:'Boeing_P-8_Poseidon',
+  V22:'Bell_Boeing_V-22_Osprey',MV22:'Bell_Boeing_V-22_Osprey',
+  // Military helicopters
+  UH60:'Sikorsky_UH-60_Black_Hawk',MH60:'Sikorsky_UH-60_Black_Hawk',
+  HH60:'Sikorsky_HH-60_Pave_Hawk',SH60:'Sikorsky_SH-60_Seahawk',
+  AH64:'Boeing_AH-64_Apache',CH47:'Boeing_CH-47_Chinook',OH58:'Bell_OH-58_Kiowa',
+  // Civil helicopters
+  S61:'Sikorsky_S-61',S76:'Sikorsky_S-76',S92:'Sikorsky_S-92',
+  EC35:'Airbus_H135',EC45:'Airbus_H145',EC55:'Airbus_H155',EC65:'Airbus_H160',
+  AS35:'Airbus_H125',
+  B06:'Bell_206',B407:'Bell_407',B412:'Bell_412',B429:'Bell_429',
+  R44:'Robinson_R44',R66:'Robinson_R66',
+  // MD (now Boeing)
+  MD82:'McDonnell_Douglas_MD-80',MD83:'McDonnell_Douglas_MD-80',
+  MD88:'McDonnell_Douglas_MD-80',MD90:'McDonnell_Douglas_MD-90',
+  // GA / piston
+  C172:'Cessna_172',C182:'Cessna_182',C152:'Cessna_152',C162:'Cessna_162',
+  C208:'Cessna_208_Caravan',C210:'Cessna_210_Centurion',
+  PA28:'Piper_PA-28',PA32:'Piper_PA-32',PA44:'Piper_PA-44',
+  SR20:'Cirrus_SR20',SR22:'Cirrus_SR22',
+  DA40:'Diamond_DA40',DA42:'Diamond_DA42',
+  M20T:'Mooney_M20',TBM9:'TBM_900',PC12:'Pilatus_PC-12',
+};
+
+// Returns a verified Wikipedia article URL, or a search URL as fallback
+function getWikiUrl(typeCode){
+  if(!typeCode) return null;
+  const t=typeCode.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(WIKI_SLUGS[t]) return `https://en.wikipedia.org/wiki/${WIKI_SLUGS[t]}`;
+  // Fallback: search with the human-readable name if available, else raw code
+  const name=typeFullName(typeCode)||typeCode;
+  return `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(name)}&ns0=1`;
+}
+
+
 async function shareAircraft(data){
   try{
     const blob=await generateShareCard(data);
@@ -2928,33 +3026,62 @@ function LogbookTailDetail({ tail, entry, onClose }) {
             </div>
           )}
 
-          {/* Share button */}
-          <button
-            onClick={()=>shareAircraft({
-              cs: tail.cs||tail.reg,
-              airline: tail.airline||entry?.airline||'',
-              type: entry?.type||tail.type||'',
-              catLabel: catLbl,
-              altFt: null,
-              closestNmi: tail.closestNmi,
-              logAltFt: tail.alt,
-              spdKts: tail.spd,
-              hdgDeg: tail.hdg,
-              location: tail.userCity||tail.city,
-              timestamp: tail.timestamp,
-            })}
-            style={{
-              width:'100%',padding:'12px 0',
-              background:'transparent',
-              border:`1px solid ${col}50`,
-              borderRadius:10,cursor:'pointer',
-              color:col,fontSize:10,
-              fontFamily:"'Orbitron',monospace",
-              letterSpacing:'.14em',fontWeight:600,
-              display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-            }}>
-            <ShareIcon/> SHARE THIS AIRCRAFT
-          </button>
+          {/* Action buttons */}
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <button
+              onClick={()=>shareAircraft({
+                cs: tail.cs||tail.reg,
+                airline: tail.airline||entry?.airline||'',
+                type: entry?.type||tail.type||'',
+                catLabel: catLbl,
+                altFt: null,
+                closestNmi: tail.closestNmi,
+                logAltFt: tail.alt,
+                spdKts: tail.spd,
+                hdgDeg: tail.hdg,
+                location: tail.userCity||tail.city,
+                timestamp: tail.timestamp,
+              })}
+              style={{
+                width:'100%',padding:'12px 0',
+                background:'transparent',
+                border:`1px solid ${col}50`,
+                borderRadius:10,cursor:'pointer',
+                color:col,fontSize:10,
+                fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.14em',fontWeight:600,
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+              }}>
+              <ShareIcon/> SHARE THIS AIRCRAFT
+            </button>
+            {(()=>{
+              const wikiUrl=getWikiUrl(entry?.type||tail.type);
+              if(!wikiUrl) return null;
+              const isSearch=wikiUrl.includes('/w/index.php');
+              return (
+                <button
+                  onClick={()=>window.open(wikiUrl,'_blank','noopener')}
+                  style={{
+                    width:'100%',padding:'11px 0',
+                    background:'transparent',
+                    border:'1px solid rgba(77,184,255,0.25)',
+                    borderRadius:10,cursor:'pointer',
+                    color:'#4a7898',fontSize:10,
+                    fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.14em',
+                    display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                  }}>
+                  {/* Wikipedia W icon */}
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <circle cx="7" cy="7" r="6.5" stroke="#4a7898" strokeWidth="1"/>
+                    <text x="7" y="10.5" textAnchor="middle" fontSize="8.5"
+                      fill="#4a7898" fontFamily="serif" fontWeight="bold">W</text>
+                  </svg>
+                  {isSearch ? 'SEARCH WIKIPEDIA' : 'VIEW ON WIKIPEDIA'}
+                </button>
+              );
+            })()}
+          </div>
         </div>
       </div>
     </div>
