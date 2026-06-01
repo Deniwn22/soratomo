@@ -1895,25 +1895,41 @@ function LbTimeline({data}){
     data.forEach(t=>{
       if(!t.timestamp) return;
       const d=new Date(t.timestamp);
-      const mon=new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7));
-      const key=mon.toISOString().slice(0,10);
+      // Use LOCAL date components — toISOString() converts to UTC and can shift
+      // entries across midnight into the wrong week (e.g. 8 PM ET = next UTC day)
+      const localDay=d.getDay(); // 0=Sun … 6=Sat
+      const daysFromMon=(localDay+6)%7;
+      const mon=new Date(d.getFullYear(),d.getMonth(),d.getDate()-daysFromMon);
+      const key=`${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
       if(!g[key]) g[key]={};
       const cat=t.cat||'unknown';
       g[key][cat]=(g[key][cat]||0)+1;
     });
     const ws=Object.entries(g).sort(([a],[b])=>a.localeCompare(b))
       .map(([k,v])=>({key:k,cats:v,total:Object.values(v).reduce((s,x)=>s+x,0)}));
-    const cs=[...new Set(data.map(t=>t.cat||'unknown'))];
-    return {weeks:ws,cats:cs};
+    // Preserve category order by first-seen across all data
+    const catOrder=[]; const seen=new Set();
+    data.forEach(t=>{ const c=t.cat||'unknown'; if(!seen.has(c)){seen.add(c);catOrder.push(c);}});
+    return {weeks:ws,cats:catOrder};
   },[data]);
   if(!weeks.length) return <div style={{textAlign:'center',padding:32,color:'#2a5068',fontSize:10,fontFamily:"'Orbitron',monospace"}}>NO DATA IN RANGE</div>;
   const mx=Math.max(...weeks.map(w=>w.total),1);
   const W=360,H=210,PL=36,PB=56,PT=16,PR=10;
   const cW=W-PL-PR,cH=H-PT-PB,bW=cW/weeks.length;
-  const step=Math.ceil(weeks.length/6);
+  // Show at most 6 x-axis labels, always including the last bar (most recent week)
+  const maxLabels=6;
+  const labelSet=new Set();
+  if(weeks.length<=maxLabels){
+    weeks.forEach((_,i)=>labelSet.add(i));
+  } else {
+    const step=Math.floor((weeks.length-1)/(maxLabels-1));
+    for(let i=0;i<weeks.length-1;i+=step) labelSet.add(i);
+    labelSet.add(weeks.length-1); // always label the most recent week
+  }
   return (
     <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',overflow:'visible'}}>
-      {[0,.5,1].map(f=>{
+      {/* Y-axis gridlines + labels — skip zero to avoid axis overlap */}
+      {[.5,1].map(f=>{
         const y=PT+cH*(1-f);
         return <g key={f}>
           <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(77,184,255,0.08)" strokeWidth="1"/>
@@ -1929,7 +1945,7 @@ function LbTimeline({data}){
             return <rect key={cat} x={x} y={PT+cH-yOff} width={bW*.88} height={bH}
               fill={LB_CAT_COL[cat]||'#4db8ff'} rx="1" opacity=".82"/>;
           })}
-          {i%step===0&&<text x={x+bW*.44} y={H-PB+14} textAnchor="middle" fontSize="7" fill="#3a6878"
+          {labelSet.has(i)&&<text x={x+bW*.44} y={H-PB+14} textAnchor="middle" fontSize="7" fill="#3a6878"
             fontFamily="Orbitron,monospace" transform={`rotate(-45,${x+bW*.44},${H-PB+14})`}>{w.key.slice(5)}</text>}
         </g>;
       })}
