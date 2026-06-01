@@ -4044,7 +4044,6 @@ export default function App() {
   useEffect(()=>{ headingRef.current = heading; },[heading]);
   const pitchRef = useRef(devicePitch);
   useEffect(()=>{ pitchRef.current = devicePitch; },[devicePitch]);
-  const [showCalib,   setShowCalib]   = useState(false);
   const [hdgBias,     setHdgBias]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
   const [pitchBias,   setPitchBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
   const [gallery,     setGallery]     = useState(()=>loadGallery());
@@ -5164,20 +5163,7 @@ export default function App() {
                 <span style={{fontSize:density==='normal'?11:9,fontFamily:"'Orbitron',monospace",
                   color:density==='normal'?'#4db8ff':'#4a7898',fontWeight:700,letterSpacing:0}}>Aa</span>
               </button>
-              {tiltMode&&!cameraMode&&(
-                <button onClick={e=>{e.stopPropagation();setShowCalib(v=>!v);}} style={{
-                  background:showCalib?'rgba(77,184,255,0.15)':'transparent',
-                  border:`1px solid ${showCalib?'#4db8ff':'rgba(77,184,255,0.3)'}`,
-                  borderRadius:5,padding:'4px 7px',cursor:'pointer',
-                  display:'flex',alignItems:'center',gap:3}}>
-                  <svg width='10' height='10' viewBox='0 0 10 10'>
-                    <line x1='5' y1='0' x2='5' y2='10' stroke={showCalib?'#4db8ff':'#4a7898'} strokeWidth='1'/>
-                    <line x1='0' y1='5' x2='10' y2='5' stroke={showCalib?'#4db8ff':'#4a7898'} strokeWidth='1'/>
-                    <circle cx='5' cy='5' r='2.5' stroke={showCalib?'#4db8ff':'#4a7898'} strokeWidth='1' fill='none'/>
-                  </svg>
-                  <span style={{fontSize:8,fontFamily:"'Orbitron',monospace",color:showCalib?'#4db8ff':'#4a7898',letterSpacing:'.06em'}}>ALIGN</span>
-                </button>
-              )}
+
               <button onClick={handleARToggle} style={{background:tiltMode&&!cameraMode?'rgba(77,184,255,0.12)':'transparent',
                 border:`1px solid ${tiltMode&&!cameraMode?'#4db8ff':'rgba(77,184,255,0.25)'}`,
                 borderRadius:5,padding:'5px 6px',cursor:'pointer',
@@ -5214,12 +5200,21 @@ export default function App() {
                     <circle cx="6.5" cy="6.5" r="3"   fill="rgba(255,255,255,0.9)"/>
                   </svg>
                 </button>
-                <button onClick={e=>{e.stopPropagation();setShowCalib(v=>!v);}} style={{
-                  background:showCalib?'rgba(45,255,180,0.15)':'transparent',
-                  border:`1.5px solid ${showCalib?'#2dffb4':'rgba(45,255,180,0.4)'}`,
+                <button onClick={e=>{
+                  e.stopPropagation();
+                  const isAirborne=(drVel.current.speedMs||0)>80;
+                  setCalibAirborne(isAirborne);
+                  setCalibPrompt(true);
+                  setCalibLandmarks([]);
+                  if(!isAirborne) fetchCalibLandmarks(pos.lat,pos.lon).then(lms=>{
+                    if(lms.length) setCalibLandmarks(lms);
+                  });
+                }} style={{
+                  background:'transparent',
+                  border:'1.5px solid rgba(45,255,180,0.4)',
                   borderRadius:5,padding:'4px 8px',cursor:'pointer',
                   display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#2dffb4',letterSpacing:'.08em'}}>FOV</span>
+                  <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#2dffb4',letterSpacing:'.08em'}}>CAL</span>
                 </button>
                 <button onClick={e=>{e.stopPropagation();setShowGallery(v=>!v);}} style={{
                   background:showGallery?'rgba(45,255,180,0.15)':'transparent',
@@ -5485,64 +5480,6 @@ export default function App() {
 
       {selected&&<FlightCard f={selected} onClose={()=>setSelectedId(null)} loggedCallsigns={loggedCallsigns}/>}
       {/* FOV calibration panel — slides up from bottom when open */}
-      {(cameraMode||tiltMode)&&showCalib&&(
-        <div onClick={e=>e.stopPropagation()} style={{
-          position:'absolute',bottom:0,left:0,right:0,zIndex:55,
-          background:'rgba(1,6,18,0.94)',
-          borderTop:'1px solid rgba(45,255,180,0.3)',
-          padding:'14px 16px 20px',
-          animation:'slideUp 0.22s ease',
-        }}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-            <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
-              color:'#2dffb4',letterSpacing:'.15em'}}>AR CALIBRATION</div>
-            <button onClick={()=>setShowCalib(false)} style={{background:'transparent',
-              border:'1px solid rgba(77,184,255,0.2)',borderRadius:5,color:'#5a8898',
-              fontSize:11,cursor:'pointer',padding:'3px 8px',fontFamily:"'Orbitron',monospace"}}>✕</button>
-          </div>
-          <div style={{fontSize:9,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginBottom:10,lineHeight:1.5}}>
-            Find a visible aircraft. Adjust sliders until the icon lines up with it in the sky.
-          </div>
-          {/* FOV slider */}
-          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-            <span style={{fontSize:8,color:'#4a7898',fontFamily:"'Orbitron',monospace",width:32}}>WIDE</span>
-            <input type="range" min="40" max="110" step="1" value={Math.round(arFov)}
-              onChange={e=>setArFov(parseFloat(e.target.value))}
-              style={{flex:1,accentColor:'#2dffb4'}}/>
-            <span style={{fontSize:8,color:'#4a7898',fontFamily:"'Orbitron',monospace",width:32,textAlign:'right'}}>NARROW</span>
-          </div>
-          <div style={{textAlign:'center',fontSize:16,fontFamily:"'Orbitron',monospace",
-            fontWeight:700,color:'#2dffb4',marginBottom:12}}>{Math.round(arFov)}°</div>
-          {/* Reference values */}
-          <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.06em',marginBottom:10,lineHeight:1.8}}>
-            REFERENCE: iPhone 0.5× ≈ 105° · 1× ≈ 77° · 2× ≈ 50° · 3× ≈ 35°
-          </div>
-
-
-          {/* Action buttons */}
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={()=>setArFov(camFov)} style={{
-              flex:1,padding:'7px',background:'transparent',
-              border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,
-              color:'#4a7898',fontSize:9,cursor:'pointer',fontFamily:"'Orbitron',monospace"}}>
-              RESET
-            </button>
-            <button onClick={()=>{
-              const v=arFov;
-              setCamFov(v);
-              try{localStorage.setItem('soratomo_cam_fov',String(v));}catch{}
-              setShowCalib(false);
-            }} style={{
-              flex:2,padding:'7px',background:'rgba(45,255,180,0.12)',
-              border:'1.5px solid #2dffb4',borderRadius:6,
-              color:'#2dffb4',fontSize:9,cursor:'pointer',fontFamily:"'Orbitron',monospace",fontWeight:700}}>
-              SAVE AS DEFAULT
-            </button>
-          </div>
-        </div>
-      )}
-
       {showGallery&&<Gallery
         photos={gallery} selected={galSelected} onSelect={setGalSelected}
         onClose={()=>{setShowGallery(false);setGalSelected(null);}}
