@@ -1708,14 +1708,14 @@ function typeFullName(type){
   return null;
 }
 
-// Returns a Google search URL for the aircraft type.
+// Returns a DuckDuckGo search URL for the aircraft type.
 // Uses human-readable name when available (more reliable than raw ICAO code).
 // e.g. "E55P" → "Embraer Phenom 300 aircraft"
-//      "E545" → "E545 aircraft"  (still better than Wikipedia for obscure types)
+//      "E545" → "E545 aircraft"
 function getSearchUrl(typeCode) {
   if(!typeCode) return null;
   const name = typeFullName(typeCode) || typeCode.toUpperCase();
-  return `https://www.google.com/search?q=${encodeURIComponent(name+' aircraft')}`;
+  return `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
 }
 
 
