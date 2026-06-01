@@ -3904,11 +3904,14 @@ export default function App() {
         onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:20000}
       );
     }, 15000);
+    // (the 15s GPS interval itself is lightweight — watchPosition
+    //  is hardware-driven; we only suppress DR and ADS-B, not geolocation)
 
     // 1 Hz dead-reckoning extrapolation between GPS fixes.
     // Threshold raised to 5 m/s — GPS noise on a stationary device can report
     // 1-3 m/s spuriously, which was causing on-ground jitter at the old 1 m/s limit.
     const dr = setInterval(()=>{
+      if(document.hidden) return;  // skip DR when app not visible — saves CPU
       const anchor = drAnchor.current;
       if(!anchor || drVel.current.speedMs < 12) return; // 12 m/s ≈ 24 kts — only DR in actual flight
       const ageSec = (Date.now() - anchor.ts) / 1000;
@@ -4148,6 +4151,8 @@ export default function App() {
     const poll = async () => {
       timer = null;
       if(cancelled) return;
+      // Don't fetch while app is hidden — visibilitychange will resume us
+      if(document.hidden) return;
       abortCtrl = new AbortController();
       try {
         const {lat,lon} = posRef.current;          // read latest pos via ref
@@ -4261,11 +4266,22 @@ export default function App() {
       schedule(INTERVAL);
     };
 
+    // ── Page Visibility: suspend polling when app is hidden ────────
+    // Stops network fetches + React state updates → no re-renders → major battery saving.
+    // On becoming visible again, fire an immediate fetch so data is fresh instantly.
+    const onVisChange = () => {
+      if(!document.hidden && !timer && !cancelled) {
+        poll(); // immediate refetch when foregrounded
+      }
+    };
+    document.addEventListener('visibilitychange', onVisChange);
+
     poll();
     return () => {
       cancelled = true;
       if(timer) clearTimeout(timer);
       if(abortCtrl) abortCtrl.abort();
+      document.removeEventListener('visibilitychange', onVisChange);
     };
   },[]);  // mount-once — pos and maxDisplayNmi read via refs
 
