@@ -1823,19 +1823,39 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           </div>
         ))}
       </div>
-      {/* Share button */}
-      <button onClick={()=>shareAircraft({
-        cs:f.cs,airline:f.airline,type:f.type,catLabel,
-        altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
-        distNmiVal:distNmi(f.dist),bearDeg:Math.round(f.bear),
-        hdgDeg:Math.round(f.hdg),location:over,timestamp:Date.now(),
-      })} style={{width:'100%',marginTop:10,padding:'9px 0',
-        background:'transparent',borderRadius:7,cursor:'pointer',
-        border:'1px solid rgba(77,184,255,0.28)',color:'#4db8ff',
-        fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
-        display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
-        <ShareIcon/> SHARE THIS AIRCRAFT
-      </button>
+      {/* Action buttons */}
+      <div style={{display:'flex',flexDirection:'column',gap:7,marginTop:10}}>
+        <button onClick={()=>shareAircraft({
+          cs:f.cs,airline:f.airline,type:f.type,catLabel,
+          altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
+          distNmiVal:distNmi(f.dist),bearDeg:Math.round(f.bear),
+          hdgDeg:Math.round(f.hdg),location:over,timestamp:Date.now(),
+        })} style={{width:'100%',padding:'9px 0',
+          background:'transparent',borderRadius:7,cursor:'pointer',
+          border:'1px solid rgba(77,184,255,0.28)',color:'#4db8ff',
+          fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+          display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+          <ShareIcon/> SHARE THIS AIRCRAFT
+        </button>
+        {(()=>{
+          const url=getSearchUrl(f.type);
+          if(!url) return null;
+          return (
+            <button onClick={()=>window.open(url,'_blank','noopener')} style={{
+              width:'100%',padding:'8px 0',
+              background:'transparent',borderRadius:7,cursor:'pointer',
+              border:'1px solid rgba(77,184,255,0.18)',color:'#4a7898',
+              fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+              display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
+                <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+              GET AIRCRAFT TYPE INFO
+            </button>
+          );
+        })()}
+      </div>
     </div>
   );
 }
@@ -2988,7 +3008,7 @@ function LogbookTailDetail({ tail, entry, onClose }) {
                     <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
                     <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898" strokeWidth="1.2" strokeLinecap="round"/>
                   </svg>
-                  SEARCH AIRCRAFT
+                  GET AIRCRAFT TYPE INFO
                 </button>
               );
             })()}
