@@ -2832,6 +2832,176 @@ function LogbookTailDetail({ tail, entry, onClose }) {
 }
 
 
+// ── Help / Info Panel ─────────────────────────────────────────────
+function HelpPanel({ onClose }) {
+  const CC = '#4db8ff';
+
+  const Section = ({title, children}) => (
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
+        fontWeight:700,marginBottom:8,paddingBottom:5,
+        borderBottom:'1px solid rgba(77,184,255,0.12)'}}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const Row = ({icon,label,desc,color}) => (
+    <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:7}}>
+      <div style={{flexShrink:0,width:20,textAlign:'center',marginTop:1}}>{icon}</div>
+      <div>
+        <span style={{fontSize:10,color:color||'#90c8e8',fontFamily:"'Orbitron',monospace",
+          fontWeight:600,letterSpacing:'.04em'}}>{label}</span>
+        {desc&&<div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
+          marginTop:1,lineHeight:1.45}}>{desc}</div>}
+      </div>
+    </div>
+  );
+
+  const Dot = ({col}) => (
+    <span style={{display:'inline-block',width:9,height:9,borderRadius:'50%',
+      background:col,border:'1.5px solid #010a18',verticalAlign:'middle',marginRight:6}}/>
+  );
+
+  const Ring = ({col}) => (
+    <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',
+      border:`2px solid ${col}`,verticalAlign:'middle',marginRight:6}}/>
+  );
+
+  return (
+    <div onClick={onClose} style={{position:'absolute',inset:0,zIndex:62,
+      background:'rgba(1,6,18,0.98)',display:'flex',flexDirection:'column',
+      animation:'slideUp 0.28s ease'}}>
+      <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',height:'100%'}}>
+
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+          padding:'14px 16px 10px',borderBottom:'1px solid rgba(77,184,255,0.1)',flexShrink:0}}>
+          <div>
+            <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:CC,letterSpacing:'.12em'}}>空友 SORATOMO</div>
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
+              AR Aircraft Spotter — Quick Reference
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'transparent',border:'none',
+            color:'#3a6878',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',
+          padding:'16px 18px 32px'}}>
+
+          <Section title="WHAT IS THIS">
+            <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.6,marginBottom:4}}>
+              SoraTomo shows live ADS-B aircraft around you in AR. Point your phone at
+              the sky and see aircraft labels overlaid on the real world. Tap any aircraft
+              for details. Nearby aircraft are automatically logged to your logbook.
+            </div>
+          </Section>
+
+          <Section title="AR MODE">
+            <Row icon="✈" label="Radar / Scan"
+              desc="Default view — aircraft on a radar-style overlay. Drag to pan, pinch to zoom the FOV."/>
+            <Row icon="📱" label="Tilt AR"
+              desc="Tilt your phone to see aircraft in their real sky positions."/>
+            <Row icon="📷" label="Camera AR"
+              desc="Live camera feed with AR labels. Tap the camera icon to activate. Calibrate for best accuracy."/>
+          </Section>
+
+          <Section title="ACCURACY DOTS">
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+              marginBottom:8}}>Shown in tilt/camera mode — how fresh the ADS-B data is.</div>
+            <Row icon={<><Dot col="#2dffb4"/>  </>} label="Green — Fresh"
+              color="#2dffb4" desc="Data < 5 sec old. Position is current."/>
+            <Row icon={<><Dot col="#ffd700"/>  </>} label="Yellow — Aging"
+              color="#ffd700" desc="5–15 sec old. Dead-reckoning filling the gap."/>
+            <Row icon={<><Dot col="#ff8c00"/>  </>} label="Orange — Stale"
+              color="#ff8c00" desc="> 15 sec old. Aircraft may have moved significantly."/>
+          </Section>
+
+          <Section title="ENCOUNTER RINGS">
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+              marginBottom:8}}>Pulsing ring shown when aircraft is within logging range.</div>
+            <Row icon={<><Ring col="#ff3b3b"/>  </>} label="Red — New Type"
+              color="#ff3b3b" desc="First time you've ever logged this aircraft category."/>
+            <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — New Tail"
+              color="#2dffb4" desc="First time you've seen this specific callsign/registration."/>
+            <Row icon={<><Ring col="#ffb84d"/>  </>} label="Amber — Seen Before"
+              color="#ffb84d" desc="Aircraft is in your logbook from a previous encounter."/>
+          </Section>
+
+          <Section title="AIRCRAFT SHAPES">
+            <Row icon="🛩" label="Narrow / Wide / Jumbo"
+              desc="Commercial jets — shape scales with aircraft size."/>
+            <Row icon="✈" label="Regional Jet"
+              desc="Small commercial turbojets (CRJ, E175, etc.)."/>
+            <Row icon="🛫" label="Business Jet"
+              desc="Citations, Gulfstreams, Falcons."/>
+            <Row icon="🚁" label="Helicopter"
+              desc="Rotary-wing. Military helos (UH-60 etc.) shown distinctly."/>
+            <Row icon="🪂" label="Piston / GA"
+              desc="Small general aviation — Cessnas, Pipers."/>
+            <Row icon="⚡" label="Military"
+              desc="Fighter/attack aircraft (F-22, F-35, etc.)."/>
+            <Row icon="🚛" label="Mil Transport"
+              desc="C-17, C-130, KC-135, P-8, V-22 and similar."/>
+          </Section>
+
+          <Section title="FILTERS">
+            <Row icon="🔴" label="Altitude"
+              desc="Slide to set floor/ceiling. Hides aircraft outside the band."/>
+            <Row icon="⚡" label="Speed"
+              desc="Filter by groundspeed in knots."/>
+            <Row icon="✈" label="Aircraft Type"
+              desc="Show All / Commercial / Military / Helicopters / Piston."/>
+            <Row icon="⭕" label="Range Ring"
+              desc="Drag the circular dial (bottom-right) to set max display distance."/>
+          </Section>
+
+          <Section title="LOGBOOK">
+            <Row icon="📖" label="Accessing the Logbook"
+              desc="Tap the lines icon (top-right) → LOG tab. Aircraft are logged automatically when they come within range."/>
+            <Row icon="📍" label="Each Entry Shows"
+              desc="Your location when spotted, aircraft distance, altitude, speed, heading, and date."/>
+            <Row icon="📊" label="Charts"
+              desc="Switch between TYPES (bar chart), TIMELINE (weekly stacked), and MAP (where you spotted them)."/>
+            <Row icon="🔗" label="Sharing"
+              desc="Tap any logbook entry → SHARE to send via iMessage, Instagram, etc."/>
+          </Section>
+
+          <Section title="CALIBRATION">
+            <Row icon="🧭" label="Bearing (Phase 1)"
+              desc="Tap a known nearby landmark to correct compass heading error."/>
+            <Row icon="🌅" label="Horizon (Phase 2)"
+              desc="Tap the horizon 3× at different tilt angles to correct pitch bias."/>
+            <Row icon="🔍" label="Zoom (Phase 3)"
+              desc="Tap the same landmark at wide and tele zoom to calibrate camera FOV."/>
+            <Row icon="🔄" label="Re-calibrate"
+              desc="Calibration is saved between sessions. Re-runs whenever camera mode is opened with landmarks nearby."/>
+          </Section>
+
+          <Section title="TIPS">
+            <Row icon="💡" label="Best AR accuracy"
+              desc="Calibrate your compass after opening camera mode. Green dots = good."/>
+            <Row icon="💡" label="Logbook map"
+              desc="Pinch/pan the map to explore all your spotted aircraft worldwide."/>
+            <Row icon="💡" label="Battery"
+              desc="Polling pauses when the app is backgrounded. Switch to it directly when spotting to resume live data."/>
+          </Section>
+
+          {/* Version footer */}
+          <div style={{textAlign:'center',marginTop:8,fontSize:8,color:'#1e3a50',
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+            SORATOMO · ADS-B DATA VIA ADSB.LOL
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
   // filterNmi = max closestNmi (logged distance) to show — historical, NOT current distance
@@ -3747,6 +3917,7 @@ export default function App() {
   const [density,     setDensity]     = useState('compact'); // compact|normal
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
   const [calibShow,   setCalibShow]   = useState(false);
+  const [showHelp,    setShowHelp]    = useState(false);
   const [calibLandmarks, setCalibLandmarks] = useState([]);
   // calibLandmarks.length===0 while fetch is in-flight → overlay shows loading spinner
   // ref so CalibrationOverlay always reads instantaneous compass value at tap time
@@ -4965,11 +5136,29 @@ export default function App() {
                   fontSize:9,color:'#010a18',fontFamily:"'Orbitron',monospace",fontWeight:700,
                   border:'1.5px solid #010a18'}}>{Math.min(logbook.reduce((s,e)=>s+(e.tails?.length||1),0),99)}</div>}
               </button>
+              {/* Help / Info button */}
+              <button onClick={e=>{e.stopPropagation();setShowHelp(v=>!v);
+                setShowLog(false);setShowFilters(false);setShowStats(false);}} style={{
+                background:showHelp?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${showHelp?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
+                borderRadius:5,padding:'5px 7px',cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="11" height="11" viewBox="0 0 11 11">
+                  <circle cx="5.5" cy="5.5" r="4.8" stroke={showHelp?'#4db8ff':'#4a7898'}
+                    strokeWidth="1.2" fill="none"/>
+                  <text x="5.5" y="8.2" textAnchor="middle" fontSize="6.5"
+                    fill={showHelp?'#4db8ff':'#4a7898'} fontFamily="serif"
+                    fontWeight="bold">i</text>
+                </svg>
+              </button>
             </div>
 
           </div>
         </div>
       </div>
+
+      {/* Help panel */}
+      {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
       {/* Combined LOG / FILTER tabbed panel */}
       {(showLog||showFilters)&&(
