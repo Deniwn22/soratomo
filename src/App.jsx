@@ -2269,7 +2269,7 @@ async function fetchCalibLandmarks(lat, lon) {
 
 // ── Calibration Prompt — shown before running calibration ────────
 // Tells the user when they last calibrated and lets them skip or proceed.
-function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
+function CalibrationPrompt({ lastCalibTs, airborne, speedKts, onCalibrate, onSkip }) {
   const CC = '#4db8ff';
 
   const ageLabel = () => {
@@ -2282,7 +2282,7 @@ function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
     return `${days} day${days>1?'s':''} ago`;
   };
 
-  const isStale = !lastCalibTs || (Date.now()-lastCalibTs) > 24*3600000; // > 24h
+  const isStale = !lastCalibTs || (Date.now()-lastCalibTs) > 24*3600000;
 
   return (
     <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
@@ -2301,26 +2301,47 @@ function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
           </svg>
         </div>
 
+        {/* Airborne badge */}
+        {airborne&&(
+          <div style={{textAlign:'center',marginBottom:8}}>
+            <span style={{fontSize:9,color:'#ffb84d',fontFamily:"'Orbitron',monospace",
+              background:'rgba(255,184,77,0.1)',border:'1px solid rgba(255,184,77,0.3)',
+              borderRadius:4,padding:'2px 8px',letterSpacing:'.1em'}}>✈ AIRBORNE · ~{Math.round(speedKts)} kts</span>
+          </div>
+        )}
+
         {/* Message */}
         <div style={{textAlign:'center',marginBottom:16}}>
           <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.14em',fontWeight:700,marginBottom:6}}>AR CALIBRATION</div>
-          <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
-            fontWeight:600,marginBottom:4}}>
-            {lastCalibTs ? 'Last calibrated' : 'Not yet calibrated'}
+            letterSpacing:'.14em',fontWeight:700,marginBottom:6}}>
+            {airborne ? 'HORIZON CALIBRATION' : 'AR CALIBRATION'}
           </div>
-          {lastCalibTs&&(
-            <div style={{fontSize:16,color:isStale?'#ffb84d':CC,
-              fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:6}}>
-              {ageLabel()}
+          {airborne ? (
+            <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.5}}>
+              Landmark calibration isn't available at altitude. Horizon calibration
+              will correct your pitch bias — great from a window seat.
             </div>
+          ) : (
+            <>
+              <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
+                fontWeight:600,marginBottom:4}}>
+                {lastCalibTs ? 'Last calibrated' : 'Not yet calibrated'}
+              </div>
+              {lastCalibTs&&(
+                <div style={{fontSize:16,color:isStale?'#ffb84d':CC,
+                  fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:6}}>
+                  {ageLabel()}
+                </div>
+              )}
+              <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+                lineHeight:1.5,marginTop:4}}>
+                {isStale
+                  ? 'Calibration may have drifted. Recommended before spotting.'
+                  : 'If the AR overlay looks accurate, you can skip calibration.'}
+              </div>
+            </>
           )}
-          <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
-            lineHeight:1.5,marginTop:4}}>
-            {isStale
-              ? 'Calibration may have drifted. Recommended before spotting.'
-              : 'If the AR overlay looks accurate, you can skip calibration.'}
-          </div>
         </div>
 
         {/* Buttons */}
@@ -2330,7 +2351,7 @@ function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
             background:`${CC}18`,border:`1px solid ${CC}55`,
             color:CC,fontSize:10,fontFamily:"'Orbitron',monospace",
             letterSpacing:'.12em',fontWeight:700}}>
-            CALIBRATE NOW
+            {airborne ? 'CALIBRATE HORIZON' : 'CALIBRATE NOW'}
           </button>
           <button onClick={onSkip} style={{
             width:'100%',padding:'11px 0',borderRadius:8,cursor:'pointer',
@@ -2347,15 +2368,19 @@ function CalibrationPrompt({ lastCalibTs, onCalibrate, onSkip }) {
 
 // ── Landmark Calibration Overlay ──────────────────────────────────
 function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
-                               arFov, vfov, onComplete, onSkip }) {
-  const [phase,     setPhase]   = React.useState('landmark');
+                               arFov, vfov, airborne, currentHdgBias,
+                               onComplete, onSkip }) {
+  // Airborne: skip landmark (phase 1) and zoom (phase 3), horizon only
+  const [phase,     setPhase]   = React.useState(airborne?'horizon':'landmark');
   const [step,      setStep]    = React.useState(0);
   const [taps,      setTaps]    = React.useState([]);
   const [hTaps,     setHTaps]   = React.useState([]);
   const [tapFx,     setTapFx]   = React.useState(null);
   const [liveHdg,   setLiveHdg] = React.useState(headingRef.current||0);
   const [livePitch, setLivePitch]= React.useState(pitchRef?.current||0);
-  const solvedRef = React.useRef({hdgBias:0,newFov:arFov,pitchBias:null,
+  // When airborne, preserve existing hdgBias — bearing cal isn't available
+  const solvedRef = React.useRef({hdgBias:airborne?(currentHdgBias||0):0,
+                                   newFov:arFov,pitchBias:null,
                                    fovWide:null,fovTele:null,zoomLm:null});
   const [zoomStep, setZoomStep] = React.useState(0); // 0=wide 1=tele
   const [zoomTaps, setZoomTaps] = React.useState([]);
@@ -2444,19 +2469,28 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     setHTaps(allHTaps);
     if(allHTaps.length>=HORIZ_TAPS){
       const pb=solveHorizon(allHTaps);
-      // zoomLm already set in handleLandmarkTap (the landmark the user actually tapped)
       solvedRef.current={...solvedRef.current,pitchBias:pb};
-      setZoomStep(0); setZoomTaps([]);
-      setPhase('zoom');
+      if(airborne){
+        // Airborne: no zoom phase, complete with preserved hdgBias
+        const{hdgBias,newFov}=solvedRef.current;
+        onComplete(hdgBias,newFov,pb,null,null);
+      } else {
+        setZoomStep(0); setZoomTaps([]);
+        setPhase('zoom');
+      }
     }
   };
 
   const skipHorizon=e=>{
     e.stopPropagation();
-    // zoomLm already set from the bearing tap (or falls back via || in handleZoomTap)
-    solvedRef.current={...solvedRef.current,pitchBias:null};
-    setZoomStep(0); setZoomTaps([]);
-    setPhase('zoom');
+    if(airborne){
+      const{hdgBias,newFov}=solvedRef.current;
+      onComplete(hdgBias,newFov,null,null,null);
+    } else {
+      solvedRef.current={...solvedRef.current,pitchBias:null};
+      setZoomStep(0); setZoomTaps([]);
+      setPhase('zoom');
+    }
   };
 
   const skipLandmark=e=>{
@@ -2527,6 +2561,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
             <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
               letterSpacing:'.14em',fontWeight:700}}>
               HORIZON CALIBRATION — {done}/{HORIZ_TAPS}
+              {airborne&&<span style={{color:'#ffb84d',marginLeft:8,fontSize:8}}>✈ AIRBORNE</span>}
             </div>
             <button onClick={skipHorizon} style={{background:'transparent',
               border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
@@ -3997,6 +4032,7 @@ export default function App() {
   const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
   const [calibShow,   setCalibShow]   = useState(false);
   const [calibPrompt, setCalibPrompt] = useState(false);
+  const [calibAirborne, setCalibAirborne] = useState(false);
   const [showHelp,    setShowHelp]    = useState(false);
   const [calibLandmarks, setCalibLandmarks] = useState([]);
   // calibLandmarks.length===0 while fetch is in-flight → overlay shows loading spinner
@@ -4288,13 +4324,17 @@ export default function App() {
         setArFov(camFov);
         setTiltMode(true);
         setCameraMode(true);
-        // Show prompt first; fetch landmarks in parallel so they're ready if user chooses to calibrate
+        // Detect if user is airborne (speed > 80 m/s ≈ 155 kts)
+        const isAirborne = (drVel.current.speedMs||0) > 80;
+        setCalibAirborne(isAirborne);
         setCalibPrompt(true);
         setCalibLandmarks([]);
-        fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{
+        // No point fetching landmarks if airborne — skip that network call
+        if(!isAirborne) fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{
           if(lms.length) setCalibLandmarks(lms);
           // If no landmarks found, prompt still shows but calibrate button goes to loading→skip
         });
+      // end if(!isAirborne)
       }).catch(err=>{
         const msg={
           NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
@@ -4879,6 +4919,8 @@ export default function App() {
       {cameraMode&&calibPrompt&&!calibShow&&(
         <CalibrationPrompt
           lastCalibTs={lastCalibTs}
+          airborne={calibAirborne}
+          speedKts={Math.round((drVel.current.speedMs||0)/0.5144)}
           onSkip={()=>setCalibPrompt(false)}
           onCalibrate={()=>{
             setCalibPrompt(false);
@@ -4888,7 +4930,9 @@ export default function App() {
       {cameraMode&&calibShow&&(
         <CalibrationOverlay
           allLandmarks={calibLandmarks}
-          loading={calibLandmarks.length===0}
+          loading={!calibAirborne&&calibLandmarks.length===0}
+          airborne={calibAirborne}
+          currentHdgBias={hdgBias}
           headingRef={headingRef}
           pitchRef={pitchRef}
           arFov={arFov}
