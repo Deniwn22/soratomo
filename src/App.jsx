@@ -1714,7 +1714,11 @@ function typeFullName(type){
 // navigates it to the Wikipedia article once the API responds.
 // Falls back to DuckDuckGo if Wikipedia returns no result or the API fails.
 async function fetchWikiArticleUrl(typeCode) {
-  const name = typeFullName(typeCode) || typeCode.toUpperCase();
+  // Only use Wikipedia OpenSearch when we have a real human-readable name.
+  // Raw ICAO codes (e.g. "A139", "OSCR") are too ambiguous — OpenSearch matches
+  // unrelated articles (motorways, awards, etc.). Fall back to DuckDuckGo instead.
+  const name = typeFullName(typeCode);
+  if(!name) return null;
   try {
     const res = await fetch(
       `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(name)}&limit=1&format=json&origin=*`,
