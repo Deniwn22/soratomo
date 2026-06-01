@@ -3604,7 +3604,7 @@ const STYLES=[
 // ── App ────────────────────────────────────────────────────────
 
 // ── Disclaimer ─────────────────────────────────────────────────
-const DISCLAIMER_KEY = 'soratomo_disclaimer_v1';
+const DISCLAIMER_KEY = 'soratomo_disclaimer_v2'; // v2 = localStorage (was sessionStorage)
 function Disclaimer({ onAccept }) {
   return (
     <div style={{
@@ -3648,11 +3648,15 @@ function Disclaimer({ onAccept }) {
               ['DATA ACCURACY & LATENCY',
                'ADS-B data from adsb.lol may be delayed, incomplete, or absent. Aircraft without ADS-B transponders will NOT appear. Coverage not guaranteed.'],
               ['REGULATORY COMPLIANCE',
-               'Users are solely responsible for complying with all aviation regulations. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
+               'Users are solely responsible for complying with all applicable aviation regulations. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
+              ['LOCATION & CAMERA',
+               'This app uses your GPS location and camera for AR features. All processing occurs on-device. Location and camera data are never transmitted to the developer.'],
+              ['THIRD-PARTY DATA',
+               'Aircraft data is provided by adsb.lol under their terms of service. The developer is not responsible for its accuracy, completeness, or availability.'],
               ['LIMITATION OF LIABILITY',
                'The developer assumes NO liability for any injury, damage, or loss arising from use of this application. Use is entirely at your own risk.'],
               ['NO ENDORSEMENT',
-               'Not affiliated with or approved by the FAA, ICAO, or any aviation regulatory body.'],
+               'Not affiliated with or endorsed by the FAA, ICAO, or any aviation authority.'],
             ].map(([title, body]) => (
               <div key={title} style={{marginBottom:9}}>
                 <div style={{fontSize:9,fontFamily:"'Orbitron',monospace",fontWeight:700,
@@ -3689,7 +3693,14 @@ function Disclaimer({ onAccept }) {
         </button>
         <div style={{textAlign:'center',marginTop:8,fontSize:9,color:'#2a4a58',
           fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
-          Shown once per session · v1
+          Shown once on first launch
+        </div>
+        <div style={{textAlign:'center',marginTop:6}}>
+          <a href="https://soratomo.netlify.app/privacy" target="_blank" rel="noopener"
+            style={{fontSize:9,color:'#2a4a58',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.06em',textDecoration:'underline'}}>
+            PRIVACY POLICY
+          </a>
         </div>
       </div>
     </div>
@@ -4068,7 +4079,7 @@ export default function App() {
   const [altFloor,    setAltFloor]    = useState(0);
   const [altCeiling,  setAltCeiling]  = useState(ALT_MAX);
   const [search,      setSearch]      = useState('');
-  const [showDisclaimer,setShowDisclaimer]=useState(()=>!sessionStorage.getItem(DISCLAIMER_KEY));
+  const [showDisclaimer,setShowDisclaimer]=useState(()=>!localStorage.getItem(DISCLAIMER_KEY));
   const [taglineOpacity, setTaglineOpacity]=useState(1); // 1→0 after 4s
   const [showFilters, setShowFilters] = useState(false);
   const [tiltMode,    setTiltMode]    = useState(false);
@@ -5544,7 +5555,7 @@ export default function App() {
 
       {/* Disclaimer — shown once per session, must be acknowledged */}
       {showDisclaimer&&<Disclaimer onAccept={()=>{
-        sessionStorage.setItem(DISCLAIMER_KEY,'1');
+        localStorage.setItem(DISCLAIMER_KEY,'1');
         setShowDisclaimer(false);
         // Hold tagline for 4s, then fade over 1.5s, then hide
         setTimeout(()=>setTaglineOpacity(0), 4000);
