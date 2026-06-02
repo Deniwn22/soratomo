@@ -4932,6 +4932,7 @@ export default function App() {
         // Spread fingers → smaller FOV (zoom in); pinch → larger FOV (zoom out)
         const newFov=Math.max(20,Math.min(120, pinchRef.current.fov*(pinchRef.current.dist/dist)));
         setArFov(newFov);
+        pinchRef.current.lastFov=newFov; // track for hardware sync on touchend
         return;
       }
       // Single-finger drag — pan scanHeading (H) and scanPitch (V)
@@ -4943,7 +4944,35 @@ export default function App() {
       setScanHeading((((dragRef.current.h-(x-dragRef.current.x)*sens)%360)+360)%360);
       setScanPitch(Math.max(-60,Math.min(60, dragRef.current.p+(y-dragRef.current.y)*sens)));
     };
-    const up=()=>{dragRef.current=null; pinchRef.current=null;};
+    const up=()=>{
+      dragRef.current=null;
+      // After pinch ends in camera mode: sync hardware zoom to match arFov so the
+      // HRZ line stays aligned with the actual camera horizon at any zoom level.
+      // One applyConstraints per gesture (not continuous) — avoids the snap-back
+      // problem of a continuous poll while still keeping optical FOV and arFov in sync.
+      const lastFov=pinchRef.current?.lastFov;
+      if(lastFov&&cameraModeRef.current){
+        try{
+          const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
+          const cap=track?.getCapabilities?.();
+          if(cap?.zoom){
+            const zMin=cap.zoom.min, zMax=cap.zoom.max;
+            const tele=camFovTeleRef.current;
+            let targetZ;
+            if(tele!=null&&tele<camFovRef.current&&zMax>zMin){
+              // Exact inverse of geometric interpolation
+              const t=Math.log(lastFov/camFovRef.current)/Math.log(tele/camFovRef.current);
+              targetZ=zMin+Math.max(0,Math.min(1,t))*(zMax-zMin);
+            }else{
+              // Estimate: zoom ∝ 1/fov
+              targetZ=zMin*camFovRef.current/lastFov;
+            }
+            track.applyConstraints({advanced:[{zoom:Math.max(zMin,Math.min(zMax,targetZ))}]}).catch(()=>{});
+          }
+        }catch{}
+      }
+      pinchRef.current=null;
+    };
     window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up);
     window.addEventListener('touchmove',mv,{passive:true}); window.addEventListener('touchend',up);
     return ()=>{
