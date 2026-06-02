@@ -2547,7 +2547,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     if(htaps.length>=2){
       const[t1,t2]=htaps;
       const dy=t1.yPct-t2.yPct,dp=t1.dp-t2.dp;
-      if(Math.abs(dy)>3&&Math.abs(dp)>3){const sf=dp*100/dy;if(sf>5&&sf<130)usedVfov=sf; // widened from [15,90] — tele zoom vfov can be <15°}
+      if(Math.abs(dy)>3&&Math.abs(dp)>3){const sf=dp*100/dy;if(sf>15&&sf<90)usedVfov=sf;}
     }
     const biases=htaps.map(t=>(t.yPct-50)*usedVfov/100-t.dp);
     return Math.max(-45,Math.min(45,biases.reduce((s,b)=>s+b,0)/biases.length));
@@ -2584,8 +2584,6 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
     if(allTaps.length>=2||step+1>=allLandmarks.length){
       solvedRef.current={...solvedRef.current,...solveLandmark(allTaps)};
       setTaps(allTaps);
-      // Reset to wide zoom before horizon cal — tele zoom gives wrong vfov to solveHorizon
-      applyZoom('wide').catch(()=>{});
       setPhase('horizon');
     }else{setTaps(allTaps);setStep(s=>s+1);}
   };
@@ -2627,8 +2625,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
   const skipLandmark=e=>{
     e.stopPropagation();
     if(step+1<allLandmarks.length)setStep(s=>s+1);
-    else{solvedRef.current={...solvedRef.current,hdgBias:0,newFov:arFov};
-          applyZoom('wide').catch(()=>{}); setPhase('horizon');}
+    else{solvedRef.current={...solvedRef.current,hdgBias:0,newFov:arFov};setPhase('horizon');}
   };
 
   const skipZoom=e=>{
@@ -2711,9 +2708,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
               ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch>(lastDP||0)?'UP':'DOWN'} more, then tap</span>
               :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
           </div>
-          {zoomCap&&<div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",marginTop:3}}>
-            Best accuracy at wide zoom — camera has been reset to 1×
-          </div>}
+
         </div>
         {/* Live horizon estimate line */}
         <div style={{position:'absolute',left:0,right:0,top:`${horizonYpct}%`,pointerEvents:'none'}}>
@@ -5078,7 +5073,9 @@ export default function App() {
 
   const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
-  const horizonY=tiltMode?Math.max(5,Math.min(92,50+(devicePitch/(activeVFov/2))*50)):58;
+  // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
+  // line always aligns with the real camera horizon after pitch calibration.
+  const horizonY=tiltMode?Math.max(5,Math.min(92,50+(viewPitch/(activeVFov/2))*50)):58;
   // Memoize — only recomputes when user position changes (once per session)
   const cityData=useMemo(()=>CITIES.map(c=>({
     ...c,
