@@ -13,6 +13,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       devOptions: { enabled: false },
       workbox: {
+        skipWaiting: true,   // new SW activates immediately, no waiting for tabs to close
+        clientsClaim: true,  // new SW takes control of all open tabs right away
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/adsb/, /^\/adsbdb/],
