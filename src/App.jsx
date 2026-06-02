@@ -2475,7 +2475,7 @@ function CalibrationPrompt({ lastCalibTs, airborne, speedKts, onCalibrate, onSki
 // ── Landmark Calibration Overlay ──────────────────────────────────
 function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
                                arFov, vfov, airborne, currentHdgBias,
-                               videoRef, onComplete, onSkip }) {
+                               videoRef, onFovChange, onComplete, onSkip }) {
   // Airborne: skip landmark (phase 1) and zoom (phase 3), horizon only
   const [phase,     setPhase]   = React.useState(airborne?'horizon':'landmark');
   const [step,      setStep]    = React.useState(0);
@@ -2507,8 +2507,10 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
       const track=videoRef?.current?.srcObject?.getVideoTracks?.()?.[0];
       if(!track||!zoomCap) return;
       await track.applyConstraints({advanced:[{zoom:level==='wide'?zoomCap.min:zoomCap.max}]});
+      // Notify parent so arFov updates → indicator line + display stay accurate
+      if(onFovChange) onFovChange(level,zoomCap);
     }catch(err){ console.warn('Zoom API:',err); }
-  },[videoRef,zoomCap]);
+  },[videoRef,zoomCap,onFovChange]);
   const [zoomStep, setZoomStep] = React.useState(0); // 0=wide 1=tele
   const [zoomTaps, setZoomTaps] = React.useState([]);
 
@@ -2708,6 +2710,11 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
               ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch>(lastDP||0)?'UP':'DOWN'} more, then tap</span>
               :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
           </div>
+          {/* Accuracy tip — shown before first tap */}
+          {done===0&&<div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
+            lineHeight:1.4,marginTop:4}}>
+            Tip: calibrate at the zoom level you plan to use — tele zoom gives the most precise result
+          </div>}
 
         </div>
         {/* Live horizon estimate line */}
@@ -5162,16 +5169,39 @@ export default function App() {
           arFov={arFov}
           vfov={activeVFov}
           videoRef={videoRef}
+          onFovChange={(level,cap)=>{
+            // Update arFov when zoom buttons are pressed during zoom calibration
+            // so the landmark indicator line and FOV/zoom display stay correct.
+            if(level==='wide'){
+              setArFov(camFov); // exact — camFov is the stored 1× reference
+            } else if(cap?.min&&cap?.max){
+              // Estimate tele FOV from zoom ratio until Phase 3 is complete
+              const estimated=camFov*(cap.min/cap.max);
+              setArFov(Math.max(10,estimated));
+            }
+          }}
           onSkip={()=>setCalibShow(false)}
           onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele)=>{
             setHdgBias(hdgBias);
             try{localStorage.setItem('soratomo_hdg_bias',String(hdgBias));}catch{}
-            // Use fovWide from zoom calib if available, else bearing-solved fov
-            const bestFov=fovWide||fov;
-            if(Math.abs(bestFov-arFov)>1){
-              setArFov(bestFov); setCamFov(bestFov);
-              try{localStorage.setItem('soratomo_cam_fov',String(bestFov));}catch{}
+
+            // Only update camFov (the 1x reference FOV) when we have an explicit
+            // wide-zoom measurement from Phase 3 zoom calibration. Using fov from
+            // bearing calibration is wrong — the user may have calibrated while
+            // zoomed in, in which case fov ≈ 21° gets stored as the "wide" FOV,
+            // corrupting all future zoom calculations.
+            if(fovWide!=null){
+              setCamFov(fovWide);
+              try{localStorage.setItem('soratomo_cam_fov',String(fovWide));}catch{}
             }
+
+            // After calibration, always return to a known-good zoom state:
+            // arFov = the calibrated wide FOV (or stored camFov if no new measurement),
+            // hardware = 1× (min zoom). This guarantees arFov and hardware are in sync.
+            // The user can zoom back in after calibration — the pinch-end handler will
+            // sync hardware to match wherever they zoom to.
+            const resetFov = fovWide || camFov;
+            setArFov(resetFov);
             if(fovTele!=null){
               setCamFovTele(fovTele);
               try{localStorage.setItem('soratomo_cam_fov_tele',String(fovTele));}catch{}
