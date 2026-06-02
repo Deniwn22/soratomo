@@ -4904,45 +4904,7 @@ export default function App() {
 
   useEffect(()=>{const t=setTimeout(()=>setShowHint(false),5000);return()=>clearTimeout(t);},[]);
 
-  // ── Sync arFov from hardware zoom in camera mode ─────────────────
-  // iOS/WKWebView intercepts pinch gestures for native camera zoom before
-  // the app's touch handler fires, so arFov must be updated by polling
-  // track.getSettings().zoom rather than relying on the pinch handler.
-  //
-  // Formula: geometric interpolation between wide and tele calibrated FOVs.
-  //   With tele cal: camFov * (camFovTele/camFov)^t  (exact)
-  //   Without cal:   camFov * zMin / z               (estimate from zoom ratio)
-  //
-  // Falls back gracefully if zoom API is unavailable.
-  useEffect(()=>{
-    if(!cameraMode) return;
-    let cancelled=false;
-    const poll=()=>{
-      if(cancelled) return;
-      // Skip if a pinch just happened — give applyConstraints time to settle
-      if(Date.now()-lastPinchTime.current<300) return;
-      try{
-        const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
-        const settings=track?.getSettings?.();
-        const cap=track?.getCapabilities?.();
-        const z=settings?.zoom, zMin=cap?.zoom?.min, zMax=cap?.zoom?.max;
-        if(z!=null&&zMin!=null&&zMax!=null&&zMax>zMin){
-          let fov;
-          if(camFovTele!=null){
-            // Geometric interpolation — physically correct for optical zoom
-            const t=Math.max(0,Math.min(1,(z-zMin)/(zMax-zMin)));
-            fov=camFov*Math.pow(camFovTele/camFov,t);
-          }else{
-            // Estimate: FOV scales inversely with zoom factor
-            fov=camFov*(zMin/z);
-          }
-          setArFov(Math.max(10,Math.min(120,fov)));
-        }
-      }catch{}
-    };
-    const id=setInterval(poll,120);
-    return()=>{ cancelled=true; clearInterval(id); };
-  },[cameraMode,camFov,camFovTele]);
+
   const onDown=useCallback(e=>{
     if(e.touches?.length===2){
       // Pinch start — works in both modes
@@ -4969,28 +4931,6 @@ export default function App() {
         // Spread fingers → smaller FOV (zoom in); pinch → larger FOV (zoom out)
         const newFov=Math.max(20,Math.min(120, pinchRef.current.fov*(pinchRef.current.dist/dist)));
         setArFov(newFov);
-        lastPinchTime.current=Date.now();
-        // In camera mode: sync hardware zoom so poll reads the correct level
-        if(cameraModeRef.current){
-          try{
-            const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
-            const cap=track?.getCapabilities?.();
-            if(cap?.zoom&&camFovRef.current>0){
-              // Inverse of geometric interpolation: t = log(fov/camFov)/log(camFovTele/camFov)
-              // Fallback estimate: zoom = zMin * camFov / newFov
-              const zMin=cap.zoom.min, zMax=cap.zoom.max;
-              let targetZ;
-              const tele=camFovTeleRef.current;
-              if(tele!=null&&tele<camFovRef.current&&zMax>zMin){
-                const t=Math.log(newFov/camFovRef.current)/Math.log(tele/camFovRef.current);
-                targetZ=zMin+Math.max(0,Math.min(1,t))*(zMax-zMin);
-              }else{
-                targetZ=zMin*camFovRef.current/newFov;
-              }
-              track.applyConstraints({advanced:[{zoom:Math.max(zMin,Math.min(zMax,targetZ))}]}).catch(()=>{});
-            }
-          }catch{}
-        }
         return;
       }
       // Single-finger drag — pan scanHeading (H) and scanPitch (V)
