@@ -17,9 +17,10 @@ export default defineConfig({
         clientsClaim: true,  // new SW takes control of all open tabs right away
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/adsb/, /^\/adsbdb/],
+        navigateFallbackDenylist: [/^\/adsb/, /^\/airplanes/, /^\/adsbdb/],
         runtimeCaching: [
           { urlPattern: /\/adsb\//, handler: 'NetworkOnly' },
+          { urlPattern: /\/airplanes\//, handler: 'NetworkOnly' },
           {
             urlPattern: /\/adsbdb\//,
             handler: 'NetworkFirst',
@@ -64,6 +65,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: path => path.replace(/^\/adsb/, ''),
+      },
+      '/airplanes': {
+        target: 'https://api.airplanes.live',
+        changeOrigin: true,
+        secure: true,
+        rewrite: path => path.replace(/^\/airplanes/, ''),
       },
       '/adsbdb': {
         target: 'https://api.adsbdb.com',
