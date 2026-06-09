@@ -4264,6 +4264,13 @@ export default function App() {
   // the declination fix (they contain ~-10.7° of declination) and would double-correct.
   const [hdgBias,   setHdgBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias_v2')||'0');}catch{return 0;}});
   const [pitchBias, setPitchBias] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias_v2')||'0');}catch{return 0;}});
+  // Learned vertical-FOV scale. The assumed VFOV (arFov·55/85) is only an estimate of
+  // what the cropped camera feed actually shows vertically. A scale error here is
+  // invisible at 0° pitch (centre maps to centre) but displaces the horizon line
+  // proportionally as the phone pitches — the classic 'horizon sinks when I pitch up'.
+  const [vfovK, setVfovK] = useState(()=>{try{const v=parseFloat(localStorage.getItem('soratomo_vfov_k_v2'));return(v>=0.7&&v<=1.4)?v:1;}catch{return 1;}});
+  // Align-tap sample history for the vertical model regression (last 6 taps)
+  const pitchSamplesRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('soratomo_pitch_samples_v2'))||[];}catch{return [];}})());
   const [alignMode, setAlignMode] = useState(false); // armed: next tap on an aircraft solves biases
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
@@ -5073,7 +5080,7 @@ export default function App() {
   },[]);
 
   const activeFov  = arFov;                     // both modes use arFov; default = HFOV
-  const activeVFov = arFov*(VFOV/HFOV);
+  const activeVFov = arFov*(VFOV/HFOV)*vfovK;  // vfovK = vertical scale learned from align taps
   const zoomLevel  = (HFOV/activeFov).toFixed(1); // 1.0x at default, higher when zoomed
 
   // Unified view direction — AR uses device sensors, scan uses free-pan state
@@ -5260,14 +5267,46 @@ export default function App() {
       setTimeout(()=>setAlignNote(null),2600);
       return;
     }
-    setHdgBias(nb); setPitchBias(npb);
+    // ── Progressive vertical model — every align tap is a free data point ──
+    // Per-tap equation: (elev − devicePitch) = pitchBias + dyDeg·k
+    //   dyDeg = tap offset from screen centre in BASE (unscaled) vfov degrees
+    //   k     = true vertical FOV ÷ assumed vertical FOV
+    // One sample solves the offset (pitchBias). Two or more samples at different
+    // screen heights also solve k — the scale error that makes the horizon line
+    // drift away from the real horizon as the phone pitches. No extra user steps:
+    // aligning on a high plane and later a low one calibrates the scale for free.
+    const baseV = arFov*(VFOV/HFOV);
+    const xS = (50-yPct)*baseV/100;          // tap offset, base-vfov degrees
+    const tS = best.elev - pitchRef.current; // what that offset must map to
+    const samples=[...pitchSamplesRef.current,{x:xS,t:tS}].slice(-6);
+    pitchSamplesRef.current=samples;
+    let k=vfovK, pb;
+    const xs=samples.map(s=>s.x);
+    if(samples.length>=2 && Math.max(...xs)-Math.min(...xs)>=6){
+      // Least-squares fit t = pb + k·x across the sample history
+      const n=samples.length;
+      const sx=xs.reduce((a,b)=>a+b,0);
+      const st=samples.reduce((a,s)=>a+s.t,0);
+      const sxx=samples.reduce((a,s)=>a+s.x*s.x,0);
+      const sxt=samples.reduce((a,s)=>a+s.x*s.t,0);
+      const den=n*sxx-sx*sx;
+      if(Math.abs(den)>1e-6){
+        k =Math.max(0.7,Math.min(1.4,(n*sxt-sx*st)/den));
+        pb=Math.max(-30,Math.min(30,(st-k*sx)/n));
+      }
+    }
+    if(pb===undefined) pb=Math.max(-30,Math.min(30, tS - xS*k)); // offset-only update
+    setHdgBias(nb); setPitchBias(pb); setVfovK(k);
     try{
-      localStorage.setItem('soratomo_hdg_bias_v2',   String(nb));
-      localStorage.setItem('soratomo_pitch_bias_v2', String(npb));
-      localStorage.setItem('soratomo_calib_ts_v2',   String(Date.now()));
+      localStorage.setItem('soratomo_hdg_bias_v2',     String(nb));
+      localStorage.setItem('soratomo_pitch_bias_v2',   String(pb));
+      localStorage.setItem('soratomo_vfov_k_v2',       String(k));
+      localStorage.setItem('soratomo_pitch_samples_v2',JSON.stringify(samples));
+      localStorage.setItem('soratomo_calib_ts_v2',     String(Date.now()));
     }catch{}
     setAlignMode(false);
-    setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${npb>=0?'+':''}${npb.toFixed(1)}\u00b0`);
+    const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
+    setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
     setTimeout(()=>setAlignNote(null),2800);
   };
 
