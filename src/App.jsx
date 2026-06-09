@@ -4686,18 +4686,24 @@ export default function App() {
         const dist = Math.max(maxDisplayNmiRef.current, LOG_PROX_NMI);
         const sig  = abortCtrl.signal;
 
-        // Fire both sources simultaneously
-        const [res1, res2] = await Promise.allSettled([
-          fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`,          {signal:sig}),
-          fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,            {signal:sig}),
-        ]);
+        // DIAGNOSTIC: single source only (adsb.lol) — airplanes.live disabled
+        // to isolate whether dual-source merge causes early-landing artifact.
+        // Re-enable dual-source by restoring the commented block below.
+        const r1 = await fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig});
+        if(!r1.ok) throw new Error('HTTP ' + r1.status);
+        const ac1 = parseAC((await r1.json())?.ac||[]);
 
-        const ac1 = res1.status==='fulfilled'&&res1.value.ok ? parseAC((await res1.value.json())?.ac||[]) : [];
-        const ac2 = res2.status==='fulfilled'&&res2.value.ok ? parseAC((await res2.value.json())?.ac||[]) : [];
+        // DUAL-SOURCE DISABLED FOR DIAGNOSTIC:
+        // const [res1, res2] = await Promise.allSettled([
+        //   fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig}),
+        //   fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
+        // ]);
+        // const ac1 = res1.status==='fulfilled'&&res1.value.ok ? parseAC((await res1.value.json())?.ac||[]) : [];
+        // const ac2 = res2.status==='fulfilled'&&res2.value.ok ? parseAC((await res2.value.json())?.ac||[]) : [];
+        // const merged = mergeAC(ac1, ac2);
 
-        const merged = mergeAC(ac1, ac2);
-        if (merged.length > 0) {
-          const parsed = merged; // already normalised by parseAC + merged by mergeAC
+        if (ac1.length > 0) {
+          const parsed = ac1; // single source
           // Merge new positions into state, carrying history forward (survives re-renders)
           lastFetchMs.current = Date.now(); // record when live data arrived
           if(cancelled) return;
