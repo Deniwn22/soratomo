@@ -42,152 +42,6 @@ const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
   return {x:50+(hDiff/(hfov/2))*50, y:50-(vDiff/(vfov/2))*50, on:true};
 };
 
-
-// ── Robust calibrated camera model ───────────────────────────────
-// Pinhole projection fixes the zoom problem: angular error maps through tan()
-// instead of a fragile linear degrees-to-percent conversion. This keeps aircraft
-// locked to the same real-world ray as FOV narrows during zoom.
-const R2D = 180 / Math.PI;
-const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-const norm180 = a => ((a + 540) % 360) - 180;
-const focalFromFov = fovDeg => 0.5 / Math.tan(clamp(fovDeg,3,170) * D2R / 2);
-const fovFromFocal = focal => 2 * Math.atan(0.5 / Math.max(0.001, focal)) * R2D;
-const lerp = (a,b,t)=>a+(b-a)*t;
-
-const getVideoAspect = video => {
-  const vw = video?.videoWidth || 0;
-  const vh = video?.videoHeight || 0;
-  if(vw>0 && vh>0) return vw/vh;
-  if(typeof window !== 'undefined' && window.innerWidth && window.innerHeight) {
-    return window.innerWidth / window.innerHeight;
-  }
-  return 9/16;
-};
-
-// Interpolate focal length, not FOV. FOV is nonlinear with zoom; focal length is
-// the stable quantity. zoomNorm: 0 = wide, 1 = tele.
-const cameraFovForZoom = ({wideFov=HFOV, teleFov=null, zoomNorm=0}) => {
-  if(teleFov == null || !Number.isFinite(teleFov)) return clamp(wideFov, 6, 130);
-  const fw = focalFromFov(wideFov);
-  const ft = focalFromFov(teleFov);
-  return clamp(fovFromFocal(lerp(fw, ft, clamp(zoomNorm,0,1))), 4, 130);
-};
-
-const makeCameraModel = ({
-  headingDeg=0, pitchDeg=0, rollDeg=0,
-  hfovDeg=HFOV, vfovDeg=null,
-  video=null,
-}) => {
-  const aspect = getVideoAspect(video);
-  const hfov = clamp(hfovDeg, 4, 140);
-  // Preserve your old HFOV/VFOV ratio as fallback, but derive vertical FOV from
-  // aspect when possible so object-fit:cover and zoom stay more consistent.
-  const derivedV = 2 * Math.atan(Math.tan(hfov*D2R/2) / Math.max(0.25, aspect)) * R2D;
-  const vfov = clamp(vfovDeg ?? derivedV, 3, 120);
-  return { headingDeg, pitchDeg, rollDeg, hfovDeg:hfov, vfovDeg:vfov,
-           fx:focalFromFov(hfov), fy:focalFromFov(vfov), aspect };
-};
-
-const projectWithCameraModel = ({bearingDeg, elevationDeg, model}) => {
-  const az = norm180(bearingDeg - model.headingDeg) * D2R;
-  const el = (elevationDeg - model.pitchDeg) * D2R;
-
-  // A target ray in camera coordinates: x right, y up, z forward.
-  // Reject anything behind/too far off-boresight before projection blows up.
-  const z = Math.cos(el) * Math.cos(az);
-  if(z <= 0.02) return {on:false};
-  let x = Math.cos(el) * Math.sin(az) / z;
-  let y = Math.sin(el) / z;
-
-  // Roll rotates the image plane. Positive roll tilts right side downward.
-  const rr = (model.rollDeg||0) * D2R;
-  const cr = Math.cos(rr), sr = Math.sin(rr);
-  const xr = x*cr - y*sr;
-  const yr = x*sr + y*cr;
-
-  const nx = xr * model.fx;      // normalized half-width units
-  const ny = yr * model.fy;      // normalized half-height units
-  const pctX = 50 + nx * 100;
-  const pctY = 50 - ny * 100;
-  const on = pctX >= -8 && pctX <= 108 && pctY >= -8 && pctY <= 108;
-  return {x:pctX, y:pctY, on, rawX:pctX, rawY:pctY, azDeg:az*R2D, elDeg:el*R2D};
-};
-
-const horizonLineFromCameraModel = model => {
-  // Horizon is the projected zero-elevation great-circle. Sampling two far points
-  // gives a roll-aware line that stays correct as zoom/FOV changes.
-  const left  = projectWithCameraModel({bearingDeg:model.headingDeg - model.hfovDeg*0.45, elevationDeg:0, model});
-  const right = projectWithCameraModel({bearingDeg:model.headingDeg + model.hfovDeg*0.45, elevationDeg:0, model});
-  if(left.on || right.on) {
-    return {
-      x1:clamp(left.x, -20, 120), y1:clamp(left.y, -20, 120),
-      x2:clamp(right.x,-20, 120), y2:clamp(right.y,-20,120),
-      y:clamp((left.y + right.y)/2, 3, 97),
-    };
-  }
-  const y = clamp(50 + Math.tan(model.pitchDeg*D2R)*model.fy*100, 3, 97);
-  return {x1:4,y1:y,x2:96,y2:y,y};
-};
-
-const solveRobustCalibration = ({landmarkTaps=[], horizonTaps=[], currentModel, currentHdgBias=0}) => {
-  const safeMean = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
-  const safeMedian = arr => {
-    if(!arr.length) return 0;
-    const a=[...arr].sort((x,y)=>x-y);
-    return a[Math.floor(a.length/2)];
-  };
-
-  // Bearing bias: invert the pinhole projection using each landmark tap. This is
-  // much more stable than xPct/arFov linear math at telephoto zoom.
-  const hdgSamples = landmarkTaps.map(t=>{
-    const dx = (t.xPct - 50) / 100;
-    const az = Math.atan(dx / Math.max(0.001, currentModel.fx)) * R2D;
-    return norm180(t.bearing - t.rawHdg - az);
-  }).filter(Number.isFinite);
-
-  // FOV estimate from pairs of landmark taps. Uses tan-space/focal length.
-  let hfov = currentModel.hfovDeg;
-  if(landmarkTaps.length >= 2){
-    const focalSamples=[];
-    for(let i=0;i<landmarkTaps.length;i++) for(let j=i+1;j<landmarkTaps.length;j++){
-      const a=landmarkTaps[i], b=landmarkTaps[j];
-      const da = norm180(a.bearing - a.rawHdg - currentHdgBias) * D2R;
-      const db = norm180(b.bearing - b.rawHdg - currentHdgBias) * D2R;
-      const sx = (a.xPct-b.xPct)/100;
-      const tx = Math.tan(da)-Math.tan(db);
-      if(Math.abs(sx)>0.05 && Math.abs(tx)>0.01){
-        const f = sx/tx;
-        if(f>0.2 && f<10) focalSamples.push(Math.abs(f));
-      }
-    }
-    if(focalSamples.length) hfov = fovFromFocal(safeMedian(focalSamples));
-  }
-
-  // Horizon pitch + roll: fit tapped horizon points as a line y = m*x + b in
-  // normalized screen coordinates, then solve pitch offset from line center and
-  // roll from its slope. Works at every zoom level because it uses focal length.
-  let pitchBias = null, rollBias = null;
-  if(horizonTaps.length){
-    const xs=horizonTaps.map(t=>(t.xPct-50)/100);
-    const ys=horizonTaps.map(t=>(t.yPct-50)/100);
-    const mx=safeMean(xs), my=safeMean(ys);
-    const den=xs.reduce((s,x)=>s+(x-mx)*(x-mx),0);
-    const slope = den>0.0005 ? xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0)/den : 0;
-    const centerY = my - slope*mx;
-    const pitchSamples = horizonTaps.map(t=>{
-      const y = (t.yPct - 50)/100;
-      return Math.atan(y / Math.max(0.001, currentModel.fy))*R2D - t.rawPitch;
-    }).filter(Number.isFinite);
-    pitchBias = clamp(safeMedian(pitchSamples), -45, 45);
-    rollBias = clamp(Math.atan(slope) * R2D, -30, 30);
-    // centerY is retained for stability if pitch samples are noisy.
-    if(Number.isFinite(centerY)) pitchBias = clamp((pitchBias + (Math.atan(centerY/currentModel.fy)*R2D - safeMean(horizonTaps.map(t=>t.rawPitch))))/2, -45, 45);
-  }
-
-  const hdgBias = hdgSamples.length ? clamp(safeMedian(hdgSamples), -90, 90) : currentHdgBias;
-  return {hdgBias, pitchBias, rollBias, hfov:clamp(hfov, 5, 130)};
-};
-
 const getAircraftCat = (icao, emitter='') => {
   // ADS-B emitter category A7 = rotorcraft — checked first, most reliable
   if(emitter==='A7') return 'helicopter';
@@ -2619,8 +2473,8 @@ function CalibrationPrompt({ lastCalibTs, airborne, speedKts, onCalibrate, onSki
 }
 
 // ── Landmark Calibration Overlay ──────────────────────────────────
-function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollRef,
-                               arFov, vfov, airborne, currentHdgBias, currentRollBias,
+function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
+                               arFov, vfov, airborne, currentHdgBias,
                                videoRef, onFovChange, onComplete, onSkip }) {
   // Airborne: skip landmark (phase 1) and zoom (phase 3), horizon only
   const [phase,     setPhase]   = React.useState(airborne?'horizon':'landmark');
@@ -2630,10 +2484,9 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
   const [tapFx,     setTapFx]   = React.useState(null);
   const [liveHdg,   setLiveHdg] = React.useState(headingRef.current||0);
   const [livePitch, setLivePitch]= React.useState(pitchRef?.current||0);
-  const [liveRoll,  setLiveRoll] = React.useState(rollRef?.current||0);
   // When airborne, preserve existing hdgBias — bearing cal isn't available
   const solvedRef = React.useRef({hdgBias:airborne?(currentHdgBias||0):0,
-                                   newFov:arFov,pitchBias:null,rollBias:null,
+                                   newFov:arFov,pitchBias:null,
                                    fovWide:null,fovTele:null,zoomLm:null});
   // Multi-touch suppression: ignore click events that follow a pinch gesture
   const suppressClick = React.useRef(false);
@@ -2666,75 +2519,56 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
     const tick=()=>{
       setLiveHdg(headingRef.current||0);
       setLivePitch(pitchRef?.current||0);
-      setLiveRoll(rollRef?.current||0);
       af=requestAnimationFrame(tick);
     };
     af=requestAnimationFrame(tick);
     return()=>cancelAnimationFrame(af);
-  },[headingRef,pitchRef,rollRef]);
+  },[headingRef,pitchRef]);
 
   const normAngle=a=>((a%360)+540)%360-180;
   const CC='#2dffb4';
   const HORIZ_TAPS=3;
 
   const solveLandmark=allT=>{
-    const model = makeCameraModel({
-      headingDeg: liveHdg + (solvedRef.current.hdgBias||0),
-      pitchDeg: livePitch,
-      rollDeg: liveRoll + (currentRollBias||0),
-      hfovDeg: arFov,
-      vfovDeg: vfov,
-      video: videoRef?.current,
-    });
-    const solved = solveRobustCalibration({
-      landmarkTaps: allT,
-      horizonTaps: [],
-      currentModel: model,
-      currentHdgBias: solvedRef.current.hdgBias||0,
-    });
-    return {hdgBias:solved.hdgBias,newFov:solved.hfov};
+    let newFov=arFov,newBias;
+    if(allT.length>=2){
+      const[t1,t2]=allT;
+      const rb1=normAngle(t1.bearing-t1.rawHdg),rb2=normAngle(t2.bearing-t2.rawHdg);
+      const dx=t1.xPct-t2.xPct;
+      if(Math.abs(dx)>8){const sf=100*normAngle(rb1-rb2)/dx;if(sf>30&&sf<130)newFov=sf;}
+      newBias=normAngle(rb1-(t1.xPct-50)*newFov/100);
+    }else{
+      const rb1=normAngle(allT[0].bearing-allT[0].rawHdg);
+      newBias=normAngle(rb1-(allT[0].xPct-50)*newFov/100);
+    }
+    return{hdgBias:Math.max(-90,Math.min(90,newBias)),newFov};
   };
 
   const solveHorizon=htaps=>{
-    const model = makeCameraModel({
-      headingDeg: liveHdg + (solvedRef.current.hdgBias||0),
-      pitchDeg: livePitch,
-      rollDeg: liveRoll + (currentRollBias||0),
-      hfovDeg: arFov,
-      vfovDeg: vfov,
-      video: videoRef?.current,
-    });
-    return solveRobustCalibration({
-      landmarkTaps: taps,
-      horizonTaps: htaps,
-      currentModel: model,
-      currentHdgBias: solvedRef.current.hdgBias||0,
-    });
+    let usedVfov=vfov;
+    if(htaps.length>=2){
+      const[t1,t2]=htaps;
+      const dy=t1.yPct-t2.yPct,dp=t1.dp-t2.dp;
+      if(Math.abs(dy)>3&&Math.abs(dp)>3){const sf=dp*100/dy;if(sf>15&&sf<90)usedVfov=sf;}
+    }
+    const biases=htaps.map(t=>(t.yPct-50)*usedVfov/100-t.dp);
+    return Math.max(-45,Math.min(45,biases.reduce((s,b)=>s+b,0)/biases.length));
   };
 
   // FOV from a single tap: fov = angularOffset * 100 / (xPct - 50)
   // Requires |xPct-50| > 4 for numerical stability
   const solveZoomFov=(xPct,bearing,rawHdg,hdgBias)=>{
-    const offset=normAngle(bearing-rawHdg-hdgBias) * D2R;
-    const dx=(xPct-50)/100;
-    if(Math.abs(dx)<0.04 || Math.abs(Math.tan(offset))<0.01) return null;
-    const focal=Math.abs(dx/Math.tan(offset));
-    const fov=fovFromFocal(focal);
+    const offset=normAngle(bearing-rawHdg-hdgBias);
+    const dx=xPct-50;
+    if(Math.abs(dx)<4) return null;  // landmark too close to centre
+    const fov=Math.abs(offset*100/dx);
     return(fov>5&&fov<130)?fov:null;
   };
 
   const lm=allLandmarks[step];
-  const liveModel = makeCameraModel({
-    headingDeg:liveHdg + (solvedRef.current.hdgBias||0),
-    pitchDeg:livePitch + (solvedRef.current.pitchBias||0),
-    rollDeg:liveRoll + (solvedRef.current.rollBias ?? currentRollBias ?? 0),
-    hfovDeg:arFov, vfovDeg:vfov, video:videoRef?.current,
-  });
   const relDeg=lm?normAngle(lm.bearing-liveHdg):0;
-  const lmProjection=lm?projectWithCameraModel({bearingDeg:lm.bearing,elevationDeg:0,model:liveModel}):null;
-  const onscreen=lm&&lmProjection?.on;
-  const horizonEstimate=horizonLineFromCameraModel(liveModel);
-  const horizonYpct=horizonEstimate.y;
+  const onscreen=lm&&Math.abs(relDeg)<=arFov*0.45;
+  const horizonYpct=Math.max(5,Math.min(95,50+livePitch/(vfov/2)*50));
 
   const handleLandmarkTap=e=>{
     if(!lm) return;
@@ -2761,18 +2595,16 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
     const xPct=(e.clientX-r.left)/r.width*100;
     const yPct=(e.clientY-r.top)/r.height*100;
     setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
-    const newHTap={xPct,yPct,rawPitch:pitchRef?.current||0,rawRoll:rollRef?.current||0};
+    const newHTap={yPct,dp:pitchRef?.current||0};
     const allHTaps=[...hTaps,newHTap];
     setHTaps(allHTaps);
     if(allHTaps.length>=HORIZ_TAPS){
-      const solvedH=solveHorizon(allHTaps);
-      const pb=solvedH.pitchBias;
-      const rb=solvedH.rollBias;
-      solvedRef.current={...solvedRef.current,pitchBias:pb,rollBias:rb};
+      const pb=solveHorizon(allHTaps);
+      solvedRef.current={...solvedRef.current,pitchBias:pb};
       if(airborne){
         // Airborne: no zoom phase, complete with preserved hdgBias
         const{hdgBias,newFov}=solvedRef.current;
-        onComplete(hdgBias,newFov,pb,null,null,rb);
+        onComplete(hdgBias,newFov,pb,null,null);
       } else {
         setZoomStep(0); setZoomTaps([]);
         setPhase('zoom');
@@ -2784,7 +2616,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
     e.stopPropagation();
     if(airborne){
       const{hdgBias,newFov}=solvedRef.current;
-      onComplete(hdgBias,newFov,null,null,null,null);
+      onComplete(hdgBias,newFov,null,null,null);
     } else {
       solvedRef.current={...solvedRef.current,pitchBias:null};
       setZoomStep(0); setZoomTaps([]);
@@ -2800,8 +2632,8 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
 
   const skipZoom=e=>{
     e.stopPropagation();
-    const{hdgBias,newFov,pitchBias,rollBias}=solvedRef.current;
-    onComplete(hdgBias,newFov,pitchBias,null,null,rollBias);
+    const{hdgBias,newFov,pitchBias}=solvedRef.current;
+    onComplete(hdgBias,newFov,pitchBias,null,null);
   };
 
   const handleZoomTap=e=>{
@@ -2821,8 +2653,8 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
     } else {
       // Tele tap — finalise
       solvedRef.current={...solvedRef.current,fovTele:fov};
-      const{hdgBias,newFov,pitchBias,rollBias,fovWide}=solvedRef.current;
-      onComplete(hdgBias,newFov,pitchBias,fovWide,fov,rollBias);
+      const{hdgBias,newFov,pitchBias,fovWide}=solvedRef.current;
+      onComplete(hdgBias,newFov,pitchBias,fovWide,fov);
     }
   };
 
@@ -2846,7 +2678,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
   // ── HORIZON PHASE ─────────────────────────────────────────────────
   if(phase==='horizon'){
     const done=hTaps.length;
-    const lastDP=hTaps.length?hTaps[hTaps.length-1].rawPitch:null;
+    const lastDP=hTaps.length?hTaps[hTaps.length-1].dp:null;
     const tiltDiff=lastDP!=null?Math.abs(livePitch-lastDP):99;
     const needsTilt=tiltDiff<8;
     return(
@@ -2876,24 +2708,21 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
           <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
             {needsTilt&&done>0
               ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch>(lastDP||0)?'UP':'DOWN'} more, then tap</span>
-              :<span>Tap the <strong style={{color:CC}}>horizon</strong> at different left/center/right points</span>}
+              :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
           </div>
           {/* Accuracy tip — shown before first tap */}
           {done===0&&<div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
             lineHeight:1.4,marginTop:4}}>
-            Tip: use left, center, and right horizon taps. This also learns camera roll, so HRZ can tilt correctly.
+            Tip: calibrate at the zoom level you plan to use — tele zoom gives the most precise result
           </div>}
 
         </div>
-        {/* Live horizon estimate line — roll/FOV-aware */}
-        <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}>
-          <line x1={`${horizonEstimate.x1}%`} y1={`${horizonEstimate.y1}%`}
-                x2={`${horizonEstimate.x2}%`} y2={`${horizonEstimate.y2}%`}
-                stroke="rgba(77,184,255,0.24)" strokeWidth="1"/>
-          <text x={`${Math.max(horizonEstimate.x1,horizonEstimate.x2)-10}%`}
-                y={`${horizonEstimate.y2-1}%`} fill="rgba(77,184,255,0.45)"
-                fontSize="7" fontFamily="Orbitron,monospace">← CURRENT EST.</text>
-        </svg>
+        {/* Live horizon estimate line */}
+        <div style={{position:'absolute',left:0,right:0,top:`${horizonYpct}%`,pointerEvents:'none'}}>
+          <div style={{height:1,background:'rgba(77,184,255,0.2)',width:'100%'}}/>
+          <div style={{position:'absolute',right:8,top:-10,fontSize:7,
+            color:'rgba(77,184,255,0.4)',fontFamily:"'Orbitron',monospace"}}>← CURRENT EST.</div>
+        </div>
         <div style={{flex:1,display:'flex',alignItems:'flex-end',
           justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
           {needsTilt&&done===0?(
@@ -2929,22 +2758,15 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
     const zl=solvedRef.current.zoomLm;
     // If somehow no landmark was ever tapped (user skipped all), skip zoom entirely
     if(!zl){
-      const{hdgBias,newFov,pitchBias,rollBias}=solvedRef.current;
-      onComplete(hdgBias,newFov,pitchBias,null,null,rollBias);
+      const{hdgBias,newFov,pitchBias}=solvedRef.current;
+      onComplete(hdgBias,newFov,pitchBias,null,null);
       return null;
     }
-    // Current estimated position of landmark using calibrated pinhole camera model
+    // Current estimated position of landmark using calibrated hdgBias + arFov
     const zRelDeg=zl?normAngle(zl.bearing-(liveHdg+solvedRef.current.hdgBias)):0;
-    const zModel=makeCameraModel({
-      headingDeg:liveHdg+solvedRef.current.hdgBias,
-      pitchDeg:livePitch+(solvedRef.current.pitchBias||0),
-      rollDeg:liveRoll+(solvedRef.current.rollBias ?? currentRollBias ?? 0),
-      hfovDeg:arFov, vfovDeg:vfov, video:videoRef?.current,
-    });
-    const zProj=projectWithCameraModel({bearingDeg:zl.bearing,elevationDeg:0,model:zModel});
-    const zXpct  = zProj.x;
+    const zXpct  =50+zRelDeg/(arFov/2)*50;         // where landmark appears now
     const tooClose=Math.abs(zXpct-50)<8;            // within 8% of centre = unstable
-    const offscreen=!zProj.on;
+    const offscreen=Math.abs(zRelDeg)>arFov*0.48;
     const label=zoomStep===0?'ZOOM ALL THE WAY OUT':'ZOOM ALL THE WAY IN';
     const icon =zoomStep===0?'⊖':'⊕';
     return(
@@ -3134,7 +2956,7 @@ function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef, rollR
           </div>
         )}
       </div>
-      {onscreen&&<div style={{position:'absolute',left:`${lmProjection.x}%`,top:`${lmProjection.y}%`,
+      {onscreen&&<div style={{position:'absolute',left:`${50+relDeg/arFov*50}%`,top:'42%',
         transform:'translate(-50%,-50%)',width:12,height:12,
         border:`2px solid ${CC}`,borderRadius:'50%',background:`${CC}30`,
         pointerEvents:'none'}}/>}
@@ -4377,7 +4199,6 @@ export default function App() {
   const [pos,         setPos]         = useState({lat:38.9072,lon:-77.0369});
   const [heading,     setHeading]     = useState(15);
   const [devicePitch, setDevicePitch] = useState(0);
-  const [deviceRoll,  setDeviceRoll]  = useState(0);
   const [flights,     setFlights]     = useState([]);
   const [apiStatus,   setApiStatus]   = useState('demo'); // 'live'|'demo'|'limited'
   const [selectedId,  setSelectedId]  = useState(null); // ID only — derive live data from mapped
@@ -4405,30 +4226,34 @@ export default function App() {
   const [showLog,     setShowLog]     = useState(false);
   const [showStats,   setShowStats]   = useState(false);
   const [density,     setDensity]     = useState('compact'); // compact|normal
-  const [camFov,      setCamFov]      = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
-  const [camFovTele,  setCamFovTele]  = useState(()=>{try{const v=localStorage.getItem('soratomo_cam_fov_tele');return v?parseFloat(v):null;}catch{return null;}});
-  const [calibShow,   setCalibShow]   = useState(false);
-  const [calibPrompt, setCalibPrompt] = useState(false);
-  const [calibAirborne, setCalibAirborne] = useState(false);
+  // const [camFov,     setCamFov]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
+  // const [camFovTele, setCamFovTele] = useState(()=>{try{const v=localStorage.getItem('soratomo_cam_fov_tele');return v?parseFloat(v):null;}catch{return null;}});
+  const camFov     = HFOV;   // default — no calibration
+  const camFovTele = null;
+  // const [calibShow,       setCalibShow]       = useState(false);
+  // const [calibPrompt,     setCalibPrompt]     = useState(false);
+  // const [calibAirborne,   setCalibAirborne]   = useState(false);
+  // const [calibLandmarks,  setCalibLandmarks]  = useState([]);
+  // const [lastCalibTs,     setLastCalibTs]     = useState(...);
+  const calibShow      = false;   // CALIBRATION PAUSED
+  const calibPrompt    = false;
+  const calibAirborne  = false;
+  const calibLandmarks = [];
+  const lastCalibTs    = null;
   const [showHelp,    setShowHelp]    = useState(false);
-  const [calibLandmarks, setCalibLandmarks] = useState([]);
-  // calibLandmarks.length===0 while fetch is in-flight → overlay shows loading spinner
-  const [lastCalibTs, setLastCalibTs] = useState(()=>{
-    try{ const v=localStorage.getItem('soratomo_calib_ts'); return v?parseInt(v):null; }catch{ return null; }
-  });
   // ref so CalibrationOverlay always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
   const pitchRef = useRef(devicePitch);
   useEffect(()=>{ pitchRef.current   = devicePitch;     },[devicePitch]);
-  const rollRef = useRef(deviceRoll);
-  useEffect(()=>{ rollRef.current    = deviceRoll;      },[deviceRoll]);
-  useEffect(()=>{ cameraModeRef.current = cameraMode;   },[cameraMode]);
-  useEffect(()=>{ camFovRef.current     = camFov;       },[camFov]);
-  useEffect(()=>{ camFovTeleRef.current = camFovTele;   },[camFovTele]);
-  const [hdgBias,     setHdgBias]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
-  const [pitchBias,   setPitchBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
-  const [rollBias,    setRollBias]    = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_roll_bias')||'0');}catch{return 0;}});
+  useEffect(()=>{ cameraModeRef.current = cameraMode; },[cameraMode]);
+  // useEffect(()=>{ camFovRef.current     = camFov;    },[camFov]);     // CALIBRATION PAUSED
+  // useEffect(()=>{ camFovTeleRef.current = camFovTele;},[camFovTele]); // CALIBRATION PAUSED
+  // ── CALIBRATION PAUSED — biases hardcoded to 0, restore state vars to re-enable ──
+  // const [hdgBias,   setHdgBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
+  // const [pitchBias, setPitchBias] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
+  const hdgBias   = 0;
+  const pitchBias = 0;
   const [gallery,     setGallery]     = useState(()=>loadGallery());
   const [showGallery, setShowGallery] = useState(false);
   const [galSelected, setGalSelected] = useState(null); // enlarged photo
@@ -4606,13 +4431,11 @@ export default function App() {
     if(orientRef.current) return;
     // ── Shared state ───────────────────────────────────────────────
     let rafId=null;
-    let alpha=null, beta=null, gamma=null, webkit=null; // heading fields (any event can update)
-    let smoothPitch=0, pitchInit=false;
-    let smoothRoll=0,  rollInit=false;     // pitch fields (ONLY deviceorientation updates)
+    let alpha=null, beta=null, webkit=null; // heading fields (any event can update)
+    let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
     let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
 
     let displayedPitch = 0;          // last value actually sent to React state
-    let displayedRoll  = 0;
     const process=()=>{
       rafId=null;
       const rawHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
@@ -4635,16 +4458,6 @@ export default function App() {
           setDevicePitch(display);
         }
       }
-      if(gamma!=null){
-        const rawRoll = clamp(gamma, -45, 45);
-        smoothRoll = rollInit ? smoothRoll*0.90 + rawRoll*0.10 : rawRoll;
-        rollInit = true;
-        const displayRoll = Math.round(smoothRoll);
-        if(displayRoll !== displayedRoll){
-          displayedRoll = displayRoll;
-          setDeviceRoll(displayRoll);
-        }
-      }
     };
 
     // deviceorientation: primary — updates heading AND pitch (beta)
@@ -4652,7 +4465,6 @@ export default function App() {
     const hOrientation = e => {
       alpha  = e.alpha;
       beta   = e.beta;           // ONLY this handler may write beta
-      gamma  = e.gamma;          // used for roll-aware horizon/camera projection
       webkit = e.webkitCompassHeading ?? null;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
@@ -4716,20 +4528,13 @@ export default function App() {
       }).then(stream=>{
         streamRef.current=stream;
         registerOrientation();
-        setArFov(camFov);
+        setArFov(HFOV);  // CALIBRATION PAUSED — use default FOV
         setTiltMode(true);
         setCameraMode(true);
-        // Detect if user is airborne (speed > 80 m/s ≈ 155 kts)
-        const isAirborne = (drVel.current.speedMs||0) > 80;
-        setCalibAirborne(isAirborne);
-        setCalibPrompt(true);
-        setCalibLandmarks([]);
-        // No point fetching landmarks if airborne — skip that network call
-        if(!isAirborne) fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{
-          if(lms.length) setCalibLandmarks(lms);
-          // If no landmarks found, prompt still shows but calibrate button goes to loading→skip
-        });
-      // end if(!isAirborne)
+        // CALIBRATION PAUSED — prompt + landmark fetch disabled
+        // const isAirborne = (drVel.current.speedMs||0) > 80;
+        // setCalibAirborne(isAirborne); setCalibPrompt(true); setCalibLandmarks([]);
+        // if(!isAirborne) fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{ if(lms.length) setCalibLandmarks(lms); });
       }).catch(err=>{
         const msg={
           NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
@@ -4824,18 +4629,51 @@ export default function App() {
   };
 
   useEffect(()=>{
-    // adsb.lol — free, no auth, no rate limits, same ADS-B data
-    // API: /v2/lat/{lat}/lon/{lon}/dist/{dist_nm}  →  { ac: [...] }
-    // Units returned: alt_baro in FEET, gs in KNOTS — converted to meters/m/s on ingest
+    // Dual-source ADS-B: adsb.lol + airplanes.live fired in parallel.
+    // Per-aircraft we keep whichever record has the lower posAge (fresher position).
+    // Promise.allSettled means one source down never kills the other.
     //
     // Deps=[] so the effect mounts once and never restarts.
     // pos and maxDisplayNmi are read via refs — always current, zero timer churn.
-    // AbortController cancels any in-flight fetch on unmount.
+    // AbortController cancels any in-flight fetches on unmount.
     let timer = null;
     let cancelled = false;
     let abortCtrl = null;
     const INTERVAL = 1000;  // 1s
     const schedule = (delay) => { if(!cancelled) timer = setTimeout(poll, delay); };
+
+    // Parse a raw ac[] array from either source into our normalised shape
+    const parseAC = (ac) => ac
+      .filter(a =>
+        a.lat != null && a.lon != null &&
+        typeof a.alt_baro === 'number' &&
+        a.alt_baro > 0 &&
+        (a.gs ?? 0) > 0
+      )
+      .map(a => ({
+        id:      a.hex,
+        cs:      (a.flight || a.hex || '???').trim(),
+        airline: (a.flight || '???').trim().slice(0, 3),
+        lat:     a.lat,
+        lon:     a.lon,
+        alt:     Math.max(a.alt_baro * 0.3048, 91),
+        spd:     (a.gs ?? 0) * 0.5144,
+        hdg:     a.track ?? 0,
+        posAge:  a.seen_pos ?? a.seen ?? 0,
+        type:    a.t ?? '',
+        reg:     a.r ?? '',
+        emitter: a.category ?? '',
+      }));
+
+    // Merge two parsed arrays by hex, keeping the record with the lower posAge
+    const mergeAC = (a, b) => {
+      const map = new Map();
+      for(const f of [...a, ...b]) {
+        const ex = map.get(f.id);
+        if(!ex || f.posAge < ex.posAge) map.set(f.id, f);
+      }
+      return [...map.values()];
+    };
 
     const poll = async () => {
       timer = null;
@@ -4844,38 +4682,22 @@ export default function App() {
       if(document.hidden) return;
       abortCtrl = new AbortController();
       try {
-        const {lat,lon} = posRef.current;          // read latest pos via ref
-        const r = await fetch(
-          // fetchDist: match display range so the fetch covers what the user sees.
-          // Floor=LOG_PROX_NMI: logbook proximity tracking needs that data even when
-          // the display ring is zoomed in tight.
-          `/adsb/v2/lat/${lat}/lon/${lon}/dist/${Math.max(maxDisplayNmiRef.current,LOG_PROX_NMI)}`,
-          {signal: abortCtrl.signal}
-        );
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.json();
-        if (d?.ac?.length > 0) {
-          const parsed = d.ac
-            .filter(a =>
-              a.lat != null && a.lon != null &&      // must have position
-              typeof a.alt_baro === 'number' &&      // must have numeric altitude (not "ground")
-              a.alt_baro > 0 &&                      // airborne only
-              (a.gs ?? 0) > 0                        // must be moving
-            )
-            .map(a => ({
-              id:      a.hex,
-              cs:      (a.flight || a.hex || '???').trim(),
-              airline: (a.flight || '???').trim().slice(0, 3),
-              lat:     a.lat,
-              lon:     a.lon,
-              alt:     Math.max(a.alt_baro * 0.3048, 91), // ft → m (alt_baro is numeric here)
-              spd:     (a.gs ?? 0) * 0.5144,              // knots → m/s
-              hdg:     a.track ?? 0,
-              posAge:  a.seen_pos ?? a.seen ?? 0, // seconds since ADS-B position was broadcast
-              type:    a.t ?? '',              // ICAO type designator (B738, A320, etc.)
-              reg:     a.r ?? '',              // tail number / registration
-              emitter: a.category ?? '',       // ADS-B emitter category (A7=rotorcraft)
-            }));
+        const {lat,lon} = posRef.current;
+        const dist = Math.max(maxDisplayNmiRef.current, LOG_PROX_NMI);
+        const sig  = abortCtrl.signal;
+
+        // Fire both sources simultaneously
+        const [res1, res2] = await Promise.allSettled([
+          fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`,          {signal:sig}),
+          fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,            {signal:sig}),
+        ]);
+
+        const ac1 = res1.status==='fulfilled'&&res1.value.ok ? parseAC((await res1.value.json())?.ac||[]) : [];
+        const ac2 = res2.status==='fulfilled'&&res2.value.ok ? parseAC((await res2.value.json())?.ac||[]) : [];
+
+        const merged = mergeAC(ac1, ac2);
+        if (merged.length > 0) {
+          const parsed = merged; // already normalised by parseAC + merged by mergeAC
           // Merge new positions into state, carrying history forward (survives re-renders)
           lastFetchMs.current = Date.now(); // record when live data arrived
           if(cancelled) return;
@@ -4945,7 +4767,7 @@ export default function App() {
         }
       } catch(e) {}
 
-      // Fetch failed — clear flights, notify user once per outage
+      // Both sources failed — clear flights, notify user once per outage
       setFlights([]);
       setApiStatus('limited');
       if(!demoAlerted.current){
@@ -5189,13 +5011,9 @@ export default function App() {
 
   // Unified view direction — AR uses device sensors, scan uses free-pan state
   // Apply heading & pitch trim biases in tilt/camera mode for AR alignment
-  const viewHdg   = tiltMode ? (heading + hdgBias + 360) % 360 : scanHeading;
-  const viewPitch = tiltMode ? (devicePitch + pitchBias) : scanPitch;
-  const viewRoll  = tiltMode ? (deviceRoll + rollBias) : 0;
-  const cameraModel = makeCameraModel({
-    headingDeg:viewHdg, pitchDeg:viewPitch, rollDeg:viewRoll,
-    hfovDeg:activeFov, vfovDeg:activeVFov, video:videoRef.current,
-  });
+  // CALIBRATION PAUSED — biases are 0 so these are equivalent to raw sensor values
+  const viewHdg   = tiltMode ? heading : scanHeading;
+  const viewPitch = tiltMode ? devicePitch : scanPitch;
 
   // Military-category check — includes mil helos (UH/AH/MH/HH/CH/OH/SH/TH)
   // which correctly categorise as 'helicopter' not 'military'
@@ -5232,19 +5050,13 @@ export default function App() {
     const dist=haversine(pos.lat,pos.lon,rLat,rLon);
     const bear=getBearing(pos.lat,pos.lon,rLat,rLon);
     const elev=getElev(dist,f.alt);
-    const sc=tiltMode
-      ? projectWithCameraModel({bearingDeg:bear,elevationDeg:elev,model:cameraModel})
-      : toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
+    const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
     // Project historical positions — no FOV clipping so trail persists near edges
     // SVG overflow:hidden clips lines at viewport boundary naturally
     const trail=(f.history||[]).slice(0,-1).map(h=>{
       const hd=haversine(pos.lat,pos.lon,h.lat,h.lon);
       const hb=getBearing(pos.lat,pos.lon,h.lat,h.lon);
       const he=getElev(hd,h.alt);
-      if(tiltMode){
-        const hs=projectWithCameraModel({bearingDeg:hb,elevationDeg:he,model:cameraModel});
-        return {x:hs.x,y:hs.y};
-      }
       const hDiff=((hb-viewHdg+540)%360)-180;
       const vDiff=he-viewPitch;
       return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
@@ -5317,8 +5129,7 @@ export default function App() {
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
   // line always aligns with the real camera horizon after pitch calibration.
-  const horizonLine = tiltMode ? horizonLineFromCameraModel(cameraModel) : {x1:4,y1:58,x2:96,y2:58,y:58};
-  const horizonY=tiltMode?Math.max(5,Math.min(92,horizonLine.y)):58;
+  const horizonY=tiltMode?Math.max(5,Math.min(92,50+(viewPitch/(activeVFov/2))*50)):58;
   // Memoize — only recomputes when user position changes (once per session)
   const cityData=useMemo(()=>CITIES.map(c=>({
     ...c,
@@ -5354,27 +5165,25 @@ export default function App() {
 
       {/* Camera feed — behind everything */}
       {/* Calibration prompt — shown first so user can skip if recently calibrated */}
+      {/* CALIBRATION PAUSED — CalibrationPrompt disabled
       {cameraMode&&calibPrompt&&!calibShow&&(
         <CalibrationPrompt
           lastCalibTs={lastCalibTs}
           airborne={calibAirborne}
           speedKts={Math.round((drVel.current.speedMs||0)/0.5144)}
           onSkip={()=>setCalibPrompt(false)}
-          onCalibrate={()=>{
-            setCalibPrompt(false);
-            setCalibShow(true);
-          }}/>
+          onCalibrate={()=>{ setCalibPrompt(false); setCalibShow(true); }}/>
       )}
+      */}
+      {/* CALIBRATION PAUSED — CalibrationOverlay disabled
       {cameraMode&&calibShow&&(
         <CalibrationOverlay
           allLandmarks={calibLandmarks}
           loading={!calibAirborne&&calibLandmarks.length===0}
           airborne={calibAirborne}
           currentHdgBias={hdgBias}
-          currentRollBias={rollBias}
           headingRef={headingRef}
           pitchRef={pitchRef}
-          rollRef={rollRef}
           arFov={arFov}
           vfov={activeVFov}
           videoRef={videoRef}
@@ -5384,17 +5193,13 @@ export default function App() {
             if(level==='wide'){
               setArFov(camFov); // exact — camFov is the stored 1× reference
             } else if(cap?.min&&cap?.max){
-              // Estimate tele FOV in focal-length space until Phase 3 is complete
-              const estimated=cameraFovForZoom({
-                wideFov:camFov,
-                teleFov:camFovTele || camFov*(cap.min/cap.max),
-                zoomNorm:1,
-              });
-              setArFov(Math.max(6,estimated));
+              // Estimate tele FOV from zoom ratio until Phase 3 is complete
+              const estimated=camFov*(cap.min/cap.max);
+              setArFov(Math.max(10,estimated));
             }
           }}
           onSkip={()=>setCalibShow(false)}
-          onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele,rollBiasSolved)=>{
+          onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele)=>{
             setHdgBias(hdgBias);
             try{localStorage.setItem('soratomo_hdg_bias',String(hdgBias));}catch{}
 
@@ -5423,10 +5228,6 @@ export default function App() {
               setPitchBias(pitchBias);
               try{localStorage.setItem('soratomo_pitch_bias',String(pitchBias));}catch{}
             }
-            if(rollBiasSolved!=null){
-              setRollBias(rollBiasSolved);
-              try{localStorage.setItem('soratomo_roll_bias',String(rollBiasSolved));}catch{}
-            }
             setCalibShow(false);
             // Reset hardware zoom to min after calibration (ZOOM IN button leaves it at max)
             try{
@@ -5439,11 +5240,11 @@ export default function App() {
             try{localStorage.setItem('soratomo_calib_ts',String(now));}catch{}
             const hMsg=`hdg ${hdgBias>0?'+':''}${Math.round(hdgBias)}°`;
             const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:'';
-            const rMsg=rollBiasSolved!=null?` · roll ${rollBiasSolved>0?'+':''}${Math.round(rollBiasSolved)}°`:'';
             const zMsg=fovWide!=null?` · wide ${Math.round(fovWide)}°${fovTele?'/tele '+Math.round(fovTele)+'°':''}`:'';
-            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}${rMsg}${zMsg}`);
+            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}${zMsg}`);
           }}/>
       )}
+      */}
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
         style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',zIndex:0}}/>}
       {/* Capture flash overlay */}
@@ -5472,16 +5273,12 @@ export default function App() {
           transition:'height 0.12s linear'}}/>
       </>}
 
-      {/* Horizon — roll-aware calibrated camera model */}
-      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',zIndex:2,pointerEvents:'none',overflow:'visible'}}>
-        <line x1={`${horizonLine.x1}%`} y1={`${horizonLine.y1}%`}
-              x2={`${horizonLine.x2}%`} y2={`${horizonLine.y2}%`}
-              stroke="rgba(77,184,255,.28)" strokeWidth="1"/>
-        <text x={`${Math.min(horizonLine.x1,horizonLine.x2)+1}%`} y={`${horizonLine.y1-1}%`}
-              fill="rgba(77,184,255,.55)" fontSize="9" fontFamily="Orbitron,monospace" letterSpacing="1">HRZ</text>
-        <text x={`${Math.max(horizonLine.x1,horizonLine.x2)-6}%`} y={`${horizonLine.y2-1}%`}
-              fill="rgba(77,184,255,.55)" fontSize="9" fontFamily="Orbitron,monospace" letterSpacing="1">HRZ</text>
-      </svg>
+      {/* Horizon */}
+      <div style={{position:'absolute',top:`${horizonY}%`,left:'4%',right:'4%',height:1,
+        background:'rgba(77,184,255,.25)',zIndex:2,pointerEvents:'none'}}>
+        <span style={{position:'absolute',right:4,top:-9,fontSize:9,color:'rgba(77,184,255,.55)',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>HRZ</span>
+        <span style={{position:'absolute',left:4,top:-9,fontSize:9,color:'rgba(77,184,255,.55)',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>HRZ</span>
+      </div>
 
       {/* Crosshair */}
       <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:2,pointerEvents:'none',opacity:tiltMode?1:0.7}}>
@@ -5506,8 +5303,7 @@ export default function App() {
           if(item.dist > maxDist) return null;
           const diff    = ((item.bear - viewHdg + 540) % 360) - 180;
           if(Math.abs(diff) >= halfFov * 0.95) return null;
-          const proj    = tiltMode ? projectWithCameraModel({bearingDeg:item.bear,elevationDeg:0,model:cameraModel}) : null;
-          const x       = proj ? proj.x : 50 + (diff / halfFov) * 50;
+          const x       = 50 + (diff / halfFov) * 50;
           const fade    = Math.max(0, 1 - Math.abs(diff) / halfFov);
           const dFade   = Math.min(1, item.dist / 80000);
           const opacity = fade * 0.82 * Math.min(1, dFade + 0.3);
@@ -5581,7 +5377,6 @@ export default function App() {
           </div>
           <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",marginTop:6,letterSpacing:'.06em'}}>{zoomLevel}x ZOOM</div>
           <div style={{fontSize:9,color:'#254558',fontFamily:"'Orbitron',monospace",marginTop:1}}>FOV {Math.round(activeFov)}&deg;</div>
-          <div style={{fontSize:9,color:'#254558',fontFamily:"'Orbitron',monospace",marginTop:1}}>ROLL {Math.round(viewRoll)}&deg;</div>
           {parseFloat(zoomLevel)>1.05&&(
             <div onClick={()=>setArFov(HFOV)} style={{
               fontSize:9,color:'#3a7888',fontFamily:"'Orbitron',monospace",
@@ -5687,22 +5482,7 @@ export default function App() {
                     <circle cx="6.5" cy="6.5" r="3"   fill="rgba(255,255,255,0.9)"/>
                   </svg>
                 </button>
-                <button onClick={e=>{
-                  e.stopPropagation();
-                  const isAirborne=(drVel.current.speedMs||0)>80;
-                  setCalibAirborne(isAirborne);
-                  setCalibPrompt(true);
-                  setCalibLandmarks([]);
-                  if(!isAirborne) fetchCalibLandmarks(pos.lat,pos.lon).then(lms=>{
-                    if(lms.length) setCalibLandmarks(lms);
-                  });
-                }} style={{
-                  background:'transparent',
-                  border:'1.5px solid rgba(45,255,180,0.4)',
-                  borderRadius:5,padding:'4px 8px',cursor:'pointer',
-                  display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#2dffb4',letterSpacing:'.08em'}}>CAL</span>
-                </button>
+                {/* CALIBRATION PAUSED — CAL button disabled */}
                 <button onClick={e=>{e.stopPropagation();setShowGallery(v=>!v);}} style={{
                   background:showGallery?'rgba(45,255,180,0.15)':'transparent',
                   border:`1.5px solid ${showGallery?'#2dffb4':'rgba(45,255,180,0.35)'}`,
