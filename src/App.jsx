@@ -4221,16 +4221,14 @@ export default function App() {
   // Refs for stale-closure access inside the mount-once mv/pinch handler
   const cameraModeRef   = useRef(false);
   const camFovRef       = useRef(77);
-  const camFovTeleRef   = useRef(null);
   const lastPinchTime   = useRef(0); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
   const [showStats,   setShowStats]   = useState(false);
   const [density,     setDensity]     = useState('compact'); // compact|normal
-  // const [camFov,     setCamFov]     = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov')||'77');}catch{return 77;}});
-  // const [camFovTele, setCamFovTele] = useState(()=>{try{const v=localStorage.getItem('soratomo_cam_fov_tele');return v?parseFloat(v):null;}catch{return null;}});
-  const camFov     = HFOV;   // default — no calibration
-  const camFovTele = null;
+  // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
+  // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
+  const [camFov, setCamFov] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov_v2')||'77');}catch{return 77;}});
   // const [calibShow,       setCalibShow]       = useState(false);
   // const [calibPrompt,     setCalibPrompt]     = useState(false);
   // const [calibAirborne,   setCalibAirborne]   = useState(false);
@@ -4248,13 +4246,17 @@ export default function App() {
   const pitchRef = useRef(devicePitch);
   useEffect(()=>{ pitchRef.current   = devicePitch;     },[devicePitch]);
   useEffect(()=>{ cameraModeRef.current = cameraMode; },[cameraMode]);
-  // useEffect(()=>{ camFovRef.current     = camFov;    },[camFov]);     // CALIBRATION PAUSED
-  // useEffect(()=>{ camFovTeleRef.current = camFovTele;},[camFovTele]); // CALIBRATION PAUSED
-  // ── CALIBRATION PAUSED — biases hardcoded to 0, restore state vars to re-enable ──
-  // const [hdgBias,   setHdgBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias')||'0');}catch{return 0;}});
-  // const [pitchBias, setPitchBias] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias')||'0');}catch{return 0;}});
-  const hdgBias   = 0;
-  const pitchBias = 0;
+  useEffect(()=>{ camFovRef.current = camFov; },[camFov]);
+  // ── Fine-trim calibration (tap-to-align) ──
+  // Declination handles the dominant error in code; these biases are device-specific
+  // residuals solved by tapping a real aircraft. v2 keys — v1 values were solved BEFORE
+  // the declination fix (they contain ~-10.7° of declination) and would double-correct.
+  const [hdgBias,   setHdgBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias_v2')||'0');}catch{return 0;}});
+  const [pitchBias, setPitchBias] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias_v2')||'0');}catch{return 0;}});
+  const [alignMode, setAlignMode] = useState(false); // armed: next tap on an aircraft solves biases
+  const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
+  // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
+  useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
   const [gallery,     setGallery]     = useState(()=>loadGallery());
   const [showGallery, setShowGallery] = useState(false);
   const [galSelected, setGalSelected] = useState(null); // enlarged photo
@@ -4551,7 +4553,7 @@ export default function App() {
       }).then(stream=>{
         streamRef.current=stream;
         registerOrientation();
-        setArFov(HFOV);  // CALIBRATION PAUSED — use default FOV
+        setArFov(camFov);  // calibrated 1× reference FOV (default 77° uncalibrated)
         setTiltMode(true);
         setCameraMode(true);
         // CALIBRATION PAUSED — prompt + landmark fetch disabled
@@ -5027,16 +5029,11 @@ export default function App() {
           const cap=track?.getCapabilities?.();
           if(cap?.zoom){
             const zMin=cap.zoom.min, zMax=cap.zoom.max;
-            const tele=camFovTeleRef.current;
-            let targetZ;
-            if(tele!=null&&tele<camFovRef.current&&zMax>zMin){
-              // Exact inverse of geometric interpolation
-              const t=Math.log(lastFov/camFovRef.current)/Math.log(tele/camFovRef.current);
-              targetZ=zMin+Math.max(0,Math.min(1,t))*(zMax-zMin);
-            }else{
-              // Estimate: zoom ∝ 1/fov
-              targetZ=zMin*camFovRef.current/lastFov;
-            }
+            // Exact: digital zoom is a centre crop, so tan(fov/2) scales as 1/zoom.
+            // Zoom needed for a target FOV: z = zMin · tan(camFov/2) / tan(targetFov/2).
+            // This replaces the old tele-calibration interpolation entirely — one known
+            // wide FOV derives every zoom level analytically, no Phase-3 calibration needed.
+            const targetZ = zMin * Math.tan(camFovRef.current/2*D2R) / Math.tan(lastFov/2*D2R);
             track.applyConstraints({advanced:[{zoom:Math.max(zMin,Math.min(zMax,targetZ))}]}).catch(()=>{});
           }
         }catch{}
@@ -5057,9 +5054,9 @@ export default function App() {
 
   // Unified view direction — AR uses device sensors, scan uses free-pan state
   // Apply heading & pitch trim biases in tilt/camera mode for AR alignment
-  // CALIBRATION PAUSED — biases are 0 so these are equivalent to raw sensor values
-  const viewHdg   = tiltMode ? heading : scanHeading;
-  const viewPitch = tiltMode ? devicePitch : scanPitch;
+  // heading already includes magnetic declination; hdgBias/pitchBias are device residuals
+  const viewHdg   = tiltMode ? (heading + hdgBias + 360) % 360 : scanHeading;
+  const viewPitch = tiltMode ? (devicePitch + pitchBias) : scanPitch;
 
   // Military-category check — includes mil helos (UH/AH/MH/HH/CH/OH/SH/TH)
   // which correctly categorise as 'helicopter' not 'military'
@@ -5168,6 +5165,54 @@ export default function App() {
     const confidence = totalAgeSec < 5 ? 'HIGH' : totalAgeSec < 15 ? 'MED' : 'LOW';
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
   }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
+
+  // ── Tap-to-align calibration ──
+  // The aircraft themselves are the calibration landmarks: their true bearing/elevation
+  // are known from ADS-B far more precisely than any visual landmark. One tap on the REAL
+  // aircraft in the camera view solves both hdgBias and pitchBias — the offset between
+  // where we drew the icon and where the plane actually is IS the residual sensor error.
+  // Works at any zoom (equations use activeFov/activeVFov); zoomed-in taps are MORE precise
+  // because the same pixel error spans a smaller angle.
+  const handleAlignTap = e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const xPct = (e.clientX - r.left)/r.width*100;
+    const yPct = (e.clientY - r.top)/r.height*100;
+    // Nearest rendered aircraft in screen space
+    let best=null, bestD=Infinity;
+    for(const f of mapped){
+      const d=Math.hypot(f.x-xPct, f.y-yPct);
+      if(d<bestD){ bestD=d; best=f; }
+    }
+    if(!best || bestD>25){
+      setAlignNote('No aircraft near tap — tap directly on the plane');
+      setTimeout(()=>setAlignNote(null),2200);
+      return;
+    }
+    // Solve biases so this aircraft renders exactly at the tap point.
+    // Absolute solve (independent of the current biases): the icon position used
+    // for nearest-match included old biases, but the equations below don't.
+    const hDiffTap = (xPct-50)*activeFov/100;          // tap's angular offset from view centre
+    const vDiffTap = (50-yPct)*activeVFov/100;
+    const nb  = ((best.bear - headingRef.current - hDiffTap + 540)%360)-180;
+    const npb = best.elev - pitchRef.current - vDiffTap;
+    // Post-declination, residual device error beyond these bounds means a bad tap
+    // or the wrong aircraft — reject rather than store a garbage calibration.
+    if(Math.abs(nb)>25 || Math.abs(npb)>20){
+      setAlignNote('Offset too large — tap the aircraft that matches the icon');
+      setTimeout(()=>setAlignNote(null),2600);
+      return;
+    }
+    setHdgBias(nb); setPitchBias(npb);
+    try{
+      localStorage.setItem('soratomo_hdg_bias_v2',   String(nb));
+      localStorage.setItem('soratomo_pitch_bias_v2', String(npb));
+      localStorage.setItem('soratomo_calib_ts_v2',   String(Date.now()));
+    }catch{}
+    setAlignMode(false);
+    setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${npb>=0?'+':''}${npb.toFixed(1)}\u00b0`);
+    setTimeout(()=>setAlignNote(null),2800);
+  };
 
 
   // One-shot range reduction at sign-on — fires once if >80 aircraft load immediately.
@@ -5329,6 +5374,23 @@ export default function App() {
       */}
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
         style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',zIndex:0}}/>}
+      {/* Tap-to-align: full-screen capture layer while armed */}
+      {cameraMode&&alignMode&&(
+        <div onClick={handleAlignTap} style={{position:'absolute',inset:0,zIndex:85,cursor:'crosshair'}}>
+          <div style={{position:'absolute',top:'14%',left:'50%',transform:'translateX(-50%)',
+            background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
+            padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',
+            fontFamily:"'Exo 2',sans-serif"}}>
+            Tap the real aircraft in the view
+          </div>
+        </div>
+      )}
+      {alignNote&&(
+        <div style={{position:'absolute',top:'21%',left:'50%',transform:'translateX(-50%)',zIndex:86,
+          background:'rgba(3,11,30,0.9)',border:'1px solid rgba(45,255,180,0.35)',borderRadius:10,
+          padding:'8px 14px',fontSize:12,color:'#2dffb4',whiteSpace:'nowrap',
+          fontFamily:"'Exo 2',sans-serif"}}>{alignNote}</div>
+      )}
       {/* Capture flash overlay */}
       {captureFlash&&<div style={{position:'absolute',inset:0,background:'#fff',opacity:0.6,zIndex:99,pointerEvents:'none'}}/>}
 
@@ -5460,7 +5522,7 @@ export default function App() {
           <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",marginTop:6,letterSpacing:'.06em'}}>{zoomLevel}x ZOOM</div>
           <div style={{fontSize:9,color:'#254558',fontFamily:"'Orbitron',monospace",marginTop:1}}>FOV {Math.round(activeFov)}&deg;</div>
           {parseFloat(zoomLevel)>1.05&&(
-            <div onClick={()=>setArFov(HFOV)} style={{
+            <div onClick={()=>setArFov(cameraMode?camFov:HFOV)} style={{
               fontSize:9,color:'#3a7888',fontFamily:"'Orbitron',monospace",
               marginTop:6,cursor:'pointer',textDecoration:'underline',
               pointerEvents:'auto',
@@ -5564,7 +5626,13 @@ export default function App() {
                     <circle cx="6.5" cy="6.5" r="3"   fill="rgba(255,255,255,0.9)"/>
                   </svg>
                 </button>
-                {/* CALIBRATION PAUSED — CAL button disabled */}
+                <button onClick={e=>{e.stopPropagation();setAlignMode(v=>!v);setAlignNote(null);}} style={{
+                  background:alignMode?'rgba(77,184,255,0.18)':'transparent',
+                  border:`1.5px solid ${alignMode?'#4db8ff':'rgba(77,184,255,0.4)'}`,
+                  borderRadius:5,padding:'4px 8px',cursor:'pointer',
+                  display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#4db8ff',letterSpacing:'.08em'}}>ALIGN</span>
+                </button>
                 <button onClick={e=>{e.stopPropagation();setShowGallery(v=>!v);}} style={{
                   background:showGallery?'rgba(45,255,180,0.15)':'transparent',
                   border:`1.5px solid ${showGallery?'#2dffb4':'rgba(45,255,180,0.35)'}`,
