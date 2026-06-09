@@ -5221,33 +5221,42 @@ export default function App() {
     const r = e.currentTarget.getBoundingClientRect();
     const xPct = (e.clientX - r.left)/r.width*100;
     const yPct = (e.clientY - r.top)/r.height*100;
-    // Nearest rendered aircraft in screen space — candidates only while aligning
-    let best=null, bestD=Infinity;
-    for(const f of (alignCandidates||mapped)){
-      const d=Math.hypot(f.x-xPct, f.y-yPct);
-      if(d<bestD){ bestD=d; best=f; }
-    }
-    if(!best || bestD>25){
-      setAlignNote('No aircraft near tap — tap directly on the plane');
+    // ── Implied-correction matching ──
+    // DON'T match by distance to the drawn icon: the icon position embeds the broken
+    // calibration we're trying to fix — when the error is large, the icon is nowhere
+    // near the real aircraft and icon-distance matching rejects exactly the taps that
+    // matter most. Instead, for each candidate compute the bias correction this tap
+    // WOULD imply if that candidate is what the user tapped, then pick the candidate
+    // requiring the smallest correction. The icon's screen position is irrelevant.
+    const hDiffTap = (xPct-50)*activeFov/100;          // tap's angular offset from view centre
+    const vDiffTap = (50-yPct)*activeVFov/100;
+    const scored = (alignCandidates||mapped).map(f=>{
+      const inb  = ((f.bear - headingRef.current - hDiffTap + 540)%360)-180;
+      const inpb = f.elev - pitchRef.current - vDiffTap;
+      return {f, nb:inb, npb:inpb, score:Math.hypot(inb, inpb)};
+    }).sort((a,b)=>a.score-b.score);
+    if(!scored.length){
+      setAlignNote('No aircraft available to align to');
       setTimeout(()=>setAlignNote(null),2200);
       return;
     }
-    // Solve biases so this aircraft renders exactly at the tap point.
-    // Absolute solve (independent of the current biases): the icon position used
-    // for nearest-match included old biases, but the equations below don't.
-    const hDiffTap = (xPct-50)*activeFov/100;          // tap's angular offset from view centre
-    const vDiffTap = (50-yPct)*activeVFov/100;
-    const nb  = ((best.bear - headingRef.current - hDiffTap + 540)%360)-180;
-    const npb = best.elev - pitchRef.current - vDiffTap;
-    // Post-declination, residual device error beyond these bounds means a bad tap
-    // or the wrong aircraft — reject rather than store a garbage calibration.
-    // Airborne exception: a magnetometer inside an aluminum fuselage can be wrong by
-    // ANY amount — tap-to-align is the only usable absolute reference up there, so
-    // accept the full heading range and a wider pitch band (accel errors in turns).
+    const pick = scored[0];
+    // Ambiguity guard: if a second candidate's implied correction is nearly identical,
+    // we can't be sure which plane was tapped — calibrating to the wrong one is worse
+    // than not calibrating. Zooming in separates them angularly.
+    if(scored.length>1 && scored[1].score - pick.score < 3){
+      setAlignNote('Two aircraft could match \u2014 zoom in and tap again');
+      setTimeout(()=>setAlignNote(null),2600);
+      return;
+    }
+    const {f:best, nb, npb} = pick;
+    // Sanity bounds — generous on the ground (real device residuals of 20-40° exist:
+    // magnetic cases, car mounts, local interference), unbounded heading airborne
+    // (magnetometer inside a fuselage can be wrong by any amount).
     const airborne = (drVel.current.speedMs||0) > 80;
-    const hdgLim = airborne ? 180 : 25, pitchLim = airborne ? 35 : 20;
+    const hdgLim = airborne ? 180 : 45, pitchLim = airborne ? 35 : 30;
     if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
-      setAlignNote('Offset too large — tap the aircraft that matches the icon');
+      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try tapping the closest plane');
       setTimeout(()=>setAlignNote(null),2600);
       return;
     }
