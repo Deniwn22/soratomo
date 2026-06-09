@@ -4423,9 +4423,9 @@ export default function App() {
     // (the 15s GPS interval itself is lightweight — watchPosition
     //  is hardware-driven; we only suppress DR and ADS-B, not geolocation)
 
-    // 1 Hz dead-reckoning extrapolation between GPS fixes.
-    // Threshold raised to 5 m/s — GPS noise on a stationary device can report
-    // 1-3 m/s spuriously, which was causing on-ground jitter at the old 1 m/s limit.
+    // 1 Hz dead-reckoning extrapolation between GPS fixes (user position).
+    // Threshold is 12 m/s (~24 kts) — only extrapolate in actual flight. GPS noise on a
+    // stationary/walking device reports spurious 1-5 m/s, which caused on-ground jitter.
     const dr = setInterval(()=>{
       if(document.hidden) return;  // skip DR when app not visible — saves CPU
       const anchor = drAnchor.current;
@@ -4665,8 +4665,11 @@ export default function App() {
     const INTERVAL = 1000;  // 1s
     const schedule = (delay) => { if(!cancelled) timer = setTimeout(poll, delay); };
 
-    // Parse a raw ac[] array from either source into our normalised shape
-    const parseAC = (ac) => ac
+    // Parse a raw ac[] array from either source into our normalised shape.
+    // lagS = pipeline latency (our clock vs the aggregator's response timestamp) —
+    // folded into posAge so DR accounts for the full true age of each position,
+    // not just the age the aggregator reports relative to its own clock.
+    const parseAC = (ac, lagS = 0) => ac
       .filter(a =>
         a.lat != null && a.lon != null &&
         typeof a.alt_baro === 'number' &&
@@ -4682,7 +4685,12 @@ export default function App() {
         alt:     Math.max(a.alt_baro * 0.3048, 91),
         spd:     (a.gs ?? 0) * 0.5144,
         hdg:     a.track ?? 0,
-        posAge:  a.seen_pos ?? a.seen ?? 0,
+        posAge:  (a.seen_pos ?? a.seen ?? 0) + lagS,
+        // Vertical rate (ft/min → m/s) — lets DR extrapolate altitude on climbs/descents
+        vr:      (a.baro_rate ?? a.geom_rate ?? 0) * 0.00508,
+        // Turn rate (deg/s, right-positive) — lets DR follow curved paths (e.g. DCA river visual).
+        // Clamped to ±4°/s: standard-rate turn is 3°/s; larger values are sensor noise.
+        trkRate: Math.max(-4, Math.min(4, a.track_rate ?? 0)),
         type:    a.t ?? '',
         reg:     a.r ?? '',
         emitter: a.category ?? '',
@@ -4714,15 +4722,24 @@ export default function App() {
         // Re-enable dual-source by restoring the commented block below.
         const r1 = await fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig});
         if(!r1.ok) throw new Error('HTTP ' + r1.status);
-        const ac1 = parseAC((await r1.json())?.ac||[]);
+        const d1 = await r1.json();
+        // Pipeline lag: our clock vs the aggregator's snapshot timestamp (`now`).
+        // adsb.lol returns ms; readsb-style sources return seconds — normalise.
+        // Clamped to [0,10]s: negative = clock skew, huge = bogus; both untrustworthy.
+        const nowMs = (d1?.now||0) > 1e12 ? d1.now : (d1?.now||0)*1000;
+        const lagS  = nowMs ? Math.min(Math.max((Date.now()-nowMs)/1000, 0), 10) : 0;
+        const ac1 = parseAC(d1?.ac||[], lagS);
 
         // DUAL-SOURCE DISABLED FOR DIAGNOSTIC:
         // const [res1, res2] = await Promise.allSettled([
         //   fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig}),
         //   fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
         // ]);
-        // const ac1 = res1.status==='fulfilled'&&res1.value.ok ? parseAC((await res1.value.json())?.ac||[]) : [];
-        // const ac2 = res2.status==='fulfilled'&&res2.value.ok ? parseAC((await res2.value.json())?.ac||[]) : [];
+        // const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000; return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
+        // const d1 = res1.status==='fulfilled'&&res1.value.ok ? await res1.value.json() : null;
+        // const d2 = res2.status==='fulfilled'&&res2.value.ok ? await res2.value.json() : null;
+        // const ac1 = d1 ? parseAC(d1.ac||[], lagOf(d1)) : [];
+        // const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
         // const merged = mergeAC(ac1, ac2);
 
         if (ac1.length > 0) {
@@ -5067,27 +5084,54 @@ export default function App() {
     if(typeFilter==='military'&&!isMilCat(cat,f.type)) return false;
     return true;
   });
+  // DR cap as a CONTINUOUS function of altitude — piecewise-linear interpolation.
+  // The old hard bands (45/15/5/2s) made icons teleport backward when an aircraft
+  // descended across a band edge with stale data (e.g. cap 45→15 at 10k ft could
+  // snap the icon back several hundred meters in one frame).
+  //   ≤1k ft: 2s · 1k–5k: 2→5s · 5k–10k: 5→15s · 10k–20k: 15→45s · ≥20k: 45s
+  const drCapForAlt = ft =>
+    ft <= 1000  ? 2 :
+    ft <= 5000  ? 2  + (ft-1000) /4000 *3  :
+    ft <= 10000 ? 5  + (ft-5000) /5000 *10 :
+    ft <= 20000 ? 15 + (ft-10000)/10000*30 : 45;
+
   const mapped=visibleFlights.map(f=>{
-    // Dead reckoning: project ADS-B position forward to now using reported hdg+spd
-    // posAge = seconds since transponder broadcast; add elapsed since our fetch
+    // Dead reckoning: project ADS-B position forward to now using reported track,
+    // groundspeed, turn rate, and vertical rate.
+    // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
+    // add time elapsed since our fetch completed.
     const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
-    // Scale DR cap by altitude — at cruise (>10k ft) extrapolate freely up to 45s;
-    // on approach/departure reduce aggressively because the aircraft is decelerating,
-    // descending, and may be turning — all of which DR gets wrong.
-    //   >10k ft → 45s cap (cruise: stable speed/hdg, error is small)
-    //   5k–10k ft → 15s cap (departure/arrival: some maneuvering)
-    //   1k–5k ft → 5s cap  (approach: decelerating, descending, curving)
-    //   <1k ft  → 2s cap   (final/landing: DR causes visible early-touchdown artifact)
-    const altFt = f.alt * 3.28084;
-    const drCapS = altFt > 10000 ? 45 : altFt > 5000 ? 15 : altFt > 1000 ? 5 : 2;
-    const extraM = f.spd * Math.min(totalAgeSec, drCapS);
+    const altFt  = f.alt * 3.28084;
+    const drCapS = drCapForAlt(altFt);
+    const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
+    const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
     const hdgRad = f.hdg * (Math.PI/180);
     const R = 6371000;
-    const rLat = f.lat + (Math.cos(hdgRad)*extraM/R)*(180/Math.PI);
-    const rLon = f.lon + (Math.sin(hdgRad)*extraM/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
+    // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
+    // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
+    // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
+    // This follows curved approaches (DCA river visual) instead of flying off tangent.
+    let dN, dE; // meters north / east
+    const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
+    if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
+      const Rt     = f.spd / w;                     // signed turn radius
+      const dAlong = Rt * Math.sin(w*tEff);
+      const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
+      dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
+      dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
+    } else {
+      dN = Math.cos(hdgRad)*extraM;
+      dE = Math.sin(hdgRad)*extraM;
+    }
+    const rLat = f.lat + (dN/R)*(180/Math.PI);
+    const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
+    // ── Vertical: extrapolate altitude with reported vertical rate ──
+    // Without this, a descending aircraft is drawn ahead horizontally but at its
+    // old (higher) altitude — visibly above the real aircraft on approach.
+    const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
     const dist=haversine(pos.lat,pos.lon,rLat,rLon);
     const bear=getBearing(pos.lat,pos.lon,rLat,rLon);
-    const elev=getElev(dist,f.alt);
+    const elev=getElev(dist,drAlt);
     const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
     // Project historical positions — no FOV clipping so trail persists near edges
     // SVG overflow:hidden clips lines at viewport boundary naturally
