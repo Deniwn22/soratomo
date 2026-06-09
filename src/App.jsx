@@ -5042,7 +5042,16 @@ export default function App() {
     // Dead reckoning: project ADS-B position forward to now using reported hdg+spd
     // posAge = seconds since transponder broadcast; add elapsed since our fetch
     const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
-    const extraM = f.spd * Math.min(totalAgeSec, 45); // cap at 45s; spd in m/s
+    // Scale DR cap by altitude — at cruise (>10k ft) extrapolate freely up to 45s;
+    // on approach/departure reduce aggressively because the aircraft is decelerating,
+    // descending, and may be turning — all of which DR gets wrong.
+    //   >10k ft → 45s cap (cruise: stable speed/hdg, error is small)
+    //   5k–10k ft → 15s cap (departure/arrival: some maneuvering)
+    //   1k–5k ft → 5s cap  (approach: decelerating, descending, curving)
+    //   <1k ft  → 2s cap   (final/landing: DR causes visible early-touchdown artifact)
+    const altFt = f.alt * 3.28084;
+    const drCapS = altFt > 10000 ? 45 : altFt > 5000 ? 15 : altFt > 1000 ? 5 : 2;
+    const extraM = f.spd * Math.min(totalAgeSec, drCapS);
     const hdgRad = f.hdg * (Math.PI/180);
     const R = 6371000;
     const rLat = f.lat + (Math.cos(hdgRad)*extraM/R)*(180/Math.PI);
