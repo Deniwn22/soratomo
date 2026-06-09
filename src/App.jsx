@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import geomagnetism from "geomagnetism"; // WMM magnetic declination — true-north compass correction
 
 const D2R = Math.PI / 180;
 const haversine = (la1,lo1,la2,lo2) => {
@@ -4287,10 +4288,28 @@ export default function App() {
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
   const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
   const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
+  const magDeclRef      = useRef(0);     // magnetic declination at user position (deg, east-positive)
+  const declAnchor      = useRef(null);  // {lat,lon} where declination was last computed
   const posEMA          = useRef(null);   // EMA-smoothed / averaged user position
   const fixBuf          = useRef([]);     // rolling buffer of stationary GPS fixes for averaging
   const speedHist       = useRef([]);     // last 3 GPS speed readings — hysteresis for mode switch
   const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
+
+  // ── Magnetic declination — converts compass (magnetic-north) heading to true north ──
+  // webkitCompassHeading reports MAGNETIC heading; aircraft bearings are TRUE (lat/lon math).
+  // Without this correction the AR view is rotated by local declination (~10.7°W in DC),
+  // which displaces icons along an aircraft's path — reads as a time shift (~14s on final).
+  // Recomputed only on first GPS fix or after moving >25km (declination varies slowly).
+  useEffect(()=>{
+    if(!pos?.lat) return;
+    if(declAnchor.current &&
+       haversine(declAnchor.current.lat,declAnchor.current.lon,pos.lat,pos.lon) < 25000) return;
+    try{
+      const info = geomagnetism.model().point([pos.lat, pos.lon]);
+      magDeclRef.current = info.decl;   // east-positive: true = magnetic + decl
+      declAnchor.current = {lat:pos.lat, lon:pos.lon};
+    }catch(e){ /* model failure → leave previous value (0 = uncorrected, same as before) */ }
+  },[pos]);
 
   // Derived: all logged callsigns including this session
   const loggedCallsigns = useMemo(()=>new Set(logbook.map(e=>e.cs)),[logbook]);
@@ -4438,7 +4457,11 @@ export default function App() {
     let displayedPitch = 0;          // last value actually sent to React state
     const process=()=>{
       rafId=null;
-      const rawHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
+      // Both webkitCompassHeading (iOS) and deviceorientationabsolute alpha (Android)
+      // are referenced to MAGNETIC north — add declination to get TRUE heading,
+      // matching the true-north bearings computed from aircraft lat/lon.
+      const magHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
+      const rawHdg=(magHdg + magDeclRef.current + 360)%360;
       // Circular EMA: operate on shortest-arc delta to avoid 0°↔360° discontinuity
       if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
       else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
@@ -4461,7 +4484,7 @@ export default function App() {
     };
 
     // deviceorientation: primary — updates heading AND pitch (beta)
-    // On iOS this fires with webkitCompassHeading so heading is already correct here.
+    // On iOS this fires with webkitCompassHeading (MAGNETIC north — declination applied in process()).
     const hOrientation = e => {
       alpha  = e.alpha;
       beta   = e.beta;           // ONLY this handler may write beta
