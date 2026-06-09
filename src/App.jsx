@@ -13,7 +13,18 @@ const getBearing = (la1,lo1,la2,lo2) => {
   const x=Math.cos(la1*D2R)*Math.sin(la2*D2R)-Math.sin(la1*D2R)*Math.cos(la2*D2R)*Math.cos(dO);
   return (Math.atan2(y,x)/D2R+360)%360;
 };
-const getElev  = (distM,altM) => Math.atan2(altM,distM)/D2R;
+// Observer altitude (m) — updated from GPS fixes. 0 = sea level (ground default).
+// In flight this is CRITICAL: at FL350 a co-altitude aircraft 10 nm away is at ~0°
+// elevation, but sea-level math would draw it 30° up in the sky.
+let OBS_ALT_M = 0;
+// Effective Earth radius (7/6 · R) — standard atmospheric refraction correction
+const R_EFF = 7432833;
+// Elevation angle of a target: relative altitude minus Earth-curvature drop (d²/2R).
+// Curvature matters even on the ground: cruise traffic at 30 nm sits ~0.2° lower
+// than flat-earth math suggests.
+const getElev  = (distM,altM) => Math.atan2(altM - OBS_ALT_M - distM*distM/(2*R_EFF), distM)/D2R;
+// True-horizon dip below 0° elevation at altitude: √(2h/R_eff). ~3.2° at FL350, ~0 on ground.
+const getHorizonDipDeg = () => Math.sqrt(2*Math.max(OBS_ALT_M,0)/R_EFF)/D2R;
 const mToFt    = m  => Math.round(m*3.28084).toLocaleString();
 const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
@@ -4384,16 +4395,21 @@ export default function App() {
 
     // Called on every real GPS fix — filter bad fixes, update anchor, update pos
     const onFix = p => {
-      const {latitude:lat, longitude:lon, speed, heading:gpsHdg, accuracy} = p.coords;
+      const {latitude:lat, longitude:lon, speed, heading:gpsHdg, accuracy, altitude} = p.coords;
+      // Track observer altitude for elevation math (light EMA — GPS alt is noisy ±10-30m)
+      if(altitude != null && isFinite(altitude)){
+        OBS_ALT_M = OBS_ALT_M === 0 ? altitude : OBS_ALT_M*0.8 + altitude*0.2;
+      }
       const speedMs  = (speed  != null && speed  >= 0) ? speed  : drVel.current.speedMs;
       const trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
 
       // Accuracy gate — GPS: 5–20 m; WiFi: 50–500 m; Cell: 500–2000 m.
-      // Stationary: reject anything >100 m accuracy (WiFi/cell fallback).
-      // Accuracy gate — unconditional: WiFi/cell fallback reports 50–2000 m accuracy;
-      // real GPS is 5–20 m. Reject anything >150 m regardless of reported speed —
-      // GPS noise CAN report high phantom speed, bypassing the old speed-gated check.
-      if(accuracy != null && accuracy > 150) return;
+      // Reject WiFi/cell fallback fixes. Relaxed to 300 m when airborne: GPS through
+      // a cabin window often reports 50–250 m accuracy, and there is no WiFi/cell
+      // positioning at FL350 to defend against — rejecting these fixes would freeze
+      // the user position entirely.
+      const accLimit = speedMs > 80 ? 300 : 150;
+      if(accuracy != null && accuracy > accLimit) return;
 
       // Jump gate — speed-proportional: allows for genuine fast movement
       // but still catches single bad fixes that slip through the accuracy gate
@@ -4402,7 +4418,11 @@ export default function App() {
          roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > jumpLimit) return;
 
       drVel.current    = {speedMs, trackDeg};
-      drAnchor.current = {lat, lon, ts: Date.now()};
+      // Use the FIX's own timestamp, not receipt time. The supplemental poll accepts
+      // fixes up to 20s old (maximumAge) — at 250 m/s that is 5 km of position lag if
+      // we pretend a cached fix is current. User DR extrapolates from this ts, so the
+      // staleness is recovered automatically when the ts is honest.
+      drAnchor.current = {lat, lon, ts: Math.min(p.timestamp||Date.now(), Date.now())};
       updatePos(lat, lon, speedMs);
     };
 
@@ -4434,7 +4454,11 @@ export default function App() {
       if(!anchor || drVel.current.speedMs < 12) return; // 12 m/s ≈ 24 kts — only DR in actual flight
       const ageSec = (Date.now() - anchor.ts) / 1000;
       if(ageSec < 1 || ageSec > 60) return;
-      const track  = drHeadingRef.current || drVel.current.trackDeg;
+      // GPS track, NOT phone compass: in an aircraft the passenger points the phone
+      // out a side window — compass heading is ~90° off the direction of travel (and
+      // unreliable inside a fuselage anyway). trackDeg already falls back to compass
+      // at fix time if GPS heading was unavailable.
+      const track  = drVel.current.trackDeg;
       const dist   = drVel.current.speedMs * ageSec;
       const extrap = project(anchor.lat, anchor.lon, track, dist);
       // DR positions are computed (not noisy) — apply with high alpha for smooth tracking
@@ -5170,10 +5194,14 @@ export default function App() {
   // While ALIGN is armed the view declutters to unambiguous targets: only aircraft
   // within 5 nm, max 2 per bearing quadrant (closest first). Whichever direction the
   // user turns, they see at most two candidates instead of 25 nm of background traffic.
+  // Airborne (>80 m/s ≈ 155 kts): widen to 25 nm — at cruise the nearest visible
+  // traffic is rarely within 5 nm, and distant targets move slowly across the sky
+  // so tap precision is preserved.
+  const alignRadiusNmi = (drVel.current.speedMs||0) > 80 ? 25 : 5;
   const alignCandidates = (alignMode && cameraMode) ? (()=>{
     const sectors=[[],[],[],[]];   // bearing quadrants: 0-90, 90-180, 180-270, 270-360
     for(const f of mapped){
-      if(f.dist > 5*M_PER_NMI) continue;
+      if(f.dist > alignRadiusNmi*M_PER_NMI) continue;
       sectors[Math.floor((((f.bear%360)+360)%360)/90)].push(f);
     }
     return sectors.flatMap(s=>s.sort((a,b)=>a.dist-b.dist).slice(0,2));
@@ -5213,7 +5241,12 @@ export default function App() {
     const npb = best.elev - pitchRef.current - vDiffTap;
     // Post-declination, residual device error beyond these bounds means a bad tap
     // or the wrong aircraft — reject rather than store a garbage calibration.
-    if(Math.abs(nb)>25 || Math.abs(npb)>20){
+    // Airborne exception: a magnetometer inside an aluminum fuselage can be wrong by
+    // ANY amount — tap-to-align is the only usable absolute reference up there, so
+    // accept the full heading range and a wider pitch band (accel errors in turns).
+    const airborne = (drVel.current.speedMs||0) > 80;
+    const hdgLim = airborne ? 180 : 25, pitchLim = airborne ? 35 : 20;
+    if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
       setAlignNote('Offset too large — tap the aircraft that matches the icon');
       setTimeout(()=>setAlignNote(null),2600);
       return;
@@ -5271,7 +5304,8 @@ export default function App() {
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
   // line always aligns with the real camera horizon after pitch calibration.
-  const horizonY=tiltMode?Math.max(5,Math.min(92,50+(viewPitch/(activeVFov/2))*50)):58;
+  // True horizon dips √(2h/R) below 0° elevation at altitude (~3.2° at FL350)
+  const horizonY=tiltMode?Math.max(5,Math.min(92,50+((viewPitch+getHorizonDipDeg())/(activeVFov/2))*50)):58;
   // Memoize — only recomputes when user position changes (once per session)
   const cityData=useMemo(()=>CITIES.map(c=>({
     ...c,
@@ -5397,8 +5431,8 @@ export default function App() {
             padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',
             fontFamily:"'Exo 2',sans-serif"}}>
             {alignCandidates&&alignCandidates.length
-              ? `Showing ${alignCandidates.length} aircraft within 5 nm \u2014 tap the real one`
-              : 'No aircraft within 5 nm \u2014 waiting for closer traffic'}
+              ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap the real one`
+              : `No aircraft within ${alignRadiusNmi} nm \u2014 waiting for closer traffic`}
           </div>
         </div>
       )}
