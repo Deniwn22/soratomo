@@ -5166,6 +5166,21 @@ export default function App() {
     return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
   }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
 
+  // ── Align-mode candidate filtering ──
+  // While ALIGN is armed the view declutters to unambiguous targets: only aircraft
+  // within 5 nm, max 2 per bearing quadrant (closest first). Whichever direction the
+  // user turns, they see at most two candidates instead of 25 nm of background traffic.
+  const alignCandidates = (alignMode && cameraMode) ? (()=>{
+    const sectors=[[],[],[],[]];   // bearing quadrants: 0-90, 90-180, 180-270, 270-360
+    for(const f of mapped){
+      if(f.dist > 5*M_PER_NMI) continue;
+      sectors[Math.floor((((f.bear%360)+360)%360)/90)].push(f);
+    }
+    return sectors.flatMap(s=>s.sort((a,b)=>a.dist-b.dist).slice(0,2));
+  })() : null;
+  // What the AR layers actually render — candidates only while aligning
+  const displayed = alignCandidates ?? mapped;
+
   // ── Tap-to-align calibration ──
   // The aircraft themselves are the calibration landmarks: their true bearing/elevation
   // are known from ADS-B far more precisely than any visual landmark. One tap on the REAL
@@ -5178,9 +5193,9 @@ export default function App() {
     const r = e.currentTarget.getBoundingClientRect();
     const xPct = (e.clientX - r.left)/r.width*100;
     const yPct = (e.clientY - r.top)/r.height*100;
-    // Nearest rendered aircraft in screen space
+    // Nearest rendered aircraft in screen space — candidates only while aligning
     let best=null, bestD=Infinity;
-    for(const f of mapped){
+    for(const f of (alignCandidates||mapped)){
       const d=Math.hypot(f.x-xPct, f.y-yPct);
       if(d<bestD){ bestD=d; best=f; }
     }
@@ -5381,7 +5396,9 @@ export default function App() {
             background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
             padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',
             fontFamily:"'Exo 2',sans-serif"}}>
-            Tap the real aircraft in the view
+            {alignCandidates&&alignCandidates.length
+              ? `Showing ${alignCandidates.length} aircraft within 5 nm \u2014 tap the real one`
+              : 'No aircraft within 5 nm \u2014 waiting for closer traffic'}
           </div>
         </div>
       )}
@@ -5803,7 +5820,7 @@ export default function App() {
 
       {/* Trail lines — draw behind markers */}
       <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:3,overflow:'hidden'}}>
-        {mapped.map(f=>{
+        {displayed.map(f=>{
           if(!f.trail?.length) return null;
           const col=altColor(f.alt);
           // pts: [oldest_prev, ..., prev, current]
@@ -5828,7 +5845,7 @@ export default function App() {
         pointerEvents:(calibShow||calibPrompt)?'none':'auto',
         transition:'opacity 0.3s ease',
       }}>
-        {mapped.map(f=>(
+        {displayed.map(f=>(
           <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
             dimmed={selectedId!==null&&selectedId!==f.id}
             tiltMode={tiltMode}
