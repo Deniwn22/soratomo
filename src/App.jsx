@@ -102,17 +102,17 @@ const getAircraftCat = (icao, emitter='') => {
 // A320/B738 are wallpaper and anything military/heritage/Antonov is an event.
 const GLOBAL_RARITY = [
   // Ultra-common narrowbodies — the wallpaper of the sky
-  ['A320',8],['A319',10],['A321',10],['A20N',9],['A21N',11],
-  ['B737',8],['B738',7],['B739',9],['B38M',10],['B39M',12],['E75',14],['E70',16],
-  ['CRJ',15],['CRJ9',15],['CRJ7',16],['CRJ2',20],['E190',14],['E195',16],['E145',22],
-  // Common widebodies
-  ['B772',30],['B77W',28],['B788',30],['B789',30],['B78X',34],
-  ['A332',32],['A333',32],['A339',40],['A359',38],['A35K',46],['B763',34],['B764',40],
+  ['A320',6],['A319',8],['A321',8],['A20N',7],['A21N',8],
+  ['B737',6],['B738',5],['B739',7],['B38M',8],['B39M',9],['E75',12],['E70',14],
+  ['CRJ',13],['CRJ9',13],['CRJ7',14],['CRJ2',18],['E190',12],['E195',14],['E145',20],
+  // Common widebodies — boosted so they show RARE ring (blue), not grey like a Cessna
+  ['B772',52],['B77W',52],['B788',52],['B789',52],['B78X',54],
+  ['A332',50],['A333',50],['A339',56],['A359',56],['A35K',60],['B763',48],['B764',54],
   // Jumbos / superjumbos — rare and beloved
   ['B748',78],['B744',70],['B742',88],['B743',88],['A388',80],
   // General aviation / bizjets — common but a step up from airline wallpaper
-  ['C172',18],['C152',22],['C182',22],['PA28',24],['SR22',24],['DA40',30],
-  ['C25',28],['C56X',30],['GLF',40],['GLEX',44],['CL60',36],['LJ',38],['PC12',34],
+  ['C172',10],['C152',10],['C182',10],['PA28',10],['SR22',24],['DA40',30],
+  ['C25',14],['C56X',16],['GLF',20],['GLEX',22],['CL60',18],['LJ',18],['PC12',16],
   // Helicopters
   ['R44',30],['R66',34],['B06',32],['EC',38],['AW1',44],['S76',46],['UH',60],
   // Military — events in most skies
@@ -123,7 +123,7 @@ const GLOBAL_RARITY = [
 ];
 // Per-category fallback when the exact type isn't in the table above
 const CAT_RARITY = {narrow:10,regional:16,wide:34,jumbo:74,super:80,
-  bizjet:34,piston:22,helicopter:36,military:80,milTransport:72,'':24};
+  bizjet:18,piston:22,helicopter:36,military:80,milTransport:72,'':24};
 
 const globalRarity = (icaoType, cat) => {
   const t=(icaoType||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -145,8 +145,8 @@ const computeRarity = (icaoType, cat, priorCount=0) => {
   const tier =
     score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ff3bdb'} :
     score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#b14dff'} :
-    score>=60 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
-    score>=30 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
+    score>=50 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
+    score>=40 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
                 {key:'common',  label:'COMMON',   color:'#7a98a8'};
   return {score, ...tier};
 };
@@ -5023,7 +5023,7 @@ export default function App() {
     }
     // Toast — fire only for genuinely notable catches so common traffic isn't spammy,
     // but ALWAYS toast a photo capture (the user took deliberate action).
-    if(result && (result.score>=60 || kind==='captured')){
+    if(result && (result.score>=50 || kind==='captured')){
       setCatchToast(result);
       clearTimeout(catchToastTimer.current);
       catchToastTimer.current=setTimeout(()=>setCatchToast(null), 4200);
