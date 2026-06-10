@@ -3213,7 +3213,7 @@ function HelpPanel({ onClose }) {
             <Row icon="📱" label="Tilt AR"
               desc="Tilt your phone to see aircraft in their real sky positions."/>
             <Row icon="📷" label="Camera AR"
-              desc="Live camera feed with AR labels. Tap the camera icon to activate. Calibrate for best accuracy."/>
+              desc="Live camera feed with AR labels. Tap the camera icon to activate. Use ALIGN for best accuracy."/>
           </Section>
 
           <Section title="ACCURACY DOTS">
@@ -3277,20 +3277,24 @@ function HelpPanel({ onClose }) {
               desc="Tap any logbook entry → SHARE to send via iMessage, Instagram, etc."/>
           </Section>
 
-          <Section title="CALIBRATION">
-            <Row icon="🧭" label="Bearing (Phase 1)"
-              desc="Tap a known nearby landmark to correct compass heading error."/>
-            <Row icon="🌅" label="Horizon (Phase 2)"
-              desc="Tap the horizon 3× at different tilt angles to correct pitch bias."/>
-            <Row icon="🔍" label="Zoom (Phase 3)"
-              desc="Tap the same landmark at wide and tele zoom to calibrate camera FOV."/>
-            <Row icon="🔄" label="Re-calibrate"
-              desc="Calibration is saved between sessions. Re-runs whenever camera mode is opened with landmarks nearby."/>
+          <Section title="ALIGN — CALIBRATION">
+            <Row icon="🎯" label="One-Tap Aircraft Align"
+              desc="In camera mode, tap ALIGN, then tap a real aircraft in the view. Heading and pitch are solved from a single tap. The view declutters to the closest aircraft within 5 nm (25 nm in flight) so you always know which plane is which."/>
+            <Row icon="🌅" label="Horizon Align"
+              desc="Switch to HORIZON in the align bar and tap the true horizon to set pitch precisely — works even when no aircraft are in view."/>
+            <Row icon="📐" label="Learns As You Go"
+              desc="Every align tap refines a vertical model (pitch offset + FOV scale). Taps at different screen heights — one plane high, one low or a horizon tap — sharpen it automatically."/>
+            <Row icon="🧭" label="True North Built In"
+              desc="Magnetic declination is corrected automatically from your GPS position (worldwide, offline). No compass figure-8s needed."/>
+            <Row icon="✕" label="Cancel Anytime"
+              desc="CANCEL in the align bar (or tap ALIGN again) exits without changing anything. Alignment is saved between sessions."/>
           </Section>
 
           <Section title="TIPS">
             <Row icon="💡" label="Best AR accuracy"
-              desc="Calibrate your compass after opening camera mode. Green dots = good."/>
+              desc="Tap ALIGN and align on a real aircraft or the horizon. Green dots = fresh data."/>
+            <Row icon="✈" label="Works in flight"
+              desc="GPS keeps tracking at cruise — elevation math accounts for your altitude, and ALIGN accepts large compass errors inside the cabin. Window seats work best."/>
             <Row icon="💡" label="Logbook map"
               desc="Pinch/pan the map to explore all your spotted aircraft worldwide."/>
             <Row icon="💡" label="Battery"
@@ -4271,7 +4275,8 @@ export default function App() {
   const [vfovK, setVfovK] = useState(()=>{try{const v=parseFloat(localStorage.getItem('soratomo_vfov_k_v2'));return(v>=0.7&&v<=1.4)?v:1;}catch{return 1;}});
   // Align-tap sample history for the vertical model regression (last 6 taps)
   const pitchSamplesRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('soratomo_pitch_samples_v2'))||[];}catch{return [];}})());
-  const [alignMode, setAlignMode] = useState(false); // armed: next tap on an aircraft solves biases
+  const [alignMode, setAlignMode] = useState(false); // armed: next tap solves biases
+  const [alignTarget, setAlignTarget] = useState('aircraft'); // 'aircraft' | 'horizon' — explicit, never inferred
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
@@ -5228,35 +5233,6 @@ export default function App() {
     const r = e.currentTarget.getBoundingClientRect();
     const xPct = (e.clientX - r.left)/r.width*100;
     const yPct = (e.clientY - r.top)/r.height*100;
-    // ── Implied-correction matching ──
-    // DON'T match by distance to the drawn icon: the icon position embeds the broken
-    // calibration we're trying to fix — when the error is large, the icon is nowhere
-    // near the real aircraft and icon-distance matching rejects exactly the taps that
-    // matter most. Instead, for each candidate compute the bias correction this tap
-    // WOULD imply if that candidate is what the user tapped, then pick the candidate
-    // requiring the smallest correction. The icon's screen position is irrelevant.
-    const hDiffTap = (xPct-50)*activeFov/100;          // tap's angular offset from view centre
-    const vDiffTap = (50-yPct)*activeVFov/100;
-    const scored = (alignCandidates||mapped).map(f=>{
-      const inb  = ((f.bear - headingRef.current - hDiffTap + 540)%360)-180;
-      const inpb = f.elev - pitchRef.current - vDiffTap;
-      return {f, nb:inb, npb:inpb, score:Math.hypot(inb, inpb)};
-    }).sort((a,b)=>a.score-b.score);
-    if(!scored.length){
-      setAlignNote('No aircraft available to align to');
-      setTimeout(()=>setAlignNote(null),2200);
-      return;
-    }
-    const pick = scored[0];
-    // Ambiguity guard: if a second candidate's implied correction is nearly identical,
-    // we can't be sure which plane was tapped — calibrating to the wrong one is worse
-    // than not calibrating. Zooming in separates them angularly.
-    if(scored.length>1 && scored[1].score - pick.score < 3){
-      setAlignNote('Two aircraft could match \u2014 zoom in and tap again');
-      setTimeout(()=>setAlignNote(null),2600);
-      return;
-    }
-    const {f:best, nb, npb} = pick;
     const baseV = arFov*(VFOV/HFOV);
     const xS = (50-yPct)*baseV/100;          // tap offset from centre, base-vfov degrees
 
@@ -5295,32 +5271,56 @@ export default function App() {
       return {pb,k};
     };
 
-    // Sanity bounds — generous on the ground (real device residuals of 20-40° exist:
-    // magnetic cases, car mounts, local interference), unbounded heading airborne
-    // (magnetometer inside a fuselage can be wrong by any amount).
-    const airborne = (drVel.current.speedMs||0) > 80;
-    const hdgLim = airborne ? 180 : 45, pitchLim = airborne ? 35 : 30;
-    if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
-      // ── Horizon-tap fallback ──
-      // No aircraft fits this tap. If the tap plausibly sits on the TRUE horizon
-      // (elevation ≈ −dip), treat it as a horizon calibration sample. The horizon is
-      // the ideal pitch reference: precisely known elevation, visible everywhere
-      // outdoors, no ambiguity — and it pins the model exactly where users notice
-      // error most. Horizon taps carry no heading info, so hdgBias is untouched.
+    // ── HORIZON target — explicitly selected via the HORIZON pill, never inferred,
+    // so an aircraft sitting right on the horizon can never be confused with the
+    // horizon itself. Target elevation = −dip (true horizon). No heading info.
+    if(alignTarget==='horizon'){
       const tH = -getHorizonDipDeg() - pitchRef.current;
-      if(Math.abs(tH - xS*vfovK) <= 12){
-        const {pb,k}=updatePitchModel(xS, tH);
-        setAlignMode(false);
-        const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
-        setAlignNote(`\u2713 Horizon set \u2014 pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
-        setTimeout(()=>setAlignNote(null),2800);
+      if(Math.abs(tH - xS*vfovK) > 12){
+        setAlignNote('Tap on the visible horizon line');
+        setTimeout(()=>setAlignNote(null),2200);
         return;
       }
-      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try the closest plane, or tap the horizon');
+      const {pb,k}=updatePitchModel(xS, tH);
+      setAlignMode(false);
+      const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
+      setAlignNote(`\u2713 Horizon set \u2014 pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
+      setTimeout(()=>setAlignNote(null),2800);
+      return;
+    }
+
+    // ── AIRCRAFT target: implied-correction matching ──
+    // DON'T match by distance to the drawn icon: the icon position embeds the broken
+    // calibration we're trying to fix. For each candidate compute the bias correction
+    // this tap WOULD imply, pick the candidate requiring the smallest correction.
+    const hDiffTap = (xPct-50)*activeFov/100;
+    const vDiffTap = (50-yPct)*activeVFov/100;
+    const scored = (alignCandidates||mapped).map(f=>{
+      const inb  = ((f.bear - headingRef.current - hDiffTap + 540)%360)-180;
+      const inpb = f.elev - pitchRef.current - vDiffTap;
+      return {f, nb:inb, npb:inpb, score:Math.hypot(inb, inpb)};
+    }).sort((a,b)=>a.score-b.score);
+    if(!scored.length){
+      setAlignNote('No aircraft available \u2014 switch to HORIZON to set pitch');
+      setTimeout(()=>setAlignNote(null),2200);
+      return;
+    }
+    const pick = scored[0];
+    if(scored.length>1 && scored[1].score - pick.score < 3){
+      setAlignNote('Two aircraft could match \u2014 zoom in and tap again');
       setTimeout(()=>setAlignNote(null),2600);
       return;
     }
-    // ── Aircraft tap: solves heading + feeds the vertical model ──
+    const {f:best, nb, npb} = pick;
+    // Sanity bounds — generous on the ground (real device residuals of 20-40° exist),
+    // unbounded heading airborne (magnetometer inside a fuselage can be wrong by any amount).
+    const airborne = (drVel.current.speedMs||0) > 80;
+    const hdgLim = airborne ? 180 : 45, pitchLim = airborne ? 35 : 30;
+    if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
+      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try the closest plane');
+      setTimeout(()=>setAlignNote(null),2600);
+      return;
+    }
     const tS = best.elev - pitchRef.current;
     const {pb,k}=updatePitchModel(xS, tS);
     setHdgBias(nb);
@@ -5495,13 +5495,35 @@ export default function App() {
       {/* Tap-to-align: full-screen capture layer while armed */}
       {cameraMode&&alignMode&&(
         <div onClick={handleAlignTap} style={{position:'absolute',inset:0,zIndex:85,cursor:'crosshair'}}>
-          <div style={{position:'absolute',top:'14%',left:'50%',transform:'translateX(-50%)',
-            background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
-            padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',
-            fontFamily:"'Exo 2',sans-serif"}}>
-            {alignCandidates&&alignCandidates.length
-              ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap one, or tap the true horizon`
-              : `No aircraft within ${alignRadiusNmi} nm \u2014 tap the true horizon to set pitch`}
+          <div onClick={e=>e.stopPropagation()} style={{position:'absolute',top:'11%',left:'50%',
+            transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+            <div style={{background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
+              padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',fontFamily:"'Exo 2',sans-serif"}}>
+              {alignTarget==='horizon'
+                ? 'Tap the true horizon'
+                : (alignCandidates&&alignCandidates.length
+                    ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap the real one`
+                    : `No aircraft within ${alignRadiusNmi} nm \u2014 switch to HORIZON`)}
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              {['aircraft','horizon'].map(t=>(
+                <button key={t} onClick={e=>{e.stopPropagation();setAlignTarget(t);setAlignNote(null);}} style={{
+                  background:alignTarget===t?'rgba(77,184,255,0.2)':'rgba(3,11,30,0.85)',
+                  border:`1.5px solid ${alignTarget===t?'#4db8ff':'rgba(77,184,255,0.3)'}`,
+                  borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
+                  <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",
+                    color:alignTarget===t?'#4db8ff':'#4a7898',letterSpacing:'.08em'}}>
+                    {t==='aircraft'?'\u2708 AIRCRAFT':'\u2014 HORIZON'}
+                  </span>
+                </button>
+              ))}
+              <button onClick={e=>{e.stopPropagation();setAlignMode(false);setAlignNote(null);}} style={{
+                background:'rgba(3,11,30,0.85)',border:'1.5px solid rgba(255,107,107,0.4)',
+                borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
+                <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#ff6b6b',
+                  letterSpacing:'.08em'}}>\u2715 CANCEL</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -5746,7 +5768,7 @@ export default function App() {
                     <circle cx="6.5" cy="6.5" r="3"   fill="rgba(255,255,255,0.9)"/>
                   </svg>
                 </button>
-                <button onClick={e=>{e.stopPropagation();setAlignMode(v=>!v);setAlignNote(null);}} style={{
+                <button onClick={e=>{e.stopPropagation();setAlignMode(v=>!v);setAlignTarget('aircraft');setAlignNote(null);}} style={{
                   background:alignMode?'rgba(77,184,255,0.18)':'transparent',
                   border:`1.5px solid ${alignMode?'#4db8ff':'rgba(77,184,255,0.4)'}`,
                   borderRadius:5,padding:'4px 8px',cursor:'pointer',
