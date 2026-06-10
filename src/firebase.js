@@ -1,30 +1,34 @@
 // ── SoraTomo Firebase config ────────────────────────────────────────────────
-// Fill in your Firebase project credentials below.
-// To get these: Firebase Console → Project Settings → Your apps → SDK setup
+// Credentials are read from environment variables — never hardcoded.
+// Set these in Netlify: Site config → Environment variables
+// Locally: create a .env file in the project root (already in .gitignore):
 //
-// Then run: npm install firebase
+//   VITE_FIREBASE_API_KEY=AIza...
+//   VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+//   VITE_FIREBASE_PROJECT_ID=your-project-id
+//   VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+//   VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+//   VITE_FIREBASE_APP_ID=1:123456789:web:abc123
 //
-import { initializeApp }       from 'firebase/app';
+import { initializeApp }  from 'firebase/app';
 import { getFirestore,
          doc, setDoc, getDocs,
          collection, query,
          where, orderBy, limit,
-         serverTimestamp }      from 'firebase/firestore';
+         serverTimestamp }  from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDMTI9FDcTz64YVD9uJ3RZkP8qk6lms-6c",
-  authDomain: "soratomo-15ac4.firebaseapp.com",
-  projectId: "soratomo-15ac4",
-  storageBucket: "soratomo-15ac4.firebasestorage.app",
-  messagingSenderId: "1091412061317",
-  appId: "1:1091412061317:web:dddc2cfc526b9582638dec"};
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+};
 
 const app = initializeApp(firebaseConfig, 'soratomo');
 export const db = getFirestore(app);
 
-// ── Leaderboard helpers ─────────────────────────────────────────────────────
-
-// Upsert today's score for this device+region. Called (debounced) after every catch.
 export async function submitScore({ callsign, score, region, regionLabel, date, deviceId }) {
   if(!callsign || !deviceId || score < 1) return;
   const docId = `${date}_${region}_${deviceId}`;
@@ -34,7 +38,6 @@ export async function submitScore({ callsign, score, region, regionLabel, date, 
   }, { merge: true });
 }
 
-// Fetch top 20 scores for today in a given region.
 export async function fetchLeaderboard({ date, region }) {
   const q = query(
     collection(db, 'scores_daily'),
