@@ -145,7 +145,7 @@ const computeRarity = (icaoType, cat, priorCount=0) => {
   const tier =
     score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ff3bdb'} :
     score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#b14dff'} :
-    score>=50 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
+    score>=60 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
     score>=30 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
                 {key:'common',  label:'COMMON',   color:'#7a98a8'};
   return {score, ...tier};
@@ -3407,8 +3407,9 @@ function HelpPanel({ onClose }) {
 }
 
 
-function CatchDex({ catches, onClose }) {
+function CatchDex({ catches, onShare }) {
   const CC = '#4db8ff';
+  const [detail, setDetail] = React.useState(null); // a type's catch entry, for the detail view
   const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
     jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',
     helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
@@ -3453,9 +3454,9 @@ function CatchDex({ catches, onClose }) {
     const tier = TIER[c.best?.tier] || TIER.common;
     const total = c.spotted + c.captured;
     return (
-      <div style={{background:'rgba(4,14,36,0.92)',
+      <div onClick={()=>setDetail(c)} style={{background:'rgba(4,14,36,0.92)',
         border:`1px solid ${tier.color}55`,borderRadius:9,padding:'9px 10px',
-        position:'relative',overflow:'hidden'}}>
+        position:'relative',overflow:'hidden',cursor:'pointer'}}>
         <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:tier.color}}/>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginLeft:4}}>
           <span style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
@@ -3474,6 +3475,78 @@ function CatchDex({ catches, onClose }) {
       </div>
     );
   };
+
+  // ── Detail view: every recorded catch of one type, newest first ──
+  if(detail){
+    const tier = TIER[detail.best?.tier] || TIER.common;
+    const fmt = ts => new Date(ts).toLocaleString('en-US',
+      {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+    return (
+      <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 14px 32px'}}>
+        <button onClick={()=>setDetail(null)} style={{background:'transparent',
+          border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,padding:'5px 12px',
+          cursor:'pointer',color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em',marginBottom:14}}>← BACK TO DEX</button>
+
+        <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',
+          borderBottom:`1px solid ${tier.color}55`,paddingBottom:8,marginBottom:6}}>
+          <span style={{fontSize:20,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:'#cfe8f8',letterSpacing:'.04em'}}>{detail.type}</span>
+          <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:tier.color,letterSpacing:'.1em'}}>{tier.label} · best {detail.best?.score||0}</span>
+        </div>
+        <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:16}}>
+          {detail.spotted+detail.captured}× caught · {detail.captured} photographed ·
+          first {new Date(detail.first).toLocaleDateString()}
+        </div>
+
+        {(detail.log||[]).length===0 ? (
+          <div style={{fontSize:11,color:'#4a7898',fontFamily:"'Exo 2',sans-serif"}}>
+            Older catches of this type were recorded before per-catch history was added.
+          </div>
+        ) : (detail.log||[]).map((r,i)=>{
+          const rt=TIER[r.tier]||TIER.common;
+          return (
+            <div key={i} style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rt.color}44`,borderRadius:9,padding:'10px 12px',
+              marginBottom:8,position:'relative',overflow:'hidden'}}>
+              <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:rt.color}}/>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginLeft:4}}>
+                <span style={{fontSize:13,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+                  {r.cs||r.reg||detail.type}</span>
+                <span style={{fontSize:9,color:rt.color,fontFamily:"'Orbitron',monospace",
+                  fontWeight:700,letterSpacing:'.08em'}}>
+                  {r.kind==='captured'?'📸 ':''}{rt.label} · {r.score}</span>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'2px 14px',marginLeft:4,marginTop:6,
+                fontSize:10,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+                {r.location&&<span>📍 {r.location}</span>}
+                {r.altFt!=null&&<span>{r.altFt.toLocaleString()} ft</span>}
+                {r.spdKts!=null&&<span>{r.spdKts} kts</span>}
+                {r.distNmi!=null&&<span>{r.distNmi} nmi</span>}
+                {r.bearDeg!=null&&<span>brg {String(r.bearDeg).padStart(3,'0')}°</span>}
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                marginLeft:4,marginTop:7}}>
+                <span style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</span>
+                <button onClick={()=>onShare&&onShare({
+                  cs:r.cs||r.reg||detail.type, airline:r.airline||'', type:detail.type,
+                  catLabel:r.catLabel||'', altFt:r.altFt, spdKts:r.spdKts,
+                  distNmiVal:r.distNmi, bearDeg:r.bearDeg, location:r.location, timestamp:r.ts,
+                  rarity:{label:r.label,color:r.color,score:r.score,kind:r.kind},
+                })} style={{background:'transparent',border:`1px solid ${rt.color}55`,
+                  borderRadius:5,padding:'4px 10px',cursor:'pointer',color:rt.color,
+                  fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+                  display:'flex',alignItems:'center',gap:5}}>
+                  <ShareIcon/> SHARE
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
@@ -4816,20 +4889,31 @@ export default function App() {
           rarity:{label:rar.label,color:rar.color,score:effScore,kind},
         }};
       const e = ex || {type:typeKey, cat, spotted:0, captured:0,
-                       best:null, first:Date.now(), last:Date.now(), rarest:null};
+                       best:null, first:Date.now(), last:Date.now(), rarest:null, log:[]};
       e[kind] += 1;
       e.last = Date.now();
       if(!e.best || effScore > e.best.score)
         e.best = {score:effScore, tier:rar.key, label:rar.label, color:rar.color};
       if(!e.rarest || effScore > e.rarest.score)
         e.rarest = {cs:f.cs, reg:f.reg||'', score:effScore, tier:rar.key, ts:Date.now()};
+      // Per-catch record — the snapshot of conditions when caught, newest first.
+      // Capped at 20 per type to bound storage. Drives the Dex detail view + share.
+      e.log = [{
+        cs:f.cs||'', reg:f.reg||'', kind, score:effScore, tier:rar.key,
+        label:rar.label, color:rar.color, ts:Date.now(),
+        altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
+        distNmi:f.dist!=null?parseFloat(distNmi(f.dist)):null,
+        bearDeg:f.bear!=null?Math.round(f.bear):null,
+        location:nearestCity(posRef.current.lat,posRef.current.lon),
+        airline:f.airline||'', catLabel,
+      }, ...(e.log||[])].slice(0,20);
       const next = {...prev, [typeKey]:e};
       saveCatches(next);
       return next;
     });
     // Toast — fire only for genuinely notable catches so common traffic isn't spammy,
     // but ALWAYS toast a photo capture (the user took deliberate action).
-    if(result && (result.score>=50 || kind==='captured')){
+    if(result && (result.score>=60 || kind==='captured')){
       setCatchToast(result);
       clearTimeout(catchToastTimer.current);
       catchToastTimer.current=setTimeout(()=>setCatchToast(null), 4200);
@@ -6115,31 +6199,20 @@ export default function App() {
                 </button>
                 </>
               )}
-              <button onClick={e=>{e.stopPropagation();setShowStats(v=>!v);setShowLog(false);setShowFilters(false);setShowDex(false);}} style={{
-                background:showStats?'rgba(77,184,255,0.1)':'transparent',
-                border:`1px solid ${showStats?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
-                borderRadius:5,padding:'5px 6px',cursor:'pointer',
-                display:'flex',alignItems:'center'}}>
-                <svg width="11" height="11" viewBox="0 0 11 11">
-                  <rect x="1" y="7" width="2.5" height="3.5" rx="0.5" fill={showStats?'#4db8ff':'#4a7898'}/>
-                  <rect x="4.25" y="4" width="2.5" height="6.5" rx="0.5" fill={showStats?'#4db8ff':'#4a7898'}/>
-                  <rect x="7.5" y="1" width="2.5" height="9.5" rx="0.5" fill={showStats?'#4db8ff':'#4a7898'}/>
-                </svg>
-              </button>
-              {/* Combined LOG+FILTER button */}
+              {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
               <button onClick={e=>{e.stopPropagation();
-                if(showLog||showFilters||showDex){setShowLog(false);setShowFilters(false);setShowDex(false);}
-                else{setShowLog(true);setShowStats(false);}
+                if(showLog||showFilters||showDex||showStats){setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);}
+                else{setShowDex(true);setShowLog(false);setShowFilters(false);setShowStats(false);}
               }} style={{
-                background:(showLog||showFilters)?'rgba(77,184,255,0.1)':'transparent',
-                border:`1px solid ${(showLog||showFilters||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
+                background:(showLog||showFilters||showDex||showStats)?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${(showLog||showFilters||showDex||showStats||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 6px',cursor:'pointer',
                 display:'flex',alignItems:'center',gap:4,position:'relative'}}>
                 {/* Lines icon */}
                 <svg width="11" height="10" viewBox="0 0 11 10">
-                  <rect x="0" y="0" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters)?'#4db8ff':'#4a7898'}/>
-                  <rect x="0" y="4" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters)?'#4db8ff':'#4a7898'}/>
-                  <rect x="0" y="8" width="7"  height="1.5" rx="0.75" fill={(showLog||showFilters)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="0" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="4" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="8" width="7"  height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
                 </svg>
                 {/* Filter dot when active */}
                 {isFilterActive&&<div style={{width:5,height:5,borderRadius:'50%',
@@ -6183,11 +6256,11 @@ export default function App() {
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['dex','DEX'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
-              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex);
+            {[['dex','DEX'],['log','LOG'],['stats','STATS'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='stats'&&showStats);
               return (
               <button key={t} onClick={()=>{
-                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex');
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowStats(t==='stats');
               }} style={{
                 flex:1,padding:'11px 0',background:'transparent',border:'none',
                 borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
@@ -6204,7 +6277,7 @@ export default function App() {
                 )}
               </button>
             );})}
-            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);}} style={{
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);}} style={{
               background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
               color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
               fontFamily:"'Orbitron',monospace"}}>✕</button>
@@ -6221,8 +6294,8 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
-            {showDex&&<CatchDex catches={catches}
-              onClose={()=>{setShowDex(false);}}/>}
+            {showDex&&<CatchDex catches={catches} onShare={shareAircraft}/>}
+            {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
               onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
@@ -6374,7 +6447,6 @@ export default function App() {
         onDelete={id=>setGallery(prev=>{const n=prev.filter(p=>p.id!==id);saveGallery(n);return n;})}
         onClear={()=>setGallery(prev=>{saveGallery([]);return [];})}
       />}
-      {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
 
       {/* Disclaimer — shown once per session, must be acknowledged */}
       {showDisclaimer&&<Disclaimer onAccept={()=>{
