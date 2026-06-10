@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism"; // WMM magnetic declination — true-north compass correction
+import { submitScore, fetchLeaderboard } from './firebase'; // Firestore leaderboard
 
 const D2R = Math.PI / 180;
 const haversine = (la1,lo1,la2,lo2) => {
@@ -1332,6 +1333,36 @@ const nearestCity = (lat,lon) => {
   return best.name;
 };
 
+
+// ── Region: snap to nearest airport in the AIRPORTS list (within 150 nm) ──
+// Falls back to a lat/lon grid cell (1° ≈ 70 mi) with a readable label.
+// Used as the leaderboard partition key so scores are grouped by local sky.
+const regionFor = (lat, lon) => {
+  let best = null, bestD = Infinity;
+  AIRPORTS.forEach(a => {
+    const d = haversine(lat, lon, a.lat, a.lon);
+    if(d < bestD){ bestD = d; best = a; }
+  });
+  if(best && bestD < 150 * 1852) return {code: best.id, label: best.name};
+  // Grid fallback
+  const glat = Math.round(lat), glon = Math.round(lon);
+  return {code: `${glat}N_${Math.abs(glon)}${glon<0?'W':'E'}`,
+          label: `${glat}°N ${Math.abs(glon)}°${glon<0?'W':'E'}`};
+};
+
+const DEVICE_KEY = 'soratomo_device_id';
+const getDeviceId = () => {
+  try{
+    let id = localStorage.getItem(DEVICE_KEY);
+    if(!id){
+      id = 'dev_' + Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10);
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  }catch{ return 'dev_unknown'; }
+};
+
+const CALLSIGN_KEY = 'soratomo_callsign';
 
 const LOG_KEY='soratomo_logbook', PROX_KEY='soratomo_prox';
 const GAL_KEY      ='soratomo_gallery';
@@ -3422,6 +3453,168 @@ function HelpPanel({ onClose }) {
 }
 
 
+function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStatus, onSetCallsign, onRefresh }) {
+  const CC = '#4db8ff';
+  const [editMode, setEditMode] = React.useState(!callsign);
+  const [draft,    setDraft]    = React.useState(callsign||'');
+  const [draftErr, setDraftErr] = React.useState('');
+
+  const validate = v => {
+    if(!v) return 'Callsign required';
+    if(v.length < 2) return 'Min 2 characters';
+    if(v.length > 12) return 'Max 12 characters';
+    if(!/^[A-Za-z0-9_-]+$/.test(v)) return 'Letters, numbers, _ and - only';
+    return '';
+  };
+
+  const saveCallsign = () => {
+    const err = validate(draft.trim().toUpperCase());
+    if(err){ setDraftErr(err); return; }
+    onSetCallsign(draft.trim().toUpperCase());
+    setEditMode(false);
+    setDraftErr('');
+    onRefresh();
+  };
+
+  const tk = (()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const todayScore = daily?.days?.[tk] || 0;
+  const reg = regionFor(pos.lat, pos.lon);
+
+  // Find user's rank in board data
+  const myEntry = boardData.find(r => r.deviceId === deviceId);
+  const myRank  = myEntry ? boardData.indexOf(myEntry) + 1 : null;
+  const TIER_COLOR = score =>
+    score>=85?'#ff3bdb':score>=70?'#b14dff':score>=50?'#4db8ff':score>=40?'#2dffb4':'#7a98a8';
+
+  return (
+    <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
+      padding:'14px 14px 32px'}}>
+
+      {/* Callsign setup / edit */}
+      {(editMode || !callsign) ? (
+        <div style={{background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.3)',
+          borderRadius:10,padding:'14px',marginBottom:14}}>
+          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',
+            marginBottom:8}}>YOUR CALLSIGN</div>
+          <div style={{fontSize:10,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif",marginBottom:10,lineHeight:1.5}}>
+            Pick a spotter callsign to appear on the leaderboard.
+            2–12 characters, letters and numbers only.
+          </div>
+          <input value={draft} onChange={e=>{ setDraft(e.target.value.toUpperCase().slice(0,12)); setDraftErr(''); }}
+            onKeyDown={e=>e.key==='Enter'&&saveCallsign()}
+            placeholder="e.g. TOMCAT47"
+            style={{width:'100%',background:'rgba(1,8,22,0.9)',border:`1px solid ${draftErr?'#ff6b6b':'rgba(77,184,255,0.35)'}`,
+              borderRadius:6,padding:'8px 10px',color:'#cfe8f8',fontSize:13,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
+              boxSizing:'border-box',outline:'none'}}/>
+          {draftErr && <div style={{fontSize:9,color:'#ff6b6b',fontFamily:"'Exo 2',sans-serif",marginTop:4}}>{draftErr}</div>}
+          <div style={{display:'flex',gap:8,marginTop:10}}>
+            {callsign && <button onClick={()=>{setEditMode(false);setDraft(callsign);setDraftErr('');}} style={{
+              flex:1,background:'transparent',border:'1px solid rgba(77,184,255,0.25)',borderRadius:7,
+              padding:'8px 0',cursor:'pointer',color:'#6a98b8',fontSize:10,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>CANCEL</button>}
+            <button onClick={saveCallsign} style={{
+              flex:2,background:CC,border:'none',borderRadius:7,padding:'8px 0',cursor:'pointer',
+              color:'#021018',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.08em'}}>CONFIRM</button>
+          </div>
+        </div>
+      ) : (
+        // Callsign banner
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+          background:'rgba(4,14,36,0.92)',border:`1px solid ${CC}44`,borderRadius:10,
+          padding:'10px 14px',marginBottom:14}}>
+          <div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',marginBottom:2}}>YOUR CALLSIGN</div>
+            <div style={{fontSize:18,color:CC,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.06em'}}>{callsign}</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:22,color:'#ffd700',fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
+              {todayScore.toLocaleString()}</div>
+            <div style={{fontSize:8,color:'#6a98b8',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em',marginTop:2}}>TODAY</div>
+          </div>
+        </div>
+      )}
+
+      {/* Region + refresh header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <div>
+          <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>
+            TODAY · {reg.label.toUpperCase()}</div>
+          {myRank&&<div style={{fontSize:9,color:'#2dffb4',fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.1em',marginTop:2}}>YOUR RANK: #{myRank}</div>}
+        </div>
+        <button onClick={onRefresh} disabled={boardStatus==='loading'} style={{
+          background:'transparent',border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,
+          padding:'5px 10px',cursor:'pointer',color:CC,fontSize:9,
+          fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+          opacity:boardStatus==='loading'?0.5:1}}>
+          {boardStatus==='loading'?'...●':'REFRESH'}
+        </button>
+      </div>
+
+      {/* Board */}
+      {boardStatus==='error' && (
+        <div style={{textAlign:'center',padding:'24px 0',fontSize:11,color:'#ff6b6b',
+          fontFamily:"'Exo 2',sans-serif"}}>
+          Couldn’t reach the leaderboard — check your connection.
+        </div>
+      )}
+      {boardStatus==='loading' && boardData.length===0 && (
+        <div style={{textAlign:'center',padding:'24px 0',fontSize:11,color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif"}}>Loading…</div>
+      )}
+      {(boardStatus==='ok'||boardData.length>0) && boardData.length===0 && (
+        <div style={{textAlign:'center',padding:'32px 16px',fontSize:11,color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif",lineHeight:1.6}}>
+          No scores yet today near {reg.label}.<br/>
+          You could be first! Start catching aircraft.
+        </div>
+      )}
+      {boardData.map((row, i) => {
+        const isMe = row.deviceId === deviceId;
+        const tc = TIER_COLOR(row.score);
+        return (
+          <div key={row.deviceId||i} style={{
+            display:'flex',alignItems:'center',gap:10,
+            background: isMe ? 'rgba(77,184,255,0.08)' : 'rgba(4,14,36,0.7)',
+            border: `1px solid ${isMe ? CC+'66' : 'rgba(77,184,255,0.1)'}`,
+            borderRadius:9,padding:'9px 12px',marginBottom:7,
+            position:'relative',overflow:'hidden'}}>
+            {/* Left rank stripe */}
+            <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,
+              background: i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':tc}}/>
+            <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color: i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'#4a7898',
+              width:22,textAlign:'right',flexShrink:0}}>{i+1}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,color: isMe?CC:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                fontWeight:700,letterSpacing:'.04em',
+                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {row.callsign}{isMe?' ◄':''}</div>
+            </div>
+            <div style={{fontSize:16,color:tc,fontFamily:"'Orbitron',monospace",
+              fontWeight:700,letterSpacing:'.02em',flexShrink:0}}>
+              {row.score.toLocaleString()}</div>
+          </div>
+        );
+      })}
+
+      {/* Change callsign footer */}
+      {callsign && !editMode && (
+        <button onClick={()=>{setEditMode(true);setDraft(callsign);}} style={{
+          marginTop:12,width:'100%',background:'transparent',
+          border:'1px solid rgba(77,184,255,0.15)',borderRadius:7,padding:'8px 0',
+          cursor:'pointer',color:'#3a6878',fontSize:9,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em'}}>CHANGE CALLSIGN</button>
+      )}
+    </div>
+  );
+}
+
 function CatchDex({ catches, daily, onShare, onClearAll }) {
   const CC = '#4db8ff';
   const [detail, setDetail] = React.useState(null); // a type's catch entry, for the detail view
@@ -4655,6 +4848,29 @@ export default function App() {
   const [catches,     setCatches]     = useState(()=>loadCatches());
   const [catchToast,  setCatchToast]  = useState(null); // {cs,type,tier,label,color,score,kind} | null
   const [daily,       setDaily]       = useState(()=>loadDaily());
+  const [callsign,    setCallsign]    = useState(()=>{try{return localStorage.getItem(CALLSIGN_KEY)||'';}catch{return ''}});
+  const [showBoard,   setShowBoard]   = useState(false);
+  const [boardData,   setBoardData]   = useState([]); // [{callsign,score,deviceId,regionLabel}]
+  const [boardStatus, setBoardStatus] = useState('idle'); // 'idle'|'loading'|'ok'|'error'
+  const [showCallsignSetup, setShowCallsignSetup] = useState(false);
+  const deviceId = useRef(getDeviceId());
+  const submitTimer = useRef(null);
+
+  // Auto-fetch leaderboard when BOARD tab opens; auto-refresh every 60s while open
+  useEffect(()=>{
+    if(!showBoard) return;
+    setBoardStatus('loading');
+    const reg = regionFor(pos.lat, pos.lon);
+    fetchLeaderboard({date:todayKey(), region:reg.code})
+      .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+      .catch(()=>setBoardStatus('error'));
+    const interval = setInterval(()=>{
+      fetchLeaderboard({date:todayKey(), region:reg.code})
+        .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+        .catch(()=>{});
+    }, 60000);
+    return ()=>clearInterval(interval);
+  },[showBoard]);
   const [recordToast, setRecordToast] = useState(null); // {score,prev} | null — new daily high-score celebration
   const recordToastTimer = useRef(null);
   const catchToastTimer = useRef(null);
@@ -5012,6 +5228,22 @@ export default function App() {
         const best = newToday >= (prev.best?.score||0) ? {date:tk, score:newToday} : prev.best;
         const out = {days, best};
         saveDaily(out);
+        // Debounced leaderboard submit — fires 30s after last catch so we batch rapid activity
+        clearTimeout(submitTimer.current);
+        submitTimer.current = setTimeout(()=>{
+          const cs = localStorage.getItem(CALLSIGN_KEY)||'';
+          if(!cs) return; // user hasn't set a callsign yet — skip
+          const {lat,lon} = posRef.current;
+          const reg = regionFor(lat,lon);
+          submitScore({
+            callsign: cs,
+            score: newToday,
+            region: reg.code,
+            regionLabel: reg.label,
+            date: tk,
+            deviceId: deviceId.current,
+          }).catch(()=>{}); // silent fail — offline is fine
+        }, 30000);
         // Celebrate only on a genuine crossing of a non-zero prior record (not the very first day)
         if(crossed){
           setRecordToast({score:newToday, prev:priorBest});
@@ -6347,7 +6579,7 @@ export default function App() {
               )}
               {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
               <button onClick={e=>{e.stopPropagation();
-                if(showLog||showFilters||showDex||showStats){setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);}
+                if(showLog||showFilters||showDex||showStats||showBoard){setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);setShowBoard(false);}
                 else{setShowDex(true);setShowLog(false);setShowFilters(false);setShowStats(false);}
               }} style={{
                 background:(showLog||showFilters||showDex||showStats)?'rgba(77,184,255,0.1)':'transparent',
@@ -6372,7 +6604,7 @@ export default function App() {
               </button>
               {/* Help / Info button */}
               <button onClick={e=>{e.stopPropagation();setShowHelp(v=>!v);
-                setShowLog(false);setShowFilters(false);setShowStats(false);setShowDex(false);}} style={{
+                setShowLog(false);setShowFilters(false);setShowStats(false);setShowDex(false);setShowBoard(false);setShowBoard(false);}} style={{
                 background:showHelp?'rgba(77,184,255,0.1)':'transparent',
                 border:`1px solid ${showHelp?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 7px',cursor:'pointer',
@@ -6394,19 +6626,19 @@ export default function App() {
       {/* Help panel */}
       {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
-      {/* Combined DEX / STATS / LOG / FILTER tabbed panel */}
-      {(showLog||showFilters||showDex||showStats)&&(
+      {/* Combined DEX / STATS / LOG / FILTER / BOARD tabbed panel */}
+      {(showLog||showFilters||showDex||showStats||showBoard)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['dex','DEX'],['stats','STATS'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
-              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='stats'&&showStats);
+            {[['dex','DEX'],['stats','STATS'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='stats'&&showStats)||(t==='board'&&showBoard);
               return (
               <button key={t} onClick={()=>{
-                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowStats(t==='stats');
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowStats(t==='stats'); setShowBoard(t==='board');
               }} style={{
                 flex:1,padding:'11px 0',background:'transparent',border:'none',
                 borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
@@ -6423,7 +6655,7 @@ export default function App() {
                 )}
               </button>
             );})}
-            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);}} style={{
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);setShowBoard(false);}} style={{
               background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
               color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
               fontFamily:"'Orbitron',monospace"}}>✕</button>
@@ -6440,6 +6672,33 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
+            {showBoard&&<LeaderboardPanel
+              callsign={callsign}
+              deviceId={deviceId.current}
+              daily={daily}
+              pos={pos}
+              boardData={boardData}
+              boardStatus={boardStatus}
+              onSetCallsign={cs=>{
+                setCallsign(cs);
+                try{localStorage.setItem(CALLSIGN_KEY,cs);}catch{}
+                // Immediate submit with new callsign
+                const tk=todayKey();
+                const score=daily.days?.[tk]||0;
+                if(score>0){
+                  const reg=regionFor(pos.lat,pos.lon);
+                  submitScore({callsign:cs,score,region:reg.code,regionLabel:reg.label,
+                    date:tk,deviceId:deviceId.current}).catch(()=>{});
+                }
+              }}
+              onRefresh={()=>{
+                setBoardStatus('loading');
+                const reg=regionFor(pos.lat,pos.lon);
+                fetchLeaderboard({date:todayKey(),region:reg.code})
+                  .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+                  .catch(()=>setBoardStatus('error'));
+              }}
+            />}
             {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}
               onClearAll={()=>{
                 saveCatches({}); setCatches({});
