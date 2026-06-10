@@ -1634,13 +1634,33 @@ async function generateShareCard(d){
   c.fillText('SKYGAZING, FOR AIRCRAFT.',W-56,86);
   c.textAlign='left';
 
+  // Rarity badge — pill in the header area when this is a scored catch
+  if(d.rarity){
+    const rc=d.rarity.color||'#4db8ff';
+    const txt=`${d.rarity.label}  ·  ${d.rarity.score}`;
+    c.font="bold 26px 'Orbitron',monospace";
+    const pw=c.measureText(txt).width+56, ph=58, px=W-60-pw, py=150;
+    // hex→rgba for translucent fill
+    const h=rc.replace('#','');
+    const rr=parseInt(h.slice(0,2),16),gg=parseInt(h.slice(2,4),16),bb=parseInt(h.slice(4,6),16);
+    c.fillStyle=`rgba(${rr},${gg},${bb},0.14)`;
+    roundRect(c,px,py,pw,ph,29);c.fill();
+    c.strokeStyle=rc;c.lineWidth=2.5;roundRect(c,px,py,pw,ph,29);c.stroke();
+    c.fillStyle=rc;c.textAlign='center';
+    c.fillText(txt,px+pw/2,py+ph*0.66);
+    c.textAlign='left';
+    // 'CAPTURED' / 'SPOTTED' kicker above callsign
+    c.font="bold 22px 'Orbitron',monospace";c.fillStyle=rc;
+    c.fillText((d.rarity.kind==='captured'?'CAPTURED':'SPOTTED'),62,212);
+  }
+
   // Callsign — scale down if too wide
   const cs=d.cs||'UNKNOWN';
   let csFontSize=108;
   c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
   if(c.measureText(cs).width>940) csFontSize=Math.floor(csFontSize*940/c.measureText(cs).width);
   c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
-  c.fillStyle=DTEXT;c.fillText(cs,60,282);
+  c.fillStyle=DTEXT;c.fillText(cs, 60, d.rarity?300:282);
 
   // Airline
   c.font="500 44px 'Exo 2',sans-serif";c.fillStyle=MTEXT;
@@ -3445,9 +3465,9 @@ function CatchDex({ catches, onClose }) {
         </div>
         <div style={{display:'flex',gap:10,marginLeft:4,marginTop:5}}>
           <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
-            {total}\u00d7 caught</span>
+            {total}× caught</span>
           {c.captured>0&&<span style={{fontSize:9,color:'#2dffb4',fontFamily:"'Exo 2',sans-serif"}}>
-            \u{1F4F8} {c.captured}</span>}
+            📸 {c.captured}</span>}
           <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginLeft:'auto'}}>
             best {c.best?.score||0}</span>
         </div>
@@ -3461,7 +3481,7 @@ function CatchDex({ catches, onClose }) {
       {totalCatches===0 ? (
         <div style={{textAlign:'center',padding:'48px 24px',color:'#4a7898',
           fontFamily:"'Exo 2',sans-serif",fontSize:12,lineHeight:1.7}}>
-          <div style={{fontSize:30,marginBottom:12}}>\u2728</div>
+          <div style={{fontSize:30,marginBottom:12}}>✨</div>
           No catches yet. Tap an aircraft within 15&nbsp;nm to spot it,
           or photograph one in camera mode to capture it.
           Rare finds earn higher rarity scores.
@@ -3482,15 +3502,15 @@ function CatchDex({ catches, onClose }) {
               padding:'11px 14px',marginBottom:16,
               boxShadow:`0 0 16px ${(rarestTier?.color||CC)}33`}}>
               <div style={{fontSize:8,color:rarestTier?.color||CC,fontFamily:"'Orbitron',monospace",
-                letterSpacing:'.16em',marginBottom:4}}>\u2605 RAREST CATCH</div>
+                letterSpacing:'.16em',marginBottom:4}}>★ RAREST CATCH</div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
                 <span style={{fontSize:15,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",
                   fontWeight:700}}>{rarest.type}</span>
                 <span style={{fontSize:11,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
-                  {rarest.cs}{rarest.reg?` \u00b7 ${rarest.reg}`:''}</span>
+                  {rarest.cs}{rarest.reg?` · ${rarest.reg}`:''}</span>
               </div>
               <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginTop:3}}>
-                rarity {rarest.score} \u00b7 {new Date(rarest.ts).toLocaleDateString()}</div>
+                rarity {rarest.score} · {new Date(rarest.ts).toLocaleDateString()}</div>
             </div>
           )}
 
@@ -4781,7 +4801,20 @@ export default function App() {
       const rar = computeRarity(f.type, cat, priorCount);
       // Captured outranks spotted on the rarity ledger (×1.5, capped 100)
       const effScore = kind==='captured' ? Math.min(100, Math.round(rar.score*1.5)) : rar.score;
-      result = {...rar, score:effScore, cs:f.cs, type:typeKey, cat, kind};
+      const catLabel=({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+        'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
+        'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft');
+      result = {...rar, score:effScore, cs:f.cs, type:typeKey, cat, kind,
+        // full payload for the shareable catch card
+        card:{
+          cs:f.cs||f.reg, airline:f.airline||'', type:f.type, catLabel,
+          altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
+          distNmiVal:f.dist!=null?parseFloat(distNmi(f.dist)):null,
+          bearDeg:f.bear!=null?Math.round(f.bear):null,
+          location:nearestCity(posRef.current.lat,posRef.current.lon),
+          timestamp:Date.now(),
+          rarity:{label:rar.label,color:rar.color,score:effScore,kind},
+        }};
       const e = ex || {type:typeKey, cat, spotted:0, captured:0,
                        best:null, first:Date.now(), last:Date.now(), rarest:null};
       e[kind] += 1;
@@ -5543,7 +5576,7 @@ export default function App() {
       }
       const {pb,k}=updatePitchModel(xS, tH);
       setAlignMode(false);
-      const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
+      const kNote=Math.abs(k-1)>0.02?` · vFOV ×${k.toFixed(2)}`:'';
       setAlignNote(`\u2713 Horizon set \u2014 pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
       setTimeout(()=>setAlignNote(null),2800);
       return;
@@ -5586,7 +5619,7 @@ export default function App() {
     setHdgBias(nb);
     try{ localStorage.setItem('soratomo_hdg_bias_v2', String(nb)); }catch{}
     setAlignMode(false);
-    const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
+    const kNote=Math.abs(k-1)>0.02?` · vFOV ×${k.toFixed(2)}`:'';
     setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
     setTimeout(()=>setAlignNote(null),2800);
   };
@@ -5773,7 +5806,7 @@ export default function App() {
                   borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
                   <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",
                     color:alignTarget===t?'#4db8ff':'#4a7898',letterSpacing:'.08em'}}>
-                    {t==='aircraft'?'\u2708 AIRCRAFT':'\u2014 HORIZON'}
+                    {t==='aircraft'?'✈ AIRCRAFT':'— HORIZON'}
                   </span>
                 </button>
               ))}
@@ -5781,7 +5814,7 @@ export default function App() {
                 background:'rgba(3,11,30,0.85)',border:'1.5px solid rgba(255,107,107,0.4)',
                 borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
                 <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#ff6b6b',
-                  letterSpacing:'.08em'}}>\u2715 CANCEL</span>
+                  letterSpacing:'.08em'}}>✕ CANCEL</span>
               </button>
             </div>
           </div>
@@ -5793,23 +5826,32 @@ export default function App() {
           padding:'8px 14px',fontSize:12,color:'#2dffb4',whiteSpace:'nowrap',
           fontFamily:"'Exo 2',sans-serif"}}>{alignNote}</div>
       )}
-      {/* Rare-catch toast */}
+      {/* Rare-catch toast — tap SHARE to generate a catch card */}
       {catchToast&&(
         <div style={{position:'absolute',top:'7%',left:'50%',transform:'translateX(-50%)',zIndex:90,
-          display:'flex',alignItems:'center',gap:10,pointerEvents:'none',
+          display:'flex',alignItems:'center',gap:12,
           background:'rgba(3,11,30,0.94)',border:`1.5px solid ${catchToast.color}`,
-          borderRadius:12,padding:'10px 16px',boxShadow:`0 0 20px ${catchToast.color}55`,
+          borderRadius:12,padding:'10px 14px',boxShadow:`0 0 20px ${catchToast.color}55`,
           animation:'slideUp 0.3s ease'}}>
-          <span style={{fontSize:18}}>{catchToast.kind==='captured'?'\u{1F4F8}':'\u2728'}</span>
+          <span style={{fontSize:18}}>{catchToast.kind==='captured'?'📸':'✨'}</span>
           <div>
             <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
               color:catchToast.color,letterSpacing:'.1em'}}>
               {catchToast.label} {catchToast.kind==='captured'?'CAPTURE':'CATCH'}
             </div>
             <div style={{fontSize:12,color:'#cfe8f8',fontFamily:"'Exo 2',sans-serif",marginTop:1}}>
-              {catchToast.cs} \u00b7 {catchToast.type} \u00b7 rarity {catchToast.score}
+              {catchToast.cs} · {catchToast.type} · rarity {catchToast.score}
             </div>
           </div>
+          <button onClick={e=>{e.stopPropagation();
+            if(catchToast.card) shareAircraft(catchToast.card);
+            setCatchToast(null);
+          }} style={{background:catchToast.color,border:'none',borderRadius:7,
+            padding:'7px 12px',cursor:'pointer',display:'flex',alignItems:'center',gap:5,
+            color:'#021018',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            letterSpacing:'.08em'}}>
+            <ShareIcon/> SHARE
+          </button>
         </div>
       )}
       {/* Capture flash overlay */}
