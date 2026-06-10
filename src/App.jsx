@@ -5257,53 +5257,74 @@ export default function App() {
       return;
     }
     const {f:best, nb, npb} = pick;
+    const baseV = arFov*(VFOV/HFOV);
+    const xS = (50-yPct)*baseV/100;          // tap offset from centre, base-vfov degrees
+
+    // ── Progressive vertical model — shared by aircraft taps and horizon taps ──
+    // Per-tap equation: (target elevation − devicePitch) = pitchBias + dyDeg·k
+    //   dyDeg = tap offset from screen centre in BASE (unscaled) vfov degrees
+    //   k     = true vertical FOV ÷ assumed vertical FOV
+    // Slope (k) only updates when samples span ≥10° of screen height — fitting a
+    // slope through a tight cluster of noisy taps corrupts the intercept (pb),
+    // which is exactly what makes the horizon line sit off the real horizon.
+    const updatePitchModel = (xNew, tNew) => {
+      const samples=[...pitchSamplesRef.current,{x:xNew,t:tNew}].slice(-6);
+      pitchSamplesRef.current=samples;
+      let k=vfovK, pb;
+      const xs=samples.map(s=>s.x);
+      if(samples.length>=2 && Math.max(...xs)-Math.min(...xs)>=10){
+        const n=samples.length;
+        const sx=xs.reduce((a,b)=>a+b,0);
+        const st=samples.reduce((a,s)=>a+s.t,0);
+        const sxx=samples.reduce((a,s)=>a+s.x*s.x,0);
+        const sxt=samples.reduce((a,s)=>a+s.x*s.t,0);
+        const den=n*sxx-sx*sx;
+        if(Math.abs(den)>1e-6){
+          k =Math.max(0.7,Math.min(1.4,(n*sxt-sx*st)/den));
+          pb=Math.max(-30,Math.min(30,(st-k*sx)/n));
+        }
+      }
+      if(pb===undefined) pb=Math.max(-30,Math.min(30, tNew - xNew*k)); // offset-only
+      try{
+        localStorage.setItem('soratomo_pitch_bias_v2',   String(pb));
+        localStorage.setItem('soratomo_vfov_k_v2',       String(k));
+        localStorage.setItem('soratomo_pitch_samples_v2',JSON.stringify(samples));
+        localStorage.setItem('soratomo_calib_ts_v2',     String(Date.now()));
+      }catch{}
+      setPitchBias(pb); setVfovK(k);
+      return {pb,k};
+    };
+
     // Sanity bounds — generous on the ground (real device residuals of 20-40° exist:
     // magnetic cases, car mounts, local interference), unbounded heading airborne
     // (magnetometer inside a fuselage can be wrong by any amount).
     const airborne = (drVel.current.speedMs||0) > 80;
     const hdgLim = airborne ? 180 : 45, pitchLim = airborne ? 35 : 30;
     if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
-      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try tapping the closest plane');
+      // ── Horizon-tap fallback ──
+      // No aircraft fits this tap. If the tap plausibly sits on the TRUE horizon
+      // (elevation ≈ −dip), treat it as a horizon calibration sample. The horizon is
+      // the ideal pitch reference: precisely known elevation, visible everywhere
+      // outdoors, no ambiguity — and it pins the model exactly where users notice
+      // error most. Horizon taps carry no heading info, so hdgBias is untouched.
+      const tH = -getHorizonDipDeg() - pitchRef.current;
+      if(Math.abs(tH - xS*vfovK) <= 12){
+        const {pb,k}=updatePitchModel(xS, tH);
+        setAlignMode(false);
+        const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
+        setAlignNote(`\u2713 Horizon set \u2014 pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
+        setTimeout(()=>setAlignNote(null),2800);
+        return;
+      }
+      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try the closest plane, or tap the horizon');
       setTimeout(()=>setAlignNote(null),2600);
       return;
     }
-    // ── Progressive vertical model — every align tap is a free data point ──
-    // Per-tap equation: (elev − devicePitch) = pitchBias + dyDeg·k
-    //   dyDeg = tap offset from screen centre in BASE (unscaled) vfov degrees
-    //   k     = true vertical FOV ÷ assumed vertical FOV
-    // One sample solves the offset (pitchBias). Two or more samples at different
-    // screen heights also solve k — the scale error that makes the horizon line
-    // drift away from the real horizon as the phone pitches. No extra user steps:
-    // aligning on a high plane and later a low one calibrates the scale for free.
-    const baseV = arFov*(VFOV/HFOV);
-    const xS = (50-yPct)*baseV/100;          // tap offset, base-vfov degrees
-    const tS = best.elev - pitchRef.current; // what that offset must map to
-    const samples=[...pitchSamplesRef.current,{x:xS,t:tS}].slice(-6);
-    pitchSamplesRef.current=samples;
-    let k=vfovK, pb;
-    const xs=samples.map(s=>s.x);
-    if(samples.length>=2 && Math.max(...xs)-Math.min(...xs)>=6){
-      // Least-squares fit t = pb + k·x across the sample history
-      const n=samples.length;
-      const sx=xs.reduce((a,b)=>a+b,0);
-      const st=samples.reduce((a,s)=>a+s.t,0);
-      const sxx=samples.reduce((a,s)=>a+s.x*s.x,0);
-      const sxt=samples.reduce((a,s)=>a+s.x*s.t,0);
-      const den=n*sxx-sx*sx;
-      if(Math.abs(den)>1e-6){
-        k =Math.max(0.7,Math.min(1.4,(n*sxt-sx*st)/den));
-        pb=Math.max(-30,Math.min(30,(st-k*sx)/n));
-      }
-    }
-    if(pb===undefined) pb=Math.max(-30,Math.min(30, tS - xS*k)); // offset-only update
-    setHdgBias(nb); setPitchBias(pb); setVfovK(k);
-    try{
-      localStorage.setItem('soratomo_hdg_bias_v2',     String(nb));
-      localStorage.setItem('soratomo_pitch_bias_v2',   String(pb));
-      localStorage.setItem('soratomo_vfov_k_v2',       String(k));
-      localStorage.setItem('soratomo_pitch_samples_v2',JSON.stringify(samples));
-      localStorage.setItem('soratomo_calib_ts_v2',     String(Date.now()));
-    }catch{}
+    // ── Aircraft tap: solves heading + feeds the vertical model ──
+    const tS = best.elev - pitchRef.current;
+    const {pb,k}=updatePitchModel(xS, tS);
+    setHdgBias(nb);
+    try{ localStorage.setItem('soratomo_hdg_bias_v2', String(nb)); }catch{}
     setAlignMode(false);
     const kNote=Math.abs(k-1)>0.02?` \u00b7 vFOV \u00d7${k.toFixed(2)}`:'';
     setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
@@ -5479,8 +5500,8 @@ export default function App() {
             padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',
             fontFamily:"'Exo 2',sans-serif"}}>
             {alignCandidates&&alignCandidates.length
-              ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap the real one`
-              : `No aircraft within ${alignRadiusNmi} nm \u2014 waiting for closer traffic`}
+              ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap one, or tap the true horizon`
+              : `No aircraft within ${alignRadiusNmi} nm \u2014 tap the true horizon to set pitch`}
           </div>
         </div>
       )}
@@ -5616,7 +5637,7 @@ export default function App() {
         <div style={{position:'absolute',left:12,top:'43%',zIndex:5,pointerEvents:'none'}}>
           <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:2}}>AIM</div>
           <div style={{fontSize:19,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
-            {Math.round(devicePitch)}&deg;
+            {Math.round(viewPitch)}&deg;
           </div>
           <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",marginTop:6,letterSpacing:'.06em'}}>{zoomLevel}x ZOOM</div>
           <div style={{fontSize:9,color:'#254558',fontFamily:"'Orbitron',monospace",marginTop:1}}>FOV {Math.round(activeFov)}&deg;</div>
