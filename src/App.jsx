@@ -1336,6 +1336,14 @@ const nearestCity = (lat,lon) => {
 const LOG_KEY='soratomo_logbook', PROX_KEY='soratomo_prox';
 const GAL_KEY      ='soratomo_gallery';
 const CATCH_KEY    ='soratomo_catches_v1';
+const DAILY_KEY    ='soratomo_daily_v1';
+// Daily score store: { days:{ 'YYYY-MM-DD': totalScore }, best:{date,score} }.
+// 'best' is the lifetime single-day high water mark used for the celebration trigger.
+const loadDaily = () => {try{const d=JSON.parse(localStorage.getItem(DAILY_KEY)||'null');
+  return d&&d.days?d:{days:{},best:{date:null,score:0}};}catch{return {days:{},best:{date:null,score:0}};}};
+const saveDaily = d => {try{localStorage.setItem(DAILY_KEY,JSON.stringify(d));}catch{}};
+const todayKey  = () => {const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 // Catch store: per-type tally of confirmed catches (tap=spotted, photo=captured).
 // Shape: { [icaoType]: {type,cat,spotted,captured,best:{score,tier,label,color},
 //                       first:ts, last:ts, rarest:{cs,reg,score,tier,ts}} }
@@ -3407,7 +3415,7 @@ function HelpPanel({ onClose }) {
 }
 
 
-function CatchDex({ catches, onShare }) {
+function CatchDex({ catches, daily, onShare }) {
   const CC = '#4db8ff';
   const [detail, setDetail] = React.useState(null); // a type's catch entry, for the detail view
   const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
@@ -3561,6 +3569,34 @@ function CatchDex({ catches, onShare }) {
         </div>
       ) : (
         <>
+          {/* Daily score strip */}
+          {daily&&(()=>{
+            const d=new Date();
+            const tk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const today=daily.days?.[tk]||0;
+            const best=daily.best?.score||0;
+            const isRecordToday=daily.best?.date===tk&&best>0;
+            return (
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
+                <div style={{flex:1,background:'rgba(4,14,36,0.9)',
+                  border:`1px solid ${isRecordToday?'#ffd700':'rgba(77,184,255,0.15)'}`,
+                  borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
+                  <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                    color:isRecordToday?'#ffd700':'#b8e4ff',lineHeight:1}}>{today.toLocaleString()}</div>
+                  <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.12em',marginTop:5}}>TODAY</div>
+                </div>
+                <div style={{flex:1,background:'rgba(4,14,36,0.9)',
+                  border:'1px solid rgba(255,215,0,0.3)',borderRadius:8,
+                  padding:'10px 8px',textAlign:'center'}}>
+                  <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                    color:'#ffd700',lineHeight:1}}>{best.toLocaleString()}</div>
+                  <div style={{fontSize:8,color:'#bfa000',fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.12em',marginTop:5}}>BEST DAY 🏆</div>
+                </div>
+              </div>
+            );
+          })()}
           {/* Headline stats */}
           <div style={{display:'flex',gap:8,marginBottom:14}}>
             <Big val={typesCollected} label="TYPES"/>
@@ -4029,6 +4065,9 @@ const STYLES=[
   "@keyframes slideDown{from{transform:translateY(-8%);opacity:0}to{transform:translateY(0);opacity:1}}",
   "@keyframes sweep{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}",
   "@keyframes arPulse{0%,100%{box-shadow:0 0 6px #4db8ff44}50%{box-shadow:0 0 14px #4db8ffaa}}",
+  "@keyframes recordPop{0%{transform:translate(-50%,-50%) scale(.7);opacity:0}55%{transform:translate(-50%,-50%) scale(1.06);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}",
+  "@keyframes recordGlow{0%,100%{box-shadow:0 0 22px rgba(255,215,0,0.35)}50%{box-shadow:0 0 44px rgba(255,215,0,0.7)}}",
+  "@keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(360px) rotate(540deg);opacity:0}}",
 "@keyframes ping{0%{transform:translate(-50%,-50%) scale(.9);opacity:.85}100%{transform:translate(-50%,-50%) scale(3.2);opacity:0}}",
   "input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;outline:none;cursor:pointer}",
   "input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#4db8ff;border:2.5px solid #010a18;cursor:grab;box-shadow:0 0 0 3px rgba(77,184,255,0.14);margin-top:-7px}",
@@ -4575,6 +4614,9 @@ export default function App() {
   const [alignTarget, setAlignTarget] = useState('aircraft'); // 'aircraft' | 'horizon' — explicit, never inferred
   const [catches,     setCatches]     = useState(()=>loadCatches());
   const [catchToast,  setCatchToast]  = useState(null); // {cs,type,tier,label,color,score,kind} | null
+  const [daily,       setDaily]       = useState(()=>loadDaily());
+  const [recordToast, setRecordToast] = useState(null); // {score,prev} | null — new daily high-score celebration
+  const recordToastTimer = useRef(null);
   const catchToastTimer = useRef(null);
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
@@ -4911,6 +4953,34 @@ export default function App() {
       saveCatches(next);
       return next;
     });
+
+    // ── Daily score accrual + lifetime high-score detection ──
+    // Every catch's effective score adds to today's running total. The instant
+    // today crosses the previous lifetime single-day best, fire the celebration once.
+    if(result){
+      setDaily(prev=>{
+        const tk = todayKey();
+        const prevToday = prev.days[tk] || 0;
+        const newToday  = prevToday + result.score;
+        const days = {...prev.days, [tk]: newToday};
+        // Prior best EXCLUDING today, so beating your own earlier-today total isn't a 'record'
+        let priorBest = 0, priorDate = null;
+        for(const [d,s] of Object.entries(prev.days)){
+          if(d!==tk && s>priorBest){ priorBest=s; priorDate=d; }
+        }
+        const crossed = prevToday <= priorBest && newToday > priorBest && priorBest > 0;
+        const best = newToday >= (prev.best?.score||0) ? {date:tk, score:newToday} : prev.best;
+        const out = {days, best};
+        saveDaily(out);
+        // Celebrate only on a genuine crossing of a non-zero prior record (not the very first day)
+        if(crossed){
+          setRecordToast({score:newToday, prev:priorBest});
+          clearTimeout(recordToastTimer.current);
+          recordToastTimer.current=setTimeout(()=>setRecordToast(null), 6000);
+        }
+        return out;
+      });
+    }
     // Toast — fire only for genuinely notable catches so common traffic isn't spammy,
     // but ALWAYS toast a photo capture (the user took deliberate action).
     if(result && (result.score>=60 || kind==='captured')){
@@ -5910,6 +5980,42 @@ export default function App() {
           padding:'8px 14px',fontSize:12,color:'#2dffb4',whiteSpace:'nowrap',
           fontFamily:"'Exo 2',sans-serif"}}>{alignNote}</div>
       )}
+      {/* Daily high-score celebration */}
+      {recordToast&&(
+        <div onClick={()=>setRecordToast(null)} style={{position:'absolute',inset:0,zIndex:95,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          background:'rgba(1,6,18,0.55)'}}>
+          {/* confetti */}
+          {Array.from({length:14}).map((_,i)=>(
+            <div key={i} style={{position:'absolute',top:'30%',left:`${8+i*6.2}%`,
+              width:7,height:7,borderRadius:1,
+              background:['#ffd700','#ff3bdb','#4db8ff','#2dffb4','#b14dff'][i%5],
+              animation:`confettiFall ${1.4+(i%5)*0.25}s ease-in ${(i%7)*0.1}s infinite`}}/>
+          ))}
+          <div style={{position:'absolute',top:'50%',left:'50%',
+            transform:'translate(-50%,-50%)',width:'82%',maxWidth:340,
+            background:'rgba(3,11,30,0.97)',border:'2px solid #ffd700',borderRadius:16,
+            padding:'26px 22px',textAlign:'center',
+            animation:'recordPop 0.5s cubic-bezier(0.2,0,0.2,1), recordGlow 2.2s ease-in-out infinite'}}>
+            <div style={{fontSize:38,marginBottom:6}}>🏆</div>
+            <div style={{fontSize:14,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#ffd700',letterSpacing:'.12em',marginBottom:10}}>NEW DAILY RECORD!</div>
+            <div style={{fontSize:44,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#fff',lineHeight:1,letterSpacing:'.02em'}}>{recordToast.score.toLocaleString()}</div>
+            <div style={{fontSize:10,color:'#7a98a8',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em',marginTop:6}}>POINTS TODAY</div>
+            <div style={{fontSize:11,color:'#90c8e8',fontFamily:"'Exo 2',sans-serif",
+              marginTop:14,lineHeight:1.5}}>
+              You beat your previous best of {recordToast.prev.toLocaleString()}. Keep spotting to stretch the lead!
+            </div>
+            <button onClick={()=>setRecordToast(null)} style={{marginTop:16,
+              background:'#ffd700',border:'none',borderRadius:8,padding:'9px 22px',cursor:'pointer',
+              color:'#1a1400',fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.1em'}}>NICE!</button>
+          </div>
+        </div>
+      )}
+
       {/* Rare-catch toast — tap SHARE to generate a catch card */}
       {catchToast&&(
         <div style={{position:'absolute',top:'7%',left:'50%',transform:'translateX(-50%)',zIndex:90,
@@ -6294,7 +6400,7 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
-            {showDex&&<CatchDex catches={catches} onShare={shareAircraft}/>}
+            {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}/>}
             {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
