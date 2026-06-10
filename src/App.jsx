@@ -90,6 +90,67 @@ const getAircraftCat = (icao, emitter='') => {
   return 'narrow';
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// RARITY ENGINE
+// A catch's rarity blends GLOBAL scarcity (how uncommon the type is in the skies
+// worldwide — the dominant term) with PERSONAL novelty (how new it is to this
+// user's logbook). Score 0-100 maps to five tiers. Leans global per design so a
+// veteran spotter and a beginner agree an An-124 is a trophy.
+//
+// GLOBAL_RARITY: 0 (ultra-common) … 100 (almost never seen). Keyed by an ICAO
+// type prefix; longest-prefix match wins. Tuned for a US/DCA-typical sky where
+// A320/B738 are wallpaper and anything military/heritage/Antonov is an event.
+const GLOBAL_RARITY = [
+  // Ultra-common narrowbodies — the wallpaper of the sky
+  ['A320',8],['A319',10],['A321',10],['A20N',9],['A21N',11],
+  ['B737',8],['B738',7],['B739',9],['B38M',10],['B39M',12],['E75',14],['E70',16],
+  ['CRJ',15],['CRJ9',15],['CRJ7',16],['CRJ2',20],['E190',14],['E195',16],['E145',22],
+  // Common widebodies
+  ['B772',30],['B77W',28],['B788',30],['B789',30],['B78X',34],
+  ['A332',32],['A333',32],['A339',40],['A359',38],['A35K',46],['B763',34],['B764',40],
+  // Jumbos / superjumbos — rare and beloved
+  ['B748',78],['B744',70],['B742',88],['B743',88],['A388',80],
+  // General aviation / bizjets — common but a step up from airline wallpaper
+  ['C172',18],['C152',22],['C182',22],['PA28',24],['SR22',24],['DA40',30],
+  ['C25',28],['C56X',30],['GLF',40],['GLEX',44],['CL60',36],['LJ',38],['PC12',34],
+  // Helicopters
+  ['R44',30],['R66',34],['B06',32],['EC',38],['AW1',44],['S76',46],['UH',60],
+  // Military — events in most skies
+  ['F16',72],['F15',74],['F18',74],['F22',92],['F35',88],['A10',86],
+  ['C130',64],['C17',74],['KC',70],['C5',90],['E3',86],['P8',72],['V22',84],['B52',95],['B1',94],['B2',99],
+  // Heritage / ultra-rare heavies
+  ['AN12',92],['AN124',97],['AN225',100],['A124',97],['IL76',90],['DC3',96],['B17',99],['SR7',100],
+];
+// Per-category fallback when the exact type isn't in the table above
+const CAT_RARITY = {narrow:10,regional:16,wide:34,jumbo:74,super:80,
+  bizjet:34,piston:22,helicopter:36,military:80,milTransport:72,'':24};
+
+const globalRarity = (icaoType, cat) => {
+  const t=(icaoType||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  let best=null, bestLen=-1;
+  if(t) for(const [pre,score] of GLOBAL_RARITY){
+    if(t.startsWith(pre) && pre.length>bestLen){ best=score; bestLen=pre.length; }
+  }
+  return best!=null ? best : (CAT_RARITY[cat] ?? 24);
+};
+
+// Blend global scarcity with personal novelty.
+//   priorCount = times this user has caught this TYPE before (0 = lifer)
+// Personal novelty decays fast: 1st catch full bonus, tapering to ~0 by the 8th.
+// Weighted 70% global / 30% personal so the sky's objective rarity dominates.
+const computeRarity = (icaoType, cat, priorCount=0) => {
+  const g = globalRarity(icaoType, cat);                 // 0-100
+  const personal = 100 * Math.exp(-priorCount/3);        // 100,72,51,36… per prior catch
+  const score = Math.round(0.70*g + 0.30*personal);
+  const tier =
+    score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ff3bdb'} :
+    score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#b14dff'} :
+    score>=50 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
+    score>=30 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
+                {key:'common',  label:'COMMON',   color:'#7a98a8'};
+  return {score, ...tier};
+};
+
 const PlaneShape = ({cat, color, fc}) => {
   const f = Math.max(0.38, fc); // floor raised: wings always legible (was 0.08 → near-invisible head-on)
 
@@ -1274,6 +1335,12 @@ const nearestCity = (lat,lon) => {
 
 const LOG_KEY='soratomo_logbook', PROX_KEY='soratomo_prox';
 const GAL_KEY      ='soratomo_gallery';
+const CATCH_KEY    ='soratomo_catches_v1';
+// Catch store: per-type tally of confirmed catches (tap=spotted, photo=captured).
+// Shape: { [icaoType]: {type,cat,spotted,captured,best:{score,tier,label,color},
+//                       first:ts, last:ts, rarest:{cs,reg,score,tier,ts}} }
+const loadCatches = () => {try{return JSON.parse(localStorage.getItem(CATCH_KEY)||'{}');}catch{return {};}};
+const saveCatches = c => {try{localStorage.setItem(CATCH_KEY,JSON.stringify(c));}catch{}};
 const TYPE_CACHE_KEY='soratomo_type_cache';
 const MAX_TYPE_CACHE=2000; // hex entries; ~100KB at ~50B each
 const loadTypeCache=()=>{
@@ -4277,6 +4344,9 @@ export default function App() {
   const pitchSamplesRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('soratomo_pitch_samples_v2'))||[];}catch{return [];}})());
   const [alignMode, setAlignMode] = useState(false); // armed: next tap solves biases
   const [alignTarget, setAlignTarget] = useState('aircraft'); // 'aircraft' | 'horizon' — explicit, never inferred
+  const [catches,     setCatches]     = useState(()=>loadCatches());
+  const [catchToast,  setCatchToast]  = useState(null); // {cs,type,tier,label,color,score,kind} | null
+  const catchToastTimer = useRef(null);
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
@@ -4562,9 +4632,50 @@ export default function App() {
     }
   },[cameraMode]);
 
-  const handleAircraftSelect = useCallback(fl=>{
-    setSelectedId(prev=>prev===fl.id?null:fl.id);
+  // ── Catch recorder ─────────────────────────────────────────────
+  // kind: 'spotted' (tapped in any mode, ≤15 nm) or 'captured' (photographed).
+  // Returns the rarity result so callers can drive a toast / share card.
+  const recordCatch = useCallback((f, kind)=>{
+    const typeKey = f.type||'UNKN';
+    let result=null;
+    setCatches(prev=>{
+      const ex = prev[typeKey];
+      const priorCount = ex ? (ex.spotted+ex.captured) : 0;  // catches of this type before now
+      const cat = getAircraftCat(f.type, f.emitter||'');
+      const rar = computeRarity(f.type, cat, priorCount);
+      // Captured outranks spotted on the rarity ledger (×1.5, capped 100)
+      const effScore = kind==='captured' ? Math.min(100, Math.round(rar.score*1.5)) : rar.score;
+      result = {...rar, score:effScore, cs:f.cs, type:typeKey, cat, kind};
+      const e = ex || {type:typeKey, cat, spotted:0, captured:0,
+                       best:null, first:Date.now(), last:Date.now(), rarest:null};
+      e[kind] += 1;
+      e.last = Date.now();
+      if(!e.best || effScore > e.best.score)
+        e.best = {score:effScore, tier:rar.key, label:rar.label, color:rar.color};
+      if(!e.rarest || effScore > e.rarest.score)
+        e.rarest = {cs:f.cs, reg:f.reg||'', score:effScore, tier:rar.key, ts:Date.now()};
+      const next = {...prev, [typeKey]:e};
+      saveCatches(next);
+      return next;
+    });
+    // Toast — fire only for genuinely notable catches so common traffic isn't spammy,
+    // but ALWAYS toast a photo capture (the user took deliberate action).
+    if(result && (result.score>=50 || kind==='captured')){
+      setCatchToast(result);
+      clearTimeout(catchToastTimer.current);
+      catchToastTimer.current=setTimeout(()=>setCatchToast(null), 4200);
+    }
+    return result;
   },[]);
+
+  const handleAircraftSelect = useCallback(fl=>{
+    // Tap = 'spotted' catch when within 15 nm (visual-plausible range). Works in radar,
+    // tilt, and camera mode so calibration trouble never blocks collecting.
+    if(fl && fl.dist!=null && fl.dist <= 15*M_PER_NMI){
+      recordCatch(fl, 'spotted');
+    }
+    setSelectedId(prev=>prev===fl.id?null:fl.id);
+  },[recordCatch]);
 
   const handleARToggle = e => {
     e.stopPropagation(); setShowFilters(false);
@@ -4662,6 +4773,19 @@ export default function App() {
 
     // Flash
     setCaptureFlash(true); setTimeout(()=>setCaptureFlash(false),120);
+
+    // ── 'Captured' catch ──
+    // A photo immortalises whichever in-view aircraft is nearest screen centre
+    // (that's what the user framed). Captured tier outranks a mere tap.
+    {
+      let framed=null, fbest=Infinity;
+      for(const f of mapped){
+        if(f.dist>15*M_PER_NMI) continue;
+        const d=Math.hypot(f.x-50, f.y-50);
+        if(d<fbest && d<40){ fbest=d; framed=f; }
+      }
+      if(framed) recordCatch(framed, 'captured');
+    }
 
     // Download full-res
     const ts=Date.now();
@@ -5532,6 +5656,25 @@ export default function App() {
           background:'rgba(3,11,30,0.9)',border:'1px solid rgba(45,255,180,0.35)',borderRadius:10,
           padding:'8px 14px',fontSize:12,color:'#2dffb4',whiteSpace:'nowrap',
           fontFamily:"'Exo 2',sans-serif"}}>{alignNote}</div>
+      )}
+      {/* Rare-catch toast */}
+      {catchToast&&(
+        <div style={{position:'absolute',top:'7%',left:'50%',transform:'translateX(-50%)',zIndex:90,
+          display:'flex',alignItems:'center',gap:10,pointerEvents:'none',
+          background:'rgba(3,11,30,0.94)',border:`1.5px solid ${catchToast.color}`,
+          borderRadius:12,padding:'10px 16px',boxShadow:`0 0 20px ${catchToast.color}55`,
+          animation:'slideUp 0.3s ease'}}>
+          <span style={{fontSize:18}}>{catchToast.kind==='captured'?'\u{1F4F8}':'\u2728'}</span>
+          <div>
+            <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:catchToast.color,letterSpacing:'.1em'}}>
+              {catchToast.label} {catchToast.kind==='captured'?'CAPTURE':'CATCH'}
+            </div>
+            <div style={{fontSize:12,color:'#cfe8f8',fontFamily:"'Exo 2',sans-serif",marginTop:1}}>
+              {catchToast.cs} \u00b7 {catchToast.type} \u00b7 rarity {catchToast.score}
+            </div>
+          </div>
+        </div>
       )}
       {/* Capture flash overlay */}
       {captureFlash&&<div style={{position:'absolute',inset:0,background:'#fff',opacity:0.6,zIndex:99,pointerEvents:'none'}}/>}
