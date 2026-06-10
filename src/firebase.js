@@ -12,13 +12,12 @@ import { getFirestore,
          serverTimestamp }      from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey:            "REPLACE_WITH_YOUR_API_KEY",
-  authDomain:        "REPLACE_WITH_YOUR_AUTH_DOMAIN",
-  projectId:         "REPLACE_WITH_YOUR_PROJECT_ID",
-  storageBucket:     "REPLACE_WITH_YOUR_STORAGE_BUCKET",
-  messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
-  appId:             "REPLACE_WITH_YOUR_APP_ID",
-};
+  apiKey: "AIzaSyDMTI9FDcTz64YVD9uJ3RZkP8qk6lms-6c",
+  authDomain: "soratomo-15ac4.firebaseapp.com",
+  projectId: "soratomo-15ac4",
+  storageBucket: "soratomo-15ac4.firebasestorage.app",
+  messagingSenderId: "1091412061317",
+  appId: "1:1091412061317:web:dddc2cfc526b9582638dec"};
 
 const app = initializeApp(firebaseConfig, 'soratomo');
 export const db = getFirestore(app);
