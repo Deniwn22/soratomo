@@ -3333,6 +3333,13 @@ function HelpPanel({ onClose }) {
               desc="Drag the circular dial (bottom-right) to set max display distance."/>
           </Section>
 
+          <Section title="COLLECTION">
+            <Row icon="✨" label="Catching Aircraft"
+              desc="Tap an aircraft within 15 nm to SPOT it, or photograph one in camera mode to CAPTURE it (worth more). Rare types and first-time catches score higher."/>
+            <Row icon="🏆" label="The Dex"
+              desc="Tap the lines icon (top-right) → DEX tab to see your collection: types caught, rarity tiers, photo count, and your rarest find."/>
+          </Section>
+
           <Section title="LOGBOOK">
             <Row icon="📖" label="Accessing the Logbook"
               desc="Tap the lines icon (top-right) → LOG tab. Aircraft are logged automatically when they come within range."/>
@@ -3379,6 +3386,134 @@ function HelpPanel({ onClose }) {
   );
 }
 
+
+function CatchDex({ catches, onClose }) {
+  const CC = '#4db8ff';
+  const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
+    jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',
+    helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
+  const catOrder = ['military','milTransport','super','jumbo','wide','regional',
+    'narrow','bizjet','piston','helicopter',''];
+
+  const TIER = {
+    mythic:{label:'MYTHIC',color:'#ff3bdb',rank:5},
+    legendary:{label:'LEGENDARY',color:'#b14dff',rank:4},
+    rare:{label:'RARE',color:'#4db8ff',rank:3},
+    uncommon:{label:'UNCOMMON',color:'#2dffb4',rank:2},
+    common:{label:'COMMON',color:'#7a98a8',rank:1},
+  };
+
+  const list = Object.values(catches||{});
+  const totalCatches = list.reduce((s,c)=>s+c.spotted+c.captured,0);
+  const totalCaptured = list.reduce((s,c)=>s+c.captured,0);
+  const typesCollected = list.length;
+  // Rarest single catch across all types
+  const rarest = list.reduce((best,c)=>
+    (c.rarest && (!best || c.rarest.score>best.score)) ? {...c.rarest,type:c.type} : best, null);
+  const rarestTier = rarest ? Object.values(TIER).find(t=>t.label===(catches[rarest.type]?.best?.label)) : null;
+
+  // Group caught types by category, each sorted by best score desc
+  const byCat = {};
+  list.forEach(c=>{ (byCat[c.cat]=byCat[c.cat]||[]).push(c); });
+  Object.values(byCat).forEach(arr=>arr.sort((a,b)=>(b.best?.score||0)-(a.best?.score||0)));
+  const rows = catOrder.filter(c=>byCat[c]?.length);
+
+  const Big = ({val,label,sub,color}) => (
+    <div style={{flex:1,background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.15)',
+      borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
+      <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+        color:color||'#b8e4ff',letterSpacing:'.02em',lineHeight:1}}>{val}</div>
+      <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
+        letterSpacing:'.12em',marginTop:5}}>{label}</div>
+      {sub&&<div style={{fontSize:8,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+
+  const Card = ({c}) => {
+    const tier = TIER[c.best?.tier] || TIER.common;
+    const total = c.spotted + c.captured;
+    return (
+      <div style={{background:'rgba(4,14,36,0.92)',
+        border:`1px solid ${tier.color}55`,borderRadius:9,padding:'9px 10px',
+        position:'relative',overflow:'hidden'}}>
+        <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:tier.color}}/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginLeft:4}}>
+          <span style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:'#cfe8f8',letterSpacing:'.04em'}}>{c.type}</span>
+          <span style={{fontSize:8,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:tier.color,letterSpacing:'.1em'}}>{tier.label}</span>
+        </div>
+        <div style={{display:'flex',gap:10,marginLeft:4,marginTop:5}}>
+          <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+            {total}\u00d7 caught</span>
+          {c.captured>0&&<span style={{fontSize:9,color:'#2dffb4',fontFamily:"'Exo 2',sans-serif"}}>
+            \u{1F4F8} {c.captured}</span>}
+          <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginLeft:'auto'}}>
+            best {c.best?.score||0}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
+      padding:'14px 14px 32px'}}>
+      {totalCatches===0 ? (
+        <div style={{textAlign:'center',padding:'48px 24px',color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif",fontSize:12,lineHeight:1.7}}>
+          <div style={{fontSize:30,marginBottom:12}}>\u2728</div>
+          No catches yet. Tap an aircraft within 15&nbsp;nm to spot it,
+          or photograph one in camera mode to capture it.
+          Rare finds earn higher rarity scores.
+        </div>
+      ) : (
+        <>
+          {/* Headline stats */}
+          <div style={{display:'flex',gap:8,marginBottom:14}}>
+            <Big val={typesCollected} label="TYPES"/>
+            <Big val={totalCatches} label="CATCHES"/>
+            <Big val={totalCaptured} label="PHOTOS" sub="captured"/>
+          </div>
+
+          {/* Rarest find banner */}
+          {rarest && (
+            <div style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rarestTier?.color||CC}`,borderRadius:10,
+              padding:'11px 14px',marginBottom:16,
+              boxShadow:`0 0 16px ${(rarestTier?.color||CC)}33`}}>
+              <div style={{fontSize:8,color:rarestTier?.color||CC,fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.16em',marginBottom:4}}>\u2605 RAREST CATCH</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <span style={{fontSize:15,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                  fontWeight:700}}>{rarest.type}</span>
+                <span style={{fontSize:11,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+                  {rarest.cs}{rarest.reg?` \u00b7 ${rarest.reg}`:''}</span>
+              </div>
+              <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginTop:3}}>
+                rarity {rarest.score} \u00b7 {new Date(rarest.ts).toLocaleDateString()}</div>
+            </div>
+          )}
+
+          {/* Collection by category */}
+          {rows.map(cat=>(
+            <div key={cat} style={{marginBottom:16}}>
+              <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.16em',fontWeight:700,marginBottom:8,paddingBottom:5,
+                borderBottom:'1px solid rgba(77,184,255,0.12)',
+                display:'flex',justifyContent:'space-between'}}>
+                <span>{(catNames[cat]||'Other').toUpperCase()}</span>
+                <span style={{color:'#3a6878'}}>{byCat[cat].length}</span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {byCat[cat].map(c=><Card key={c.type} c={c}/>)}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
 
 function Logbook({ entries, pos, onClose, onClear }) {
   const fmt = fmtTime;
@@ -4306,6 +4441,7 @@ export default function App() {
   const lastPinchTime   = useRef(0); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
+  const [showDex,     setShowDex]     = useState(false);
   const [showStats,   setShowStats]   = useState(false);
   const [density,     setDensity]     = useState('compact'); // compact|normal
   // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
@@ -5937,7 +6073,7 @@ export default function App() {
                 </button>
                 </>
               )}
-              <button onClick={e=>{e.stopPropagation();setShowStats(v=>!v);setShowLog(false);setShowFilters(false);}} style={{
+              <button onClick={e=>{e.stopPropagation();setShowStats(v=>!v);setShowLog(false);setShowFilters(false);setShowDex(false);}} style={{
                 background:showStats?'rgba(77,184,255,0.1)':'transparent',
                 border:`1px solid ${showStats?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 6px',cursor:'pointer',
@@ -5950,7 +6086,7 @@ export default function App() {
               </button>
               {/* Combined LOG+FILTER button */}
               <button onClick={e=>{e.stopPropagation();
-                if(showLog||showFilters){setShowLog(false);setShowFilters(false);}
+                if(showLog||showFilters||showDex){setShowLog(false);setShowFilters(false);setShowDex(false);}
                 else{setShowLog(true);setShowStats(false);}
               }} style={{
                 background:(showLog||showFilters)?'rgba(77,184,255,0.1)':'transparent',
@@ -5975,7 +6111,7 @@ export default function App() {
               </button>
               {/* Help / Info button */}
               <button onClick={e=>{e.stopPropagation();setShowHelp(v=>!v);
-                setShowLog(false);setShowFilters(false);setShowStats(false);}} style={{
+                setShowLog(false);setShowFilters(false);setShowStats(false);setShowDex(false);}} style={{
                 background:showHelp?'rgba(77,184,255,0.1)':'transparent',
                 border:`1px solid ${showHelp?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 7px',cursor:'pointer',
@@ -5998,25 +6134,25 @@ export default function App() {
       {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
       {/* Combined LOG / FILTER tabbed panel */}
-      {(showLog||showFilters)&&(
+      {(showLog||showFilters||showDex)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['log','LOG'],['filter','FILTER']].map(([t,label])=>(
+            {[['dex','DEX'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex);
+              return (
               <button key={t} onClick={()=>{
-                setShowLog(t==='log'); setShowFilters(t==='filter');
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex');
               }} style={{
                 flex:1,padding:'11px 0',background:'transparent',border:'none',
-                borderBottom:`2px solid ${
-                  (t==='log'&&showLog)||(t==='filter'&&showFilters)
-                    ?'#4db8ff':'transparent'}`,
+                borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
                 cursor:'pointer',
                 fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',
-                color:(t==='log'&&showLog)||(t==='filter'&&showFilters)?'#b8e4ff':'#3a6878',
-                fontWeight:(t==='log'&&showLog)||(t==='filter'&&showFilters)?700:400,
+                color:active?'#b8e4ff':'#3a6878',
+                fontWeight:active?700:400,
               }}>
                 {label}
                 {t==='filter'&&isFilterActive&&(
@@ -6025,8 +6161,8 @@ export default function App() {
                     position:'relative',top:-1}}/>
                 )}
               </button>
-            ))}
-            <button onClick={()=>{setShowLog(false);setShowFilters(false);}} style={{
+            );})}
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);}} style={{
               background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
               color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
               fontFamily:"'Orbitron',monospace"}}>✕</button>
@@ -6043,6 +6179,8 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
+            {showDex&&<CatchDex catches={catches}
+              onClose={()=>{setShowDex(false);}}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
               onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
