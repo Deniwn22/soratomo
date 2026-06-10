@@ -1388,12 +1388,15 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   // Red ring: first-ever sighting of this ICAO type (takes priority over green/amber)
   const isNewType  = isNearby && f.type && f.type!=='UNKN' && !(loggedTypes||new Set()).has(f.type);
 
-  // Ring = encounter newness: red (new type) > teal (new tail) > amber (seen before)
-  // Dot  = AR accuracy: green (HIGH) > yellow (MED) > orange (LOW)  — tilt mode only
-  const ringColor  = isNearby
-    ? (isNewType ? '#ff3b3b' : (isNewAc ? '#2dffb4' : '#ffb84d'))
-    : (isNewAc ? '#2dffb455' : color);
-  const badgeColor = isNearby ? (isNewType ? '#ff3b3b' : (isNewAc ? '#2dffb4' : '#ffb84d')) : null;
+  // Ring = RARITY of the aircraft, so the user instantly sees how special it is:
+  //   MYTHIC(pink) > LEGENDARY(purple) > RARE(blue) > UNCOMMON(teal) > COMMON(grey).
+  // Uses global scarcity (objective) so the cue is consistent regardless of personal history.
+  // Dot = AR accuracy: green/yellow/orange (tilt mode only) — unchanged.
+  const rarTier    = computeRarity(f.type, cat, 0);   // priorCount 0 → pure global scarcity
+  const ringColor  = isNearby ? rarTier.color : `${rarTier.color}66`;
+  const badgeColor = isNearby ? rarTier.color : null;
+  // Faster pulse for the rarest finds so they visually 'pop' more urgently
+  const rarePulse  = rarTier.score>=70;
 
   // Log-linear size scale: very dramatic range — 58px at 1nmi, 34px at 10nmi, 17px at 50nmi, 11px at 100+nmi
   const rawSize  = Math.max(11, Math.min(58, Math.round(58 - Math.log10(Math.max(0.5,dNmi)) * 24)));
@@ -1447,7 +1450,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         position:'absolute',width:isNearby?ringInner+16:ringInner,height:isNearby?ringInner+16:ringInner,
         borderRadius:'50%',border:`1.5px solid ${ringColor}${isNearby?'99':'66'}`,
         top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-        animation:`ring ${isNewType?'1.4s':'2.8s'} ease-out infinite`,pointerEvents:'none',
+        animation:`ring ${rarePulse?'1.4s':'2.8s'} ease-out infinite`,pointerEvents:'none',
       }}/>
       {/* Secondary ring when nearby or selected */}
       {(isNearby||isSelected) && <div style={{
@@ -1497,13 +1500,13 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         <div style={{
           position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
           marginTop:16+Math.max(8,Math.min(10,rawSize*0.22)),
-          background: isNewAc?'rgba(45,255,180,0.12)':'rgba(255,184,77,0.12)',
+          background:`${rarTier.color}1f`,
           border:`1px solid ${badgeColor}55`,
           borderRadius:3,padding:'1px 5px',
           fontSize:9,color:badgeColor,
           fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
           whiteSpace:'nowrap',pointerEvents:'none',
-        }}>{isNewType ? '★ NEW TYPE! ' : (isNewAc ? 'NEW! ' : '')}{distNmi(f.dist)} NMI</div>
+        }}>{rarTier.score>=60 ? `${rarTier.label} \u00b7 ` : (isNewType ? '\u2605 NEW TYPE \u00b7 ' : '')}{distNmi(f.dist)} NMI</div>
       )}
     </div>
   );
@@ -3322,15 +3325,19 @@ function HelpPanel({ onClose }) {
               color="#ff8c00" desc="> 15 sec old. Aircraft may have moved significantly."/>
           </Section>
 
-          <Section title="ENCOUNTER RINGS">
+          <Section title="RARITY RINGS">
             <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
-              marginBottom:8}}>Pulsing ring shown when aircraft is within logging range.</div>
-            <Row icon={<><Ring col="#ff3b3b"/>  </>} label="Red — New Type"
-              color="#ff3b3b" desc="First time you've ever logged this aircraft category."/>
-            <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — New Tail"
-              color="#2dffb4" desc="First time you've seen this specific callsign/registration."/>
-            <Row icon={<><Ring col="#ffb84d"/>  </>} label="Amber — Seen Before"
-              color="#ffb84d" desc="Aircraft is in your logbook from a previous encounter."/>
+              marginBottom:8}}>Ring color shows how rare the aircraft is. The rarest pulse faster.</div>
+            <Row icon={<><Ring col="#ff3bdb"/>  </>} label="Pink — Mythic"
+              color="#ff3bdb" desc="Top-tier finds: superjumbos, heavy military, Antonovs."/>
+            <Row icon={<><Ring col="#b14dff"/>  </>} label="Purple — Legendary"
+              color="#b14dff" desc="Jumbos, fighters, transports — a real event."/>
+            <Row icon={<><Ring col="#4db8ff"/>  </>} label="Blue — Rare"
+              color="#4db8ff" desc="Widebodies and uncommon types."/>
+            <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — Uncommon"
+              color="#2dffb4" desc="Regional jets, GA, business aircraft."/>
+            <Row icon={<><Ring col="#7a98a8"/>  </>} label="Grey — Common"
+              color="#7a98a8" desc="Everyday narrowbody airliners."/>
           </Section>
 
           <Section title="AIRCRAFT SHAPES">
@@ -3415,9 +3422,10 @@ function HelpPanel({ onClose }) {
 }
 
 
-function CatchDex({ catches, daily, onShare }) {
+function CatchDex({ catches, daily, onShare, onClearAll }) {
   const CC = '#4db8ff';
   const [detail, setDetail] = React.useState(null); // a type's catch entry, for the detail view
+  const [confirmClear, setConfirmClear] = React.useState(false);
   const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
     jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',
     helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
@@ -3559,6 +3567,31 @@ function CatchDex({ catches, daily, onShare }) {
   return (
     <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
       padding:'14px 14px 32px'}}>
+      {confirmClear && (
+        <div onClick={()=>setConfirmClear(false)} style={{position:'absolute',inset:0,zIndex:70,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:24,
+          background:'rgba(1,6,18,0.8)'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:300,
+            background:'rgba(3,11,30,0.98)',border:'1.5px solid rgba(255,107,107,0.5)',
+            borderRadius:14,padding:'20px 18px',textAlign:'center'}}>
+            <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#ff6b6b',letterSpacing:'.08em',marginBottom:10}}>CLEAR ALL CATCHES?</div>
+            <div style={{fontSize:11,color:'#90c8e8',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.5,marginBottom:18}}>
+              This permanently deletes your entire collection, per-catch history, and daily score records. This cannot be undone.
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setConfirmClear(false)} style={{flex:1,background:'transparent',
+                border:'1px solid rgba(77,184,255,0.3)',borderRadius:8,padding:'9px 0',cursor:'pointer',
+                color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>CANCEL</button>
+              <button onClick={()=>{setConfirmClear(false);setDetail(null);onClearAll&&onClearAll();}} style={{flex:1,
+                background:'#ff6b6b',border:'none',borderRadius:8,padding:'9px 0',cursor:'pointer',
+                color:'#1a0606',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                letterSpacing:'.08em'}}>DELETE ALL</button>
+            </div>
+          </div>
+        </div>
+      )}
       {totalCatches===0 ? (
         <div style={{textAlign:'center',padding:'48px 24px',color:'#4a7898',
           fontFamily:"'Exo 2',sans-serif",fontSize:12,lineHeight:1.7}}>
@@ -3623,6 +3656,13 @@ function CatchDex({ catches, daily, onShare }) {
             </div>
           )}
 
+          {/* Clear-all control */}
+          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+            <button onClick={()=>setConfirmClear(true)} style={{background:'transparent',
+              border:'1px solid rgba(255,107,107,0.4)',borderRadius:6,padding:'6px 12px',
+              cursor:'pointer',color:'#ff6b6b',fontSize:9,fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em'}}>CLEAR ALL CATCHES</button>
+          </div>
           {/* Collection by category */}
           {rows.map(cat=>(
             <div key={cat} style={{marginBottom:16}}>
@@ -6354,15 +6394,15 @@ export default function App() {
       {/* Help panel */}
       {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
-      {/* Combined LOG / FILTER tabbed panel */}
-      {(showLog||showFilters||showDex)&&(
+      {/* Combined DEX / STATS / LOG / FILTER tabbed panel */}
+      {(showLog||showFilters||showDex||showStats)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['dex','DEX'],['log','LOG'],['stats','STATS'],['filter','FILTER']].map(([t,label])=>{
+            {[['dex','DEX'],['stats','STATS'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
               const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='stats'&&showStats);
               return (
               <button key={t} onClick={()=>{
@@ -6400,7 +6440,11 @@ export default function App() {
               maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
-            {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}/>}
+            {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}
+              onClearAll={()=>{
+                saveCatches({}); setCatches({});
+                const fresh={days:{},best:{date:null,score:0}}; saveDaily(fresh); setDaily(fresh);
+              }}/>}
             {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
