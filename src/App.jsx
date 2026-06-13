@@ -3633,8 +3633,9 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
 
 function CatchDex({ catches, daily, onShare, onClearAll }) {
   const CC = '#4db8ff';
-  const [detail, setDetail] = React.useState(null); // a type's catch entry, for the detail view
+  const [detail,    setDetail]    = React.useState(null); // a type's catch entry, for the detail view
   const [confirmClear, setConfirmClear] = React.useState(false);
+  const [dayDetail, setDayDetail] = React.useState(null); // {date,label} — score breakdown for a day
   const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
     jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',
     helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
@@ -3700,6 +3701,97 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
       </div>
     );
   };
+
+  // ── Date helper ──
+  const tsToDate = ts => {
+    const d=new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  // ── Day detail view: all catches that contributed to a specific day's score ──
+  if(dayDetail){
+    // Scan all types and collect log entries from the target date, sorted by score desc
+    const dayEntries = Object.values(catches||{})
+      .flatMap(c=>(c.log||[]).map(r=>({...r, typeKey:c.type, cat:c.cat})))
+      .filter(r=>tsToDate(r.ts)===dayDetail.date)
+      .sort((a,b)=>b.score-a.score);
+    const dayTotal = dayEntries.reduce((s,r)=>s+r.score,0);
+    const fmt = ts => new Date(ts).toLocaleString('en-US',
+      {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    return (
+      <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 14px 32px'}}>
+        <button onClick={()=>setDayDetail(null)} style={{background:'transparent',
+          border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,padding:'5px 12px',
+          cursor:'pointer',color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em',marginBottom:14}}>← BACK</button>
+
+        {/* Header */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
+          borderBottom:'1px solid rgba(77,184,255,0.15)',paddingBottom:8,marginBottom:14}}>
+          <div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',marginBottom:2}}>{dayDetail.label}</div>
+            <div style={{fontSize:14,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+              {new Date(dayDetail.date+'T12:00:00').toLocaleDateString('en-US',
+                {weekday:'long',month:'long',day:'numeric'})}
+            </div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:24,color: dayDetail.label==='BEST DAY'?'#ffd700':CC,
+              fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
+              {dayTotal.toLocaleString()}</div>
+            <div style={{fontSize:8,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.12em',marginTop:3}}>
+              {dayEntries.length} CATCH{dayEntries.length!==1?'ES':''}
+            </div>
+          </div>
+        </div>
+
+        {dayEntries.length===0 ? (
+          <div style={{textAlign:'center',padding:'32px 0',fontSize:11,color:'#4a7898',
+            fontFamily:"'Exo 2',sans-serif",lineHeight:1.6}}>
+            No catch records found for this day.<br/>
+            Detailed history is recorded from this version onwards.
+          </div>
+        ) : dayEntries.map((r,i)=>{
+          const rt=TIER[r.tier]||TIER.common;
+          return (
+            <div key={i} style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rt.color}44`,borderRadius:9,padding:'10px 12px',
+              marginBottom:8,position:'relative',overflow:'hidden'}}>
+              <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:rt.color}}/>
+              <div style={{display:'flex',justifyContent:'space-between',
+                alignItems:'baseline',marginLeft:4}}>
+                <div>
+                  <span style={{fontSize:13,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                    fontWeight:700}}>{r.cs||r.typeKey}</span>
+                  {r.reg&&<span style={{fontSize:9,color:'#4a7898',
+                    fontFamily:"'Exo 2',sans-serif",marginLeft:6}}>{r.reg}</span>}
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:9,color:rt.color,fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.08em'}}>{rt.label}</span>
+                  <span style={{fontSize:14,color:rt.color,fontFamily:"'Orbitron',monospace",
+                    fontWeight:700}}>+{r.score}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'2px 12px',
+                marginLeft:4,marginTop:5,fontSize:10,color:'#6a98b8',
+                fontFamily:"'Exo 2',sans-serif"}}>
+                <span style={{color:'#4a7898',fontSize:9}}>{r.typeKey}</span>
+                {r.kind==='captured'&&<span style={{color:'#2dffb4'}}>📸 photo</span>}
+                {r.location&&<span>📍 {r.location}</span>}
+                {r.altFt!=null&&<span>{r.altFt.toLocaleString()} ft</span>}
+                {r.distNmi!=null&&<span>{r.distNmi} nmi</span>}
+              </div>
+              <div style={{marginLeft:4,marginTop:5,fontSize:9,color:'#3a6878',
+                fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // ── Detail view: every recorded catch of one type, newest first ──
   if(detail){
@@ -3820,21 +3912,29 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
             const isRecordToday=daily.best?.date===tk&&best>0;
             return (
               <div style={{display:'flex',gap:8,marginBottom:8}}>
-                <div style={{flex:1,background:'rgba(4,14,36,0.9)',
+                <div onClick={()=>today>0&&setDayDetail({date:tk,label:'TODAY'})}
+                  style={{flex:1,background:'rgba(4,14,36,0.9)',
                   border:`1px solid ${isRecordToday?'#ffd700':'rgba(77,184,255,0.15)'}`,
-                  borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
+                  borderRadius:8,padding:'10px 8px',textAlign:'center',
+                  cursor:today>0?'pointer':'default',
+                  opacity: today>0?1:0.5}}>
                   <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
                     color:isRecordToday?'#ffd700':'#b8e4ff',lineHeight:1}}>{today.toLocaleString()}</div>
                   <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
-                    letterSpacing:'.12em',marginTop:5}}>TODAY</div>
+                    letterSpacing:'.12em',marginTop:5}}>
+                    TODAY{today>0?' ►':''}</div>
                 </div>
-                <div style={{flex:1,background:'rgba(4,14,36,0.9)',
+                <div onClick={()=>daily.best?.date&&setDayDetail({date:daily.best.date,label:'BEST DAY'})}
+                  style={{flex:1,background:'rgba(4,14,36,0.9)',
                   border:'1px solid rgba(255,215,0,0.3)',borderRadius:8,
-                  padding:'10px 8px',textAlign:'center'}}>
+                  padding:'10px 8px',textAlign:'center',
+                  cursor:daily.best?.date?'pointer':'default',
+                  opacity:daily.best?.date?1:0.5}}>
                   <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
                     color:'#ffd700',lineHeight:1}}>{best.toLocaleString()}</div>
                   <div style={{fontSize:8,color:'#bfa000',fontFamily:"'Orbitron',monospace",
-                    letterSpacing:'.12em',marginTop:5}}>BEST DAY 🏆</div>
+                    letterSpacing:'.12em',marginTop:5}}>
+                    BEST DAY 🏆{daily.best?.date?' ►':''}</div>
                 </div>
               </div>
             );
