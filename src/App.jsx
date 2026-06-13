@@ -1483,12 +1483,17 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         top:'50%',left:'50%',transform:'translate(-50%,-50%)',
         animation:`ring ${rarePulse?'1.4s':'2.8s'} ease-out infinite`,pointerEvents:'none',
       }}/>
-      {/* Secondary ring when nearby or selected */}
-      {(isNearby||isSelected) && <div style={{
-        position:'absolute',width:isNearby?ringOuter+16:ringOuter,height:isNearby?ringOuter+16:ringOuter,
-        borderRadius:'50%',border:`1px solid ${ringColor}${isNearby?'55':'33'}`,
+      {/* Secondary ring: full when nearby/selected, faint beacon for MYTHIC/LEGENDARY out of range */}
+      {(isNearby||isSelected||rarTier.score>=70) && <div style={{
+        position:'absolute',
+        width: isNearby?ringOuter+16:ringOuter,
+        height:isNearby?ringOuter+16:ringOuter,
+        borderRadius:'50%',
+        border:`1px solid ${ringColor}${isNearby?'55':isSelected?'44':'22'}`,
         top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-        animation:'ring 2.8s ease-out infinite 0.7s',pointerEvents:'none',
+        animation:`ring ${rarTier.score>=85?'1.8s':'3.5s'} ease-out infinite 0.7s`,
+        pointerEvents:'none',
+        opacity: isNearby?1:isSelected?0.7:0.35,
       }}/>}
 
       {/* Aircraft silhouette + NEW dot wrapped together */}
@@ -5337,27 +5342,28 @@ export default function App() {
     }
     // ──────────────────────────────────────────────────────────────────────
 
+    // ── Score computation (outside setCatches so effScore is in scope everywhere) ──
+    const cat0      = getAircraftCat(f.type, f.emitter||'');
+    const distNm0   = f.dist!=null ? f.dist/M_PER_NMI : 0;
+    const proxMult0 = Math.max(0.5, 1.0 - (Math.min(distNm0,10)/10)*0.5);
+    const catLabel0 = ({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+      'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
+      'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat0]||'Aircraft');
+    // priorCount comes from current catches snapshot (safe — catches rarely changes mid-call)
+    const ex0       = (typeof catches !== 'undefined' ? catches : {})[typeKey];
+    const priorCnt0 = ex0 ? (ex0.spotted+ex0.captured) : 0;
+    const rar0      = computeRarity(f.type, cat0, priorCnt0);
+    const fullCap0  = Math.min(100, Math.round(rar0.score*1.7*proxMult0));
+    const fullSpt0  = Math.max(1,   Math.round(rar0.score*proxMult0));
+    const effScore  = upgradeMode
+      ? Math.max(1, fullCap0 - (priorEntry?.score||0))
+      : kind==='captured' ? fullCap0 : fullSpt0;
+
     setCatches(prev=>{
       const ex = prev[typeKey];
-      const priorCount = ex ? (ex.spotted+ex.captured) : 0;  // catches of this type before now
-      const cat = getAircraftCat(f.type, f.emitter||'');
-      const rar = computeRarity(f.type, cat, priorCount);
-      // Proximity multiplier: 1.0× at 0 nm, 0.5× at 10 nm, linear between.
-      // Rewards spotters who are closer to the action.
-      const distNm   = f.dist!=null ? f.dist/M_PER_NMI : 0;
-      const proxMult = Math.max(0.5, 1.0 - (Math.min(distNm,10)/10)*0.5);
-      // Captured outranks spotted on the rarity ledger (×1.7, capped 100)
-      const fullCaptureScore = Math.min(100, Math.round(rar.score*1.7*proxMult));
-      const fullSpotScore    = Math.max(1,   Math.round(rar.score*proxMult));
-      const effScore = upgradeMode
-        // Upgrade: only the DELTA between photo and original tap score
-        ? Math.max(1, fullCaptureScore - (priorEntry?.score||0))
-        : kind==='captured' ? fullCaptureScore : fullSpotScore;
-      const catLabel=({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
-        'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
-        'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft');
+      const priorCount = ex ? (ex.spotted+ex.captured) : 0;
+      const cat = cat0, rar = rar0, catLabel = catLabel0;
       result = {...rar, score:effScore, cs:f.cs, type:typeKey, cat, kind,
-        // full payload for the shareable catch card
         card:{
           cs:f.cs||f.reg, airline:f.airline||'', type:f.type, catLabel,
           altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
