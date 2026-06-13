@@ -1977,6 +1977,8 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
   const catLabel={'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
     'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet'}[cat]||'Aircraft';
   const isNew=!loggedCallsigns.has(f.cs);
+  // Rarity — always shown in the card regardless of scoring eligibility
+  const rarity=computeRarity(f.type, catFC, 0); // global scarcity (priorCount=0)
   const stats=[
     {l:'ALTITUDE',v:`${mToFt(f.alt)} ft`},
     {l:'SPEED',v:`${msToKts(f.spd)} kts`},
@@ -2014,6 +2016,20 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
         padding:'6px 10px',marginBottom:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>OVER</span>
         <span style={{fontSize:12,color:'#a8d8f0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{over}</span>
+      </div>
+      {/* Rarity indicator */}
+      <div style={{background:`${rarity.color}14`,borderRadius:7,
+        border:`0.5px solid ${rarity.color}45`,
+        padding:'6px 10px',marginBottom:6,
+        display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em'}}>RARITY</span>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:11,color:rarity.color,fontFamily:"'Orbitron',monospace",
+            fontWeight:700,letterSpacing:'.1em'}}>{rarity.label}</span>
+          <span style={{fontSize:11,color:`${rarity.color}99`,fontFamily:"'Orbitron',monospace",
+            fontWeight:600}}>{rarity.score}</span>
+        </div>
       </div>
       {/* Confidence / accuracy indicator */}
       {f.confidence&&(()=>{
@@ -5198,8 +5214,14 @@ export default function App() {
       const priorCount = ex ? (ex.spotted+ex.captured) : 0;  // catches of this type before now
       const cat = getAircraftCat(f.type, f.emitter||'');
       const rar = computeRarity(f.type, cat, priorCount);
+      // Proximity multiplier: 1.0× at 0 nm, 0.5× at 10 nm, linear between.
+      // Rewards spotters who are closer to the action.
+      const distNm   = f.dist!=null ? f.dist/M_PER_NMI : 0;
+      const proxMult = Math.max(0.5, 1.0 - (Math.min(distNm,10)/10)*0.5);
       // Captured outranks spotted on the rarity ledger (×1.7, capped 100)
-      const effScore = kind==='captured' ? Math.min(100, Math.round(rar.score*1.7)) : rar.score;
+      const effScore = kind==='captured'
+        ? Math.min(100, Math.round(rar.score*1.7*proxMult))
+        : Math.max(1,   Math.round(rar.score*proxMult));
       const catLabel=({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
         'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
         'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft');
@@ -5309,12 +5331,30 @@ export default function App() {
   },[]);
 
   const handleAircraftSelect = useCallback(fl=>{
-    // Tap = 'spotted' catch when within 10 nm. Works in radar,
-    // tilt, and camera mode so calibration trouble never blocks collecting.
-    if(fl && fl.dist!=null && fl.dist <= 10*M_PER_NMI){
-      recordCatch(fl, 'spotted');
+    // Always compute rarity for display — used whether or not we score
+    const tapCat = getAircraftCat(fl?.type, fl?.emitter||'');
+    const tapRar = fl ? computeRarity(fl.type, tapCat, 0) : null;
+
+    if(fl && fl.dist!=null){
+      if(fl.dist <= 10*M_PER_NMI){
+        // In range — attempt to score
+        const catchResult = recordCatch(fl, 'spotted');
+        if(!catchResult && tapRar){
+          // Dedup blocked (already caught this type or aircraft today) — show feedback
+          setPointsFlash({score:null, color:'#4a7898', label:'CAUGHT TODAY', kind:'dupe'});
+          clearTimeout(pointsFlashTimer.current);
+          pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1400);
+        }
+        // If catchResult non-null, flash was already set inside recordCatch
+      } else if(tapRar){
+        // Out of range — show rarity info, no points
+        const distNm=(fl.dist/M_PER_NMI).toFixed(1);
+        setPointsFlash({score:null, color:tapRar.color, label:`${tapRar.label} · ${distNm} NMI`, kind:'info'});
+        clearTimeout(pointsFlashTimer.current);
+        pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1800);
+      }
     }
-    setSelectedId(prev=>prev===fl.id?null:fl.id);
+    if(fl) setSelectedId(prev=>prev===fl.id?null:fl.id);
   },[recordCatch]);
 
   const handleARToggle = e => {
@@ -6334,18 +6374,28 @@ export default function App() {
         </div>
       )}
 
-      {/* Points flash — brief +N pts indicator on every successful catch */}
+      {/* Tap feedback flash — points scored / already caught / rarity info */}
       {pointsFlash&&(
         <div style={{position:'absolute',top:'18%',left:'50%',zIndex:91,pointerEvents:'none',
-          animation:'fadeUp 1.6s ease forwards'}}>
-          <div style={{background:`${pointsFlash.color}22`,
+          animation:`fadeUp ${pointsFlash.kind==='info'?'1.8s':'1.6s'} ease forwards`}}>
+          <div style={{
+            background: pointsFlash.kind==='dupe' ? 'rgba(4,14,36,0.85)' : `${pointsFlash.color}22`,
             border:`1.5px solid ${pointsFlash.color}`,borderRadius:20,
             padding:'5px 14px',display:'flex',alignItems:'center',gap:6,
             whiteSpace:'nowrap'}}>
-            <span style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,
-              color:pointsFlash.color,letterSpacing:'.04em'}}>+{pointsFlash.score}</span>
-            <span style={{fontSize:8,color:pointsFlash.color,fontFamily:"'Orbitron',monospace",
-              letterSpacing:'.12em',opacity:0.8}}>{pointsFlash.label}</span>
+            {pointsFlash.score!=null ? (
+              // Points scored
+              <>
+                <span style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                  color:pointsFlash.color,letterSpacing:'.04em'}}>+{pointsFlash.score}</span>
+                <span style={{fontSize:8,color:pointsFlash.color,fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.12em',opacity:0.8}}>{pointsFlash.label}</span>
+              </>
+            ) : (
+              // No points (dupe or out-of-range info)
+              <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,
+                color:pointsFlash.color,letterSpacing:'.1em'}}>{pointsFlash.label}</span>
+            )}
           </div>
         </div>
       )}
