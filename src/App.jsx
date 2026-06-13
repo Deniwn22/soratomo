@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism"; // WMM magnetic declination — true-north compass correction
-import { submitScore, fetchLeaderboard } from './firebase'; // Firestore leaderboard
+import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
 
 const D2R = Math.PI / 180;
 const haversine = (la1,lo1,la2,lo2) => {
@@ -4296,6 +4296,7 @@ const STYLES=[
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
   "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
   "@keyframes slideDown{from{transform:translateY(-8%);opacity:0}to{transform:translateY(0);opacity:1}}",
+  "@keyframes fadeUp{0%{transform:translate(-50%,0);opacity:1}70%{transform:translate(-50%,-22px);opacity:1}100%{transform:translate(-50%,-32px);opacity:0}}",
   "@keyframes sweep{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}",
   "@keyframes arPulse{0%,100%{box-shadow:0 0 6px #4db8ff44}50%{box-shadow:0 0 14px #4db8ffaa}}",
   "@keyframes recordPop{0%{transform:translate(-50%,-50%) scale(.7);opacity:0}55%{transform:translate(-50%,-50%) scale(1.06);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}",
@@ -4874,6 +4875,19 @@ export default function App() {
   const [recordToast, setRecordToast] = useState(null); // {score,prev} | null — new daily high-score celebration
   const recordToastTimer = useRef(null);
   const catchToastTimer = useRef(null);
+  const [pointsFlash, setPointsFlash] = useState(null); // {score,color,label}|null — brief +N pts display
+  const pointsFlashTimer = useRef(null);
+  // Per-day deduplication: tracks types + aircraft IDs already scored today.
+  // Resets automatically when the date rolls over.
+  // Persisted to localStorage so a reload mid-session doesn't reset the limits.
+  const todayCaughtRef = useRef((()=>{
+    try{
+      const tk=todayKey();
+      const raw=JSON.parse(localStorage.getItem('soratomo_today_caught')||'null');
+      if(raw && raw.date===tk) return {date:tk, types:new Set(raw.types), ids:new Set(raw.ids)};
+    }catch{}
+    return {date:todayKey(), types:new Set(), ids:new Set()};
+  })());
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
@@ -5165,13 +5179,27 @@ export default function App() {
   const recordCatch = useCallback((f, kind)=>{
     const typeKey = f.type||'UNKN';
     let result=null;
+
+    // ── Daily deduplication gates ──────────────────────────────────────────
+    // 1. Reset cache if day has rolled over
+    const tk0 = todayKey();
+    if(todayCaughtRef.current.date !== tk0){
+      todayCaughtRef.current = {date:tk0, types:new Set(), ids:new Set()};
+      try{localStorage.removeItem('soratomo_today_caught');}catch{}
+    }
+    // 2. Once per TYPE per day — no points for a type you already scored today
+    if(todayCaughtRef.current.types.has(typeKey)) return null;
+    // 3. No double-tap same aircraft — no points if you already scored this hex today
+    if(f.id && todayCaughtRef.current.ids.has(f.id)) return null;
+    // ──────────────────────────────────────────────────────────────────────
+
     setCatches(prev=>{
       const ex = prev[typeKey];
       const priorCount = ex ? (ex.spotted+ex.captured) : 0;  // catches of this type before now
       const cat = getAircraftCat(f.type, f.emitter||'');
       const rar = computeRarity(f.type, cat, priorCount);
-      // Captured outranks spotted on the rarity ledger (×1.5, capped 100)
-      const effScore = kind==='captured' ? Math.min(100, Math.round(rar.score*1.5)) : rar.score;
+      // Captured outranks spotted on the rarity ledger (×1.7, capped 100)
+      const effScore = kind==='captured' ? Math.min(100, Math.round(rar.score*1.7)) : rar.score;
       const catLabel=({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
         'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
         'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft');
@@ -5209,6 +5237,17 @@ export default function App() {
       saveCatches(next);
       return next;
     });
+
+    // Mark this type + aircraft ID as scored today
+    todayCaughtRef.current.types.add(typeKey);
+    if(f.id) todayCaughtRef.current.ids.add(f.id);
+    try{
+      localStorage.setItem('soratomo_today_caught', JSON.stringify({
+        date: todayCaughtRef.current.date,
+        types: [...todayCaughtRef.current.types],
+        ids:   [...todayCaughtRef.current.ids],
+      }));
+    }catch{}
 
     // ── Daily score accrual + lifetime high-score detection ──
     // Every catch's effective score adds to today's running total. The instant
@@ -5260,13 +5299,19 @@ export default function App() {
       clearTimeout(catchToastTimer.current);
       catchToastTimer.current=setTimeout(()=>setCatchToast(null), 4200);
     }
+    // Always show a brief +N pts flash so the user knows they scored
+    if(result){
+      setPointsFlash({score:result.score, color:result.color, label:result.label});
+      clearTimeout(pointsFlashTimer.current);
+      pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1600);
+    }
     return result;
   },[]);
 
   const handleAircraftSelect = useCallback(fl=>{
-    // Tap = 'spotted' catch when within 15 nm (visual-plausible range). Works in radar,
+    // Tap = 'spotted' catch when within 10 nm. Works in radar,
     // tilt, and camera mode so calibration trouble never blocks collecting.
-    if(fl && fl.dist!=null && fl.dist <= 15*M_PER_NMI){
+    if(fl && fl.dist!=null && fl.dist <= 10*M_PER_NMI){
       recordCatch(fl, 'spotted');
     }
     setSelectedId(prev=>prev===fl.id?null:fl.id);
@@ -5379,7 +5424,8 @@ export default function App() {
         const d=Math.hypot(f.x-50, f.y-50);
         if(d<fbest && d<40){ fbest=d; framed=f; }
       }
-      if(framed) recordCatch(framed, 'captured');
+      // Only score a photo capture within 10 nm
+      if(framed && framed.dist<=10*M_PER_NMI) recordCatch(framed, 'captured');
     }
 
     // Download full-res
@@ -6288,6 +6334,21 @@ export default function App() {
         </div>
       )}
 
+      {/* Points flash — brief +N pts indicator on every successful catch */}
+      {pointsFlash&&(
+        <div style={{position:'absolute',top:'18%',left:'50%',zIndex:91,pointerEvents:'none',
+          animation:'fadeUp 1.6s ease forwards'}}>
+          <div style={{background:`${pointsFlash.color}22`,
+            border:`1.5px solid ${pointsFlash.color}`,borderRadius:20,
+            padding:'5px 14px',display:'flex',alignItems:'center',gap:6,
+            whiteSpace:'nowrap'}}>
+            <span style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:pointsFlash.color,letterSpacing:'.04em'}}>+{pointsFlash.score}</span>
+            <span style={{fontSize:8,color:pointsFlash.color,fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.12em',opacity:0.8}}>{pointsFlash.label}</span>
+          </div>
+        </div>
+      )}
       {/* Rare-catch toast — tap SHARE to generate a catch card */}
       {catchToast&&(
         <div style={{position:'absolute',top:'7%',left:'50%',transform:'translateX(-50%)',zIndex:90,
