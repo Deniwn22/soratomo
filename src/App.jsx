@@ -144,9 +144,9 @@ const computeRarity = (icaoType, cat, priorCount=0) => {
   const personal = 100 * Math.exp(-priorCount/3);        // 100,72,51,36… per prior catch
   const score = Math.round(0.70*g + 0.30*personal);
   const tier =
-    score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ff3bdb'} :
+    score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ef4444'} :
     score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#f59e0b'} :
-    score>=50 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
+    score>=50 ? {key:'rare',    label:'RARE',     color:'#fbbf24'} :
     score>=40 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
                 {key:'common',  label:'COMMON',   color:'#7a98a8'};
   return {score, ...tier};
@@ -1476,25 +1476,15 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
           border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
           animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
       </>}
-      {/* Primary ring */}
+      {/* Primary ring — fixed size, 60% opacity regardless of range */}
       <div style={{
-        position:'absolute',width:isNearby?ringInner+16:ringInner,height:isNearby?ringInner+16:ringInner,
-        borderRadius:'50%',border:`1.5px solid ${ringColor}${isNearby?'99':'66'}`,
+        position:'absolute',width:ringInner,height:ringInner,
+        borderRadius:'50%',border:`1.5px solid ${ringColor}99`,
         top:'50%',left:'50%',transform:'translate(-50%,-50%)',
         animation:`ring ${rarePulse?'1.4s':'2.8s'} ease-out infinite`,pointerEvents:'none',
+        opacity:0.6,
       }}/>
-      {/* Secondary ring: full when nearby/selected, faint beacon for MYTHIC/LEGENDARY out of range */}
-      {(isNearby||isSelected||rarTier.score>=70) && <div style={{
-        position:'absolute',
-        width: isNearby?ringOuter+16:ringOuter,
-        height:isNearby?ringOuter+16:ringOuter,
-        borderRadius:'50%',
-        border:`1px solid ${ringColor}${isNearby?'55':isSelected?'44':'22'}`,
-        top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-        animation:`ring ${rarTier.score>=85?'1.8s':'3.5s'} ease-out infinite 0.7s`,
-        pointerEvents:'none',
-        opacity: isNearby?1:isSelected?0.7:0.35,
-      }}/>}
+      {/* Secondary ring removed — entry ping + primary only */}
 
       {/* Aircraft silhouette + NEW dot wrapped together */}
       <div style={{position:'relative',display:'inline-block'}}>
@@ -3380,12 +3370,12 @@ function HelpPanel({ onClose }) {
           <Section title="RARITY RINGS">
             <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
               marginBottom:8}}>Ring color shows how rare the aircraft is. The rarest pulse faster.</div>
-            <Row icon={<><Ring col="#ff3bdb"/>  </>} label="Pink — Mythic"
-              color="#ff3bdb" desc="Top-tier finds: superjumbos, heavy military, Antonovs."/>
+            <Row icon={<><Ring col="#ef4444"/>  </>} label="Pink — Mythic"
+              color="#ef4444" desc="Top-tier finds: superjumbos, heavy military, Antonovs."/>
             <Row icon={<><Ring col="#f59e0b"/>  </>} label="Amber — Legendary"
               color="#f59e0b" desc="Jumbos, fighters, transports — a real event."/>
-            <Row icon={<><Ring col="#4db8ff"/>  </>} label="Blue — Rare"
-              color="#4db8ff" desc="Widebodies and uncommon types."/>
+            <Row icon={<><Ring col="#fbbf24"/>  </>} label="Gold — Rare"
+              color="#fbbf24" desc="Widebodies and uncommon types."/>
             <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — Uncommon"
               color="#2dffb4" desc="Regional jets, GA, business aircraft."/>
             <Row icon={<><Ring col="#7a98a8"/>  </>} label="Grey — Common"
@@ -3514,7 +3504,7 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
   const myEntry = boardData.find(r => r.deviceId === deviceId);
   const myRank  = myEntry ? boardData.indexOf(myEntry) + 1 : null;
   const TIER_COLOR = score =>
-    score>=85?'#ff3bdb':score>=70?'#f59e0b':score>=50?'#4db8ff':score>=40?'#2dffb4':'#7a98a8';
+    score>=85?'#ef4444':score>=70?'#f59e0b':score>=50?'#fbbf24':score>=40?'#2dffb4':'#7a98a8';
 
   return (
     <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
@@ -3657,7 +3647,7 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
     'narrow','bizjet','piston','helicopter',''];
 
   const TIER = {
-    mythic:{label:'MYTHIC',color:'#ff3bdb',rank:5},
+    mythic:{label:'MYTHIC',color:'#ef4444',rank:5},
     legendary:{label:'LEGENDARY',color:'#f59e0b',rank:4},
     rare:{label:'RARE',color:'#4db8ff',rank:3},
     uncommon:{label:'UNCOMMON',color:'#2dffb4',rank:2},
@@ -3798,8 +3788,17 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
                 {r.altFt!=null&&<span>{r.altFt.toLocaleString()} ft</span>}
                 {r.distNmi!=null&&<span>{r.distNmi} nmi</span>}
               </div>
-              <div style={{marginLeft:4,marginTop:5,fontSize:9,color:'#3a6878',
-                fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</div>
+              <div style={{display:'flex',justifyContent:'space-between',
+                alignItems:'center',marginLeft:4,marginTop:5}}>
+                <div style={{fontSize:9,color:'#3a6878',
+                  fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</div>
+                <AircraftInfoButton typeCode={r.typeKey} style={{
+                  width:'auto',padding:'2px 8px',fontSize:8,
+                  letterSpacing:'.08em',gap:4,borderRadius:4,
+                  border:'1px solid rgba(77,184,255,0.15)',
+                  color:'#3a6878',
+                }}/>
+              </div>
             </div>
           );
         })}
@@ -6544,7 +6543,7 @@ export default function App() {
           {Array.from({length:14}).map((_,i)=>(
             <div key={i} style={{position:'absolute',top:'30%',left:`${8+i*6.2}%`,
               width:7,height:7,borderRadius:1,
-              background:['#ffd700','#ff3bdb','#4db8ff','#2dffb4','#f59e0b'][i%5],
+              background:['#ffd700','#ef4444','#4db8ff','#2dffb4','#f59e0b'][i%5],
               animation:`confettiFall ${1.4+(i%5)*0.25}s ease-in ${(i%7)*0.1}s infinite`}}/>
           ))}
           <div style={{position:'absolute',top:'50%',left:'50%',
