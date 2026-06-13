@@ -145,7 +145,7 @@ const computeRarity = (icaoType, cat, priorCount=0) => {
   const score = Math.round(0.70*g + 0.30*personal);
   const tier =
     score>=85 ? {key:'mythic',  label:'MYTHIC',   color:'#ff3bdb'} :
-    score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#b14dff'} :
+    score>=70 ? {key:'legendary',label:'LEGENDARY',color:'#f59e0b'} :
     score>=50 ? {key:'rare',    label:'RARE',     color:'#4db8ff'} :
     score>=40 ? {key:'uncommon',label:'UNCOMMON', color:'#2dffb4'} :
                 {key:'common',  label:'COMMON',   color:'#7a98a8'};
@@ -3377,8 +3377,8 @@ function HelpPanel({ onClose }) {
               marginBottom:8}}>Ring color shows how rare the aircraft is. The rarest pulse faster.</div>
             <Row icon={<><Ring col="#ff3bdb"/>  </>} label="Pink — Mythic"
               color="#ff3bdb" desc="Top-tier finds: superjumbos, heavy military, Antonovs."/>
-            <Row icon={<><Ring col="#b14dff"/>  </>} label="Purple — Legendary"
-              color="#b14dff" desc="Jumbos, fighters, transports — a real event."/>
+            <Row icon={<><Ring col="#f59e0b"/>  </>} label="Amber — Legendary"
+              color="#f59e0b" desc="Jumbos, fighters, transports — a real event."/>
             <Row icon={<><Ring col="#4db8ff"/>  </>} label="Blue — Rare"
               color="#4db8ff" desc="Widebodies and uncommon types."/>
             <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — Uncommon"
@@ -3415,46 +3415,55 @@ function HelpPanel({ onClose }) {
               desc="Drag the circular dial (bottom-right) to set max display distance."/>
           </Section>
 
-          <Section title="COLLECTION">
-            <Row icon="✨" label="Catching Aircraft"
-              desc="Tap an aircraft within 15 nm to SPOT it, or photograph one in camera mode to CAPTURE it (worth more). Rare types and first-time catches score higher."/>
-            <Row icon="🏆" label="The Dex"
-              desc="Tap the lines icon (top-right) → DEX tab to see your collection: types caught, rarity tiers, photo count, and your rarest find."/>
+          <Section title="SCORING">
+            <Row icon="✨" label="Spot (tap, any mode, ≤10 nm)"
+              desc="Tap any aircraft within 10 nm to earn points. Score = global rarity × proximity (1× at 0 nm, 0.5× at 10 nm). Once per type per day."/>
+            <Row icon="📸" label="Capture (camera photo, ≤10 nm)"
+              desc="Photograph an aircraft in camera mode for a 1.7× multiplier. If you spotted it first today, you earn the upgrade bonus only. Selecting an aircraft before shooting gives it priority; otherwise the rarest aircraft in frame gets credit. Successive photos credit the next-rarest uncaught aircraft in view."/>
+            <Row icon="📊" label="Proximity bonus"
+              desc="Score scales linearly with distance — closer is worth more. A MYTHIC at 1 nm beats the same MYTHIC at 9 nm."/>
+            <Row icon="🏆" label="Daily score"
+              desc="Each day’s total resets at midnight. Beat your all-time best day for a celebration. Tap TODAY or BEST DAY in the DEX to see the full breakdown."/>
+          </Section>
+
+          <Section title="DEX — COLLECTION">
+            <Row icon="🏆" label="Your collection"
+              desc="Tap the lines icon (top-right) → DEX tab. Shows types caught, rarity tiers, total points, and today vs best-day scores. Tap any type card to see every individual catch of that type."/>
+            <Row icon="📅" label="Day breakdown"
+              desc="Tap the TODAY or BEST DAY tile to see every aircraft that contributed to that day’s score, sorted by points."/>
+            <Row icon="🏆" label="Leaderboard"
+              desc="BOARD tab shows today’s top 20 spotters near you. Set your callsign on first visit. Score submits automatically 30s after each catch."/>
           </Section>
 
           <Section title="LOGBOOK">
             <Row icon="📖" label="Accessing the Logbook"
-              desc="Tap the lines icon (top-right) → LOG tab. Aircraft are logged automatically when they come within range."/>
-            <Row icon="📍" label="Each Entry Shows"
-              desc="Your location when spotted, aircraft distance, altitude, speed, heading, and date."/>
+              desc="Tap the lines icon → LOG tab. Aircraft are logged automatically when within range — no tap needed."/>
             <Row icon="📊" label="Charts"
-              desc="Switch between TYPES (bar chart), TIMELINE (weekly stacked), and MAP (where you spotted them)."/>
+              desc="Switch between TYPES, TIMELINE, and MAP views inside the log."/>
             <Row icon="🔗" label="Sharing"
-              desc="Tap any logbook entry → SHARE to send via iMessage, Instagram, etc."/>
+              desc="Tap any logbook entry → SHARE to generate a card and send via iMessage, Instagram, etc."/>
           </Section>
 
           <Section title="ALIGN — CALIBRATION">
-            <Row icon="🎯" label="One-Tap Aircraft Align"
-              desc="In camera mode, tap ALIGN, then tap a real aircraft in the view. Heading and pitch are solved from a single tap. The view declutters to the closest aircraft within 5 nm (25 nm in flight) so you always know which plane is which."/>
-            <Row icon="🌅" label="Horizon Align"
-              desc="Switch to HORIZON in the align bar and tap the true horizon to set pitch precisely — works even when no aircraft are in view."/>
-            <Row icon="📐" label="Learns As You Go"
-              desc="Every align tap refines a vertical model (pitch offset + FOV scale). Taps at different screen heights — one plane high, one low or a horizon tap — sharpen it automatically."/>
-            <Row icon="🧭" label="True North Built In"
-              desc="Magnetic declination is corrected automatically from your GPS position (worldwide, offline). No compass figure-8s needed."/>
-            <Row icon="✕" label="Cancel Anytime"
-              desc="CANCEL in the align bar (or tap ALIGN again) exits without changing anything. Alignment is saved between sessions."/>
+            <Row icon="🎯" label="One-tap aircraft align"
+              desc="Camera mode → ALIGN → tap a real aircraft. Solves heading + pitch instantly. Declutters to closest aircraft within 5 nm (25 nm airborne)."/>
+            <Row icon="🌅" label="Horizon align"
+              desc="Switch to HORIZON in the align bar, tap the visible horizon. Best for correcting the horizon line when no aircraft are handy."/>
+            <Row icon="🧭" label="True north built in"
+              desc="Magnetic declination corrected automatically from GPS worldwide — no manual steps."/>
+            <Row icon="📐" label="Self-improving"
+              desc="Each align tap refines the vertical FOV model. Two taps at different screen heights (one high, one low) dial it in automatically."/>
           </Section>
 
           <Section title="TIPS">
-            <Row icon="💡" label="Best AR accuracy"
-              desc="Tap ALIGN and align on a real aircraft or the horizon. Green dots = fresh data."/>
+            <Row icon="💡" label="Best accuracy"
+              desc="ALIGN on an aircraft or the horizon before using camera mode. Green accuracy dot = position is current."/>
             <Row icon="✈" label="Works in flight"
-              desc="GPS keeps tracking at cruise — elevation math accounts for your altitude, and ALIGN accepts large compass errors inside the cabin. Window seats work best."/>
-            <Row icon="💡" label="Logbook map"
-              desc="Pinch/pan the map to explore all your spotted aircraft worldwide."/>
+              desc="Elevation math accounts for your GPS altitude. ALIGN accepts large compass errors inside the cabin. Window seat recommended."/>
+            <Row icon="💡" label="Rarity rings"
+              desc="Pink = Mythic, Amber = Legendary, Blue = Rare, Teal = Uncommon, Grey = Common. Rarest rings pulse faster."/>
             <Row icon="💡" label="Battery"
-              desc="Polling pauses when the app is backgrounded. Switch to it directly when spotting to resume live data."/>
+              desc="Live polling pauses when the app is backgrounded and resumes automatically when you return."/>
           </Section>
 
           {/* Version footer */}
@@ -3500,7 +3509,7 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
   const myEntry = boardData.find(r => r.deviceId === deviceId);
   const myRank  = myEntry ? boardData.indexOf(myEntry) + 1 : null;
   const TIER_COLOR = score =>
-    score>=85?'#ff3bdb':score>=70?'#b14dff':score>=50?'#4db8ff':score>=40?'#2dffb4':'#7a98a8';
+    score>=85?'#ff3bdb':score>=70?'#f59e0b':score>=50?'#4db8ff':score>=40?'#2dffb4':'#7a98a8';
 
   return (
     <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
@@ -3644,7 +3653,7 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
 
   const TIER = {
     mythic:{label:'MYTHIC',color:'#ff3bdb',rank:5},
-    legendary:{label:'LEGENDARY',color:'#b14dff',rank:4},
+    legendary:{label:'LEGENDARY',color:'#f59e0b',rank:4},
     rare:{label:'RARE',color:'#4db8ff',rank:3},
     uncommon:{label:'UNCOMMON',color:'#2dffb4',rank:2},
     common:{label:'COMMON',color:'#7a98a8',rank:1},
@@ -4992,17 +5001,28 @@ export default function App() {
   const recordToastTimer = useRef(null);
   const catchToastTimer = useRef(null);
   const [pointsFlash, setPointsFlash] = useState(null); // {score,color,label}|null — brief +N pts display
-  const pointsFlashTimer = useRef(null);
-  // Per-day deduplication: tracks types + aircraft IDs already scored today.
-  // Resets automatically when the date rolls over.
-  // Persisted to localStorage so a reload mid-session doesn't reset the limits.
+  const pointsFlashTimer  = useRef(null);
+  const [capturePopup, setCapturePopup] = useState(null); // {cs,type,color,label,score,alreadyCaught}|null
+  const capturePopupTimer = useRef(null);
+  // Per-day deduplication.
+  // types: Map<typeKey, {kind:'spotted'|'captured', score:number}>
+  //   — tracks what was FIRST scored for each type today.
+  // ids: Set<aircraftId> — prevents double-tapping the same aircraft.
+  // Tap→Photo upgrade: if first scored as 'spotted', a later 'captured' awards
+  //   the delta bonus (photo_score − tap_score). Reverse (photo→tap) gives nothing.
   const todayCaughtRef = useRef((()=>{
     try{
       const tk=todayKey();
       const raw=JSON.parse(localStorage.getItem('soratomo_today_caught')||'null');
-      if(raw && raw.date===tk) return {date:tk, types:new Set(raw.types), ids:new Set(raw.ids)};
+      if(raw && raw.date===tk){
+        return {
+          date:tk,
+          types: new Map(Object.entries(raw.types||{})),
+          ids:   new Set(raw.ids||[]),
+        };
+      }
     }catch{}
-    return {date:todayKey(), types:new Set(), ids:new Set()};
+    return {date:todayKey(), types:new Map(), ids:new Set()};
   })());
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
@@ -5300,13 +5320,21 @@ export default function App() {
     // 1. Reset cache if day has rolled over
     const tk0 = todayKey();
     if(todayCaughtRef.current.date !== tk0){
-      todayCaughtRef.current = {date:tk0, types:new Set(), ids:new Set()};
+      todayCaughtRef.current = {date:tk0, types:new Map(), ids:new Set()};
       try{localStorage.removeItem('soratomo_today_caught');}catch{}
     }
-    // 2. Once per TYPE per day — no points for a type you already scored today
-    if(todayCaughtRef.current.types.has(typeKey)) return null;
-    // 3. No double-tap same aircraft — no points if you already scored this hex today
+    // 2. Same aircraft ID tapped/photo'd twice → always block
     if(f.id && todayCaughtRef.current.ids.has(f.id)) return null;
+    // 3. Type already scored today:
+    //    - If first was 'captured' and now 'spotted' → block (no extra points)
+    //    - If first was 'spotted' and now 'captured' → allow UPGRADE (delta only)
+    //    - Same kind again → block
+    const priorEntry = todayCaughtRef.current.types.get(typeKey);
+    let upgradeMode = false;
+    if(priorEntry){
+      if(kind==='captured' && priorEntry.kind==='spotted') upgradeMode=true; // tap→photo upgrade
+      else return null;  // photo→tap, or same kind again
+    }
     // ──────────────────────────────────────────────────────────────────────
 
     setCatches(prev=>{
@@ -5319,9 +5347,12 @@ export default function App() {
       const distNm   = f.dist!=null ? f.dist/M_PER_NMI : 0;
       const proxMult = Math.max(0.5, 1.0 - (Math.min(distNm,10)/10)*0.5);
       // Captured outranks spotted on the rarity ledger (×1.7, capped 100)
-      const effScore = kind==='captured'
-        ? Math.min(100, Math.round(rar.score*1.7*proxMult))
-        : Math.max(1,   Math.round(rar.score*proxMult));
+      const fullCaptureScore = Math.min(100, Math.round(rar.score*1.7*proxMult));
+      const fullSpotScore    = Math.max(1,   Math.round(rar.score*proxMult));
+      const effScore = upgradeMode
+        // Upgrade: only the DELTA between photo and original tap score
+        ? Math.max(1, fullCaptureScore - (priorEntry?.score||0))
+        : kind==='captured' ? fullCaptureScore : fullSpotScore;
       const catLabel=({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
         'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
         'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft');
@@ -5361,12 +5392,18 @@ export default function App() {
     });
 
     // Mark this type + aircraft ID as scored today
-    todayCaughtRef.current.types.add(typeKey);
+    if(!upgradeMode){
+      todayCaughtRef.current.types.set(typeKey, {kind, score:effScore});
+    } else {
+      // Upgrade: update the entry to 'captured' with combined score
+      todayCaughtRef.current.types.set(typeKey,
+        {kind:'captured', score:(priorEntry?.score||0)+effScore});
+    }
     if(f.id) todayCaughtRef.current.ids.add(f.id);
     try{
       localStorage.setItem('soratomo_today_caught', JSON.stringify({
-        date: todayCaughtRef.current.date,
-        types: [...todayCaughtRef.current.types],
+        date:  todayCaughtRef.current.date,
+        types: Object.fromEntries(todayCaughtRef.current.types),
         ids:   [...todayCaughtRef.current.ids],
       }));
     }catch{}
@@ -5554,18 +5591,72 @@ export default function App() {
     // Flash
     setCaptureFlash(true); setTimeout(()=>setCaptureFlash(false),120);
 
-    // ── 'Captured' catch ──
-    // A photo immortalises whichever in-view aircraft is nearest screen centre
-    // (that's what the user framed). Captured tier outranks a mere tap.
+    // ── 'Captured' catch — priority order ──────────────────────────────────
+    // 1. Explicitly selected aircraft (tapped) — if not already caught today.
+    //    If selected but already caught, fall through to Priority 2 so a
+    //    follow-on photo still credits something new in the frame.
+    // 2. Highest-rarity UNCAUGHT aircraft within 40% of screen centre, ≤10 nm.
+    //    Skips types/IDs already scored today, so each successive photo in the
+    //    same scene automatically credits the next rarest aircraft in view.
+    //    (once all aircraft in frame are caught today, no credit is given.)
     {
-      let framed=null, fbest=Infinity;
-      for(const f of mapped){
-        if(f.dist>15*M_PER_NMI) continue;
-        const d=Math.hypot(f.x-50, f.y-50);
-        if(d<fbest && d<40){ fbest=d; framed=f; }
+      let framed = null;
+
+      // Helper: is this aircraft already scored in a way that blocks further credit?
+      // Returns false for 'spotted' types (they can still receive a photo upgrade).
+      const alreadyCaughtToday = f => {
+        const tk0 = todayKey();
+        if(todayCaughtRef.current.date !== tk0) return false;
+        // Same aircraft ID → always blocked
+        if(f.id && todayCaughtRef.current.ids.has(f.id)) return true;
+        const typeKey = f.type||'UNKN';
+        const prior = todayCaughtRef.current.types.get(typeKey);
+        if(!prior) return false;
+        // Photo can still upgrade a prior spot; spots are blocked if photo already taken
+        return prior.kind === 'captured'; // only block if photo already given
+      };
+
+      // Priority 1: selected aircraft — only if not already caught today
+      if(selectedId){
+        const sel = mapped.find(f=>f.id===selectedId);
+        if(sel && sel.dist<=10*M_PER_NMI && !alreadyCaughtToday(sel))
+          framed = sel;
+        // If selected but already caught → fall through to Priority 2
       }
-      // Only score a photo capture within 10 nm
-      if(framed && framed.dist<=10*M_PER_NMI) recordCatch(framed, 'captured');
+
+      // Priority 2: highest-rarity UNCAUGHT aircraft within screen-centre radius.
+      // Successive photos of the same scene work through the aircraft by rarity.
+      if(!framed){
+        let bestRarity = -1;
+        for(const f of mapped){
+          if(f.dist>10*M_PER_NMI) continue;
+          const d = Math.hypot(f.x-50, f.y-50);
+          if(d>=40) continue;                  // outside 40% screen radius
+          if(alreadyCaughtToday(f)) continue;  // already scored today — skip
+          const cat = getAircraftCat(f.type, f.emitter||'');
+          const rar = computeRarity(f.type, cat, 0);
+          if(rar.score > bestRarity){ bestRarity=rar.score; framed=f; }
+        }
+      }
+
+      if(framed){
+        const catchResult = recordCatch(framed, 'captured');
+        const cat = getAircraftCat(framed.type, framed.emitter||'');
+        const rar = computeRarity(framed.type, cat, 0);
+        const popScore = catchResult ? catchResult.score : null;
+        setCapturePopup({cs:framed.cs||framed.type, type:framed.type,
+          color:rar.color, label:rar.label, score:popScore,
+          alreadyCaught:!catchResult});
+        clearTimeout(capturePopupTimer.current);
+        capturePopupTimer.current = setTimeout(()=>setCapturePopup(null), 3200);
+      } else {
+        // All aircraft in view already caught today — brief feedback
+        setCapturePopup({cs:'ALL CAUGHT', type:'',
+          color:'#4a7898', label:'ALL IN VIEW CAUGHT TODAY',
+          score:null, alreadyCaught:true});
+        clearTimeout(capturePopupTimer.current);
+        capturePopupTimer.current = setTimeout(()=>setCapturePopup(null), 2000);
+      }
     }
 
     // Download full-res
@@ -6447,7 +6538,7 @@ export default function App() {
           {Array.from({length:14}).map((_,i)=>(
             <div key={i} style={{position:'absolute',top:'30%',left:`${8+i*6.2}%`,
               width:7,height:7,borderRadius:1,
-              background:['#ffd700','#ff3bdb','#4db8ff','#2dffb4','#b14dff'][i%5],
+              background:['#ffd700','#ff3bdb','#4db8ff','#2dffb4','#f59e0b'][i%5],
               animation:`confettiFall ${1.4+(i%5)*0.25}s ease-in ${(i%7)*0.1}s infinite`}}/>
           ))}
           <div style={{position:'absolute',top:'50%',left:'50%',
@@ -6496,6 +6587,54 @@ export default function App() {
               <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,
                 color:pointsFlash.color,letterSpacing:'.1em'}}>{pointsFlash.label}</span>
             )}
+          </div>
+        </div>
+      )}
+      {/* Capture popup — shows what was just photographed + rarity */}
+      {capturePopup&&(
+        <div onClick={()=>setCapturePopup(null)}
+          style={{position:'absolute',top:'50%',left:'50%',
+            transform:'translate(-50%,-60%)',zIndex:93,
+            width:'72%',maxWidth:260,pointerEvents:'auto',
+            animation:'recordPop 0.4s cubic-bezier(0.2,0,0.2,1)'}}>
+          <div style={{
+            background:'rgba(3,11,30,0.97)',
+            border:`2px solid ${capturePopup.color}`,
+            borderRadius:14,padding:'18px 16px',textAlign:'center',
+            boxShadow:`0 0 28px ${capturePopup.color}44`}}>
+            <div style={{fontSize:26,marginBottom:6}}>📸</div>
+            <div style={{fontSize:9,color:capturePopup.color,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
+              fontWeight:700,marginBottom:6}}>
+              {capturePopup.alreadyCaught ? 'ALREADY CAUGHT TODAY' : 'CAPTURED!'}
+            </div>
+            <div style={{fontSize:20,color:'#cfe8f8',
+              fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.06em',lineHeight:1.1,marginBottom:4}}>
+              {capturePopup.cs}
+            </div>
+            <div style={{fontSize:10,color:'#6a98b8',
+              fontFamily:"'Exo 2',sans-serif",marginBottom:10}}>
+              {capturePopup.type}
+            </div>
+            <div style={{
+              display:'inline-flex',alignItems:'center',gap:8,
+              background:`${capturePopup.color}18`,
+              border:`1px solid ${capturePopup.color}55`,
+              borderRadius:20,padding:'5px 14px'}}>
+              <span style={{fontSize:11,color:capturePopup.color,
+                fontFamily:"'Orbitron',monospace",fontWeight:700,
+                letterSpacing:'.1em'}}>{capturePopup.label}</span>
+              {capturePopup.score!=null&&(
+                <span style={{fontSize:13,color:'#cfe8f8',
+                  fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+                  +{capturePopup.score}
+                </span>
+              )}
+            </div>
+            <div style={{fontSize:8,color:'#3a6878',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+              marginTop:10}}>TAP TO DISMISS</div>
           </div>
         </div>
       )}
@@ -6716,15 +6855,7 @@ export default function App() {
                   {apiStatus==='live'?'LIVE':apiStatus==='limited'?'RATE LIMITED':'⚠ DEMO'}
                 </span>
               </div>
-              {/* Density toggle */}
-              <button onClick={e=>{e.stopPropagation();setDensity(d=>d==='compact'?'normal':'compact');}} style={{
-                background:density==='normal'?'rgba(77,184,255,0.1)':'transparent',
-                border:`1px solid ${density==='normal'?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
-                borderRadius:5,padding:'4px 5px',cursor:'pointer',
-                display:'flex',alignItems:'center',gap:4}}>
-                <span style={{fontSize:density==='normal'?11:9,fontFamily:"'Orbitron',monospace",
-                  color:density==='normal'?'#4db8ff':'#4a7898',fontWeight:700,letterSpacing:0}}>Aa</span>
-              </button>
+              {/* Aa density toggle removed */}
 
               <button onClick={handleARToggle} style={{background:tiltMode&&!cameraMode?'rgba(77,184,255,0.12)':'transparent',
                 border:`1px solid ${tiltMode&&!cameraMode?'#4db8ff':'rgba(77,184,255,0.25)'}`,
