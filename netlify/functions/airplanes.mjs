@@ -34,9 +34,9 @@ export default async (req) => {
   const key  = `${lat}:${lon}:${dist}`;
 
   // ── Input validation — clamp/reject before hitting upstream ───────────────
-  const latV  = parseFloat(latM?.[1] ?? m?.[1]);
-  const lonV  = parseFloat(lonM?.[1] ?? m?.[2]);
-  const distV = parseInt(distM?.[1] ?? m?.[3], 10);
+  const latV  = parseFloat(m?.[1]);
+  const lonV  = parseFloat(m?.[2]);
+  const distV = parseInt(m?.[3], 10);
 
   if (isNaN(latV) || latV < -90  || latV > 90)
     return new Response(JSON.stringify({error:'lat out of range'}),{status:400,headers:{'Content-Type':'application/json'}});
