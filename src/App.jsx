@@ -5686,13 +5686,16 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[rangeNote]);
 
-  // Track first-appearance aircraft for ping animation
+  // Track first-appearance aircraft for ping animation.
+  // Keyed off `flights` (the ADS-B data feed, updates every 2s) NOT `mapped`,
+  // which recomputes on every orientation change in AR mode — that caused the
+  // entry ping to flash for a single frame each time an aircraft re-entered the FOV.
   const displayNewIds=useMemo(()=>new Set(
-    mapped.filter(f=>!prevMappedRef.current.has(f.id)).map(f=>f.id)
-  ),[mapped]);
+    flights.filter(f=>!prevMappedRef.current.has(f.id)).map(f=>f.id)
+  ),[flights]);
   useEffect(()=>{
-    prevMappedRef.current=new Set(mapped.map(f=>f.id));
-  },[mapped]);
+    prevMappedRef.current=new Set(flights.map(f=>f.id));
+  },[flights]);
 
   const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
