@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import geomagnetism from "geomagnetism"; // WMM magnetic declination — true-north compass correction
+import geomagnetism from "geomagnetism";
+import "leaflet/dist/leaflet.css"; // Bundled Leaflet styles — replaces unpkg link // WMM magnetic declination — true-north compass correction
 import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
 import { GLOBAL_RARITY, CAT_RARITY, globalRarity, computeRarity } from './rarity.js';
 import { loadGalleryIDB, saveGalleryIDB, deletePhotoIDB, clearGalleryIDB } from './idb.js';
@@ -39,7 +40,7 @@ const altColor = altM => {
   if(ft>25000) return '#b8e4ff'; // ice blue:       cruise FL250-320
   if(ft>18000) return '#4db8ff'; // sky blue:       mid FL180-250
   if(ft>10000) return '#1d6fa4'; // steel blue:     low-mid 10k-18k ft
-  return '#2563eb';              // royal blue:     low altitude <10k ft
+  return '#3b7cf2';              // royal blue:     low altitude <10k ft
 };
 const ALT_MAX   = 45000;      // ft — altitude slider ceiling
 const HFOV      = 85;          // degrees — default horizontal AR FOV
@@ -104,6 +105,23 @@ const getAircraftCat = (icao, emitter='') => {
 // type prefix; longest-prefix match wins. Tuned for a US/DCA-typical sky where
 // A320/B738 are wallpaper and anything military/heritage/Antonov is an event.
 // GLOBAL_RARITY, CAT_RARITY, globalRarity, computeRarity → imported from ./rarity.js
+
+// ── F-22 Raptor icon — derived from uploaded PNG silhouette ──────────────
+// Uses SVG mask: the uploaded image (white silhouette on transparent bg)
+// reveals the `color` fill only where the aircraft shape is.
+// Scales cleanly at any icon size; takes the rarity tier color automatically.
+const F22_MASK_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABiElEQVR4nO1aSRLDIAyz+/8/t5emkyGUsMgWAevUmSRYFmIxVISI9xdMDi9m8BlAE+Dc80wXhAMYQXM9znJBOMA7YKmnGS4IB7AJsBECsAmwEQKwCbARArAJsLG9AOoVqHWXp6ou3MyDjG5vrYUwHQKIvb11fWAmAJK4pQjbT4IhAJsAGyEAmwAbIQCbABshAJsAGyb7bMudG7o2gDbmda6PFAHSEOtaCyHE8BzAvNlFxO5WkP3HhhS9buhywGzJi/RzalJtxsRzaHFDtQOekrxIG9dbpZ6UeA53big64OnJi9znkFVnhcRzyLnh4oBVkxfJ56alhyvjcIPulniK7cvhEIBNgI0QwOsaekaoqr6OH2wy3vgtg+mD1ZfFtLOXLoZqnL39iRBs7HsLgpq3YhlENMIYDqiYcSzuFfwYs7cnNJXv/fuuFe7H4iWiIxNbL6dmAXoCXTYfmURr3rHg1iQAInnrb5uHjmUA1FptOR+YOQB6hW1YrMEdYF1ZouMPkz0T8iqrkTE/s+/kHPkxZBwAAAAASUVORK5CYII=';
+const F22Shape = ({color}) => (
+  <g>
+    <defs>
+      <mask id="f22m" maskUnits="userSpaceOnUse" x="-12" y="-12" width="24" height="24">
+        <image href={F22_MASK_URI} x="-12" y="-12" width="24" height="24"
+          preserveAspectRatio="xMidYMid meet"/>
+      </mask>
+    </defs>
+    <rect x="-12" y="-12" width="24" height="24" fill={color} mask="url(#f22m)"/>
+  </g>
+);
 
 const PlaneShape = ({cat, color, fc}) => {
   const f = Math.max(0.38, fc); // floor raised: wings always legible (was 0.08 → near-invisible head-on)
@@ -1436,14 +1454,16 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
            Pulse speed: MYTHIC 2s, LEGENDARY 3s, UNCOMMON 4.5s, catchable-others 3.5s */}
       {(()=>{
         const tk = rarTier.key;
+        // UNCOMMON only gets ring when catchable (<10 nm)
+        // LEGENDARY and MYTHIC show ring at any range (faint when distant)
         const showRing = isCatchable ||
-                         tk==='mythic' || tk==='legendary' || tk==='uncommon';
+                         tk==='mythic' || tk==='legendary';
         if(!showRing) return null;
         const dur = tk==='mythic' ? '2s'
                   : tk==='legendary' ? '3s'
                   : tk==='uncommon' ? '4.5s'
                   : '3.5s'; // catchable RARE/COMMON
-        const opacity = isCatchable ? 1 : 0.4; // faint when notable-but-distant
+        const opacity = isCatchable ? 1 : 0.4; // faint when legendary/mythic out of range
         return <div style={{
           position:'absolute',width:ringInner,height:ringInner,
           borderRadius:'50%',
@@ -1463,7 +1483,9 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
             filter:`drop-shadow(0 0 ${isNearby?6:4}px ${ringColor}88)`,
             transform:`rotate(${aspect}deg)`,
           }}>
-          <PlaneShape cat={cat} color={color} fc={wingFC}/>
+          {f.type&&(f.type==='F22'||f.type.startsWith('F22'))
+            ? <F22Shape color={color}/>
+            : <PlaneShape cat={cat} color={color} fc={wingFC}/>}
         </svg>
         {/* Accuracy dot — green=HIGH, yellow=MED, orange=LOW confidence (tilt mode only) */}
         {tiltMode && f.confidence && (()=>{
@@ -2180,27 +2202,20 @@ function LbMap({data, onSelect, selected, pos}){
   const mapObjRef    = React.useRef(null);   // Leaflet map
   const markerRefs   = React.useRef([]);     // [{marker, t}]
   const userMarkerRef= React.useRef(null);
-  const [ready, setReady] = React.useState(!!window.L);
+  const [ready, setReady] = React.useState(false);
 
-  // ── Load Leaflet from CDN once ───────────────────────────────────
+  // ── Lazy-import bundled Leaflet (CSS imported at top; no CDN/unpkg) ──
   React.useEffect(()=>{
-    if(window.L){ setReady(true); return; }
-    if(!document.getElementById('lf-css')){
-      const lk=document.createElement('link');
-      lk.id='lf-css'; lk.rel='stylesheet';
-      lk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(lk);
-    }
-    const sc=document.createElement('script');
-    sc.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    sc.onload=()=>{ leafletRef.current=window.L; setReady(true); };
-    document.head.appendChild(sc);
+    import('leaflet').then(mod=>{
+      leafletRef.current = mod.default || mod;
+      setReady(true);
+    }).catch(e=>console.error('Leaflet bundle load failed', e));
   },[]);
 
   // ── Initialise map after Leaflet is ready ────────────────────────
   React.useEffect(()=>{
     if(!ready||!mapDivRef.current||mapObjRef.current) return;
-    const L=window.L;
+    const L=leafletRef.current;
     const lat=pos?.lat||38.9, lon=pos?.lon||(-77.0);
     const map=L.map(mapDivRef.current,{
       center:[lat,lon], zoom:8,
@@ -2375,720 +2390,6 @@ function LogbookCharts({entries, filterNmi, pos}){
   );
 }
 
-
-// ── Landmark fetch for AR calibration ─────────────────────────────
-// Queries OpenStreetMap Overpass for visually-precise, named landmarks
-// within 5 nmi.  Uses POST form-encoding (avoids GET URL-length limits).
-//
-// Scoring ranks by CALIBRATION QUALITY — how precisely can the user tap
-// one unambiguous point?
-//   Height is the dominant signal:
-//     heightBonus = min(height/15, 8)
-//     Washington Monument 169m → +8   WWII Memorial 6m → +0.4
-//   Type score reflects pointability, not prestige:
-//     tower/lighthouse > monument/cathedral > memorial/flat plaza
-//   wikipedia/wikidata = famous enough to identify visually (+6)
-const CALIB_RADIUS_M = 5 * 1852;
-const LANDMARK_TYPE_SCORE = {
-  // Single precise tip — best calibration targets
-  lighthouse:9, tower:8, skyscraper:8,
-  // Identifiable focal point (dome, spire, top)
-  monument:7, cathedral:7, church:6, chapel:5, fort:6, castle:6,
-  // Attractions and viewpoints — useful mainly when tall
-  viewpoint:6, attraction:5, museum:4, gallery:3, stadium:5,
-  // Memorials are often flat plazas — poor for precise tap
-  memorial:4, ruins:3, place_of_worship:4,
-  // Unrecognisable infrastructure unless famous
-  mast:2, chimney:2, water_tower:3, communications_tower:2,
-};
-// wikipedia/wikidata = recognisable landmark (+6).
-// Lower than height cap so height stays the primary sort key.
-const wikiBonus = t => (t.wikipedia||t.wikidata) ? 6 : 0;
-
-async function overpassFetch(endpoint, query, timeoutMs) {
-  // AbortSignal.timeout() missing on iOS Safari <16 — use AbortController + setTimeout
-  const ctrl = new AbortController();
-  const tid  = setTimeout(()=>ctrl.abort(), timeoutMs);
-  try {
-    // POST with x-www-form-urlencoded avoids GET URL-length limits (~2000 chars)
-    const r = await fetch(endpoint, {
-      method: 'POST',
-      headers: {'Content-Type':'application/x-www-form-urlencoded'},
-      body: 'data=' + encodeURIComponent(query),
-      signal: ctrl.signal,
-    });
-    clearTimeout(tid);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return await r.json();
-  } catch(e) { clearTimeout(tid); throw e; }
-}
-
-async function fetchCalibLandmarks(lat, lon) {
-  const R = CALIB_RADIUS_M;
-  // Broad query — no strict regex so partial tag values (e.g. "communications_tower") match too.
-  // nwr = node + way + relation in one clause; "out body center" gives coords for ways/relations.
-  const q = `[out:json][timeout:10];(nwr["man_made"]["name"](around:${R},${lat},${lon});nwr["historic"]["name"](around:${R},${lat},${lon});nwr["tourism"]["name"](around:${R},${lat},${lon});nwr["building"~"cathedral|skyscraper|stadium"]["name"](around:${R},${lat},${lon}););out body center;`;
-  const ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-  ];
-
-  let data = null;
-  for(const ep of ENDPOINTS) {
-    try { data = await overpassFetch(ep, q, 12000); break; }
-    catch(e) { console.warn('Overpass endpoint failed:', ep, e?.message); }
-  }
-
-  if(data?.elements?.length) {
-    const results = data.elements
-      .filter(e=>e.tags?.name)
-      .map(e=>{
-        const elat = e.lat ?? e.center?.lat;
-        const elon = e.lon ?? e.center?.lon;
-        if(!elat||!elon) return null;
-        const t    = e.tags;
-        const kind = t.man_made||t.historic||t.building||t.tourism||t.amenity||'';
-        const height = parseFloat(t.height||t['building:height']||'0')||0;
-        const score  = (LANDMARK_TYPE_SCORE[kind]||3)
-                     + wikiBonus(t)                    // +8 if has wikipedia/wikidata tag
-                     + Math.min(height/15, 8);         // dominant: 120m+ gets full +8
-        const tip = kind==='lighthouse'              ? 'tap the very tip of the light'
-                  : kind==='tower'&&wikiBonus(t)>0   ? 'tap the very top'
-                  : kind==='tower'                   ? 'tap the top of the tower'
-                  : kind==='cathedral'||kind==='church' ? 'tap the spire or cross'
-                  : kind==='monument'||kind==='memorial' ? 'tap the top of the structure'
-                  : 'tap the centre';
-        return { name:t.name, kind, height, score, tip,
-                 lat:elat, lon:elon,
-                 dist:    haversine(lat,lon,elat,elon)/M_PER_NMI,
-                 bearing: getBearing(lat,lon,elat,elon) };
-      })
-      .filter(Boolean)
-      .filter(lm=>lm.dist>=0.15&&lm.dist<=5)
-      .sort((a,b)=>(b.score-a.score)||(a.dist-b.dist));
-
-    // Deduplicate by proximity (same physical structure may be node + way)
-    const deduped=[];
-    for(const lm of results){
-      if(!deduped.some(d=>haversine(d.lat,d.lon,lm.lat,lm.lon)<100&&d.name===lm.name))
-        deduped.push(lm);
-    }
-    if(deduped.length) return deduped.slice(0,6);
-  }
-
-  // Fallback: airports — show ICAO code + "ATC Tower" so the tap target is unambiguous
-  const airportFallback = AIRPORTS
-    .map(a=>({
-      name: a.id.toUpperCase() + ' — ATC Tower',  // e.g. "DCA — ATC Tower"
-      kind:'airport',
-      lat:a.lat, lon:a.lon, height:50,             // ~50m typical tower height for scoring
-      dist:    haversine(lat,lon,a.lat,a.lon)/M_PER_NMI,
-      bearing: getBearing(lat,lon,a.lat,a.lon),
-      score:6,
-      tip:'tap the top of the control tower',
-    }))
-    .filter(lm=>lm.dist>=0.3&&lm.dist<=5)
-    .sort((a,b)=>a.dist-b.dist)
-    .slice(0,2);
-  return airportFallback;
-}
-
-
-
-// ── Calibration Prompt — shown before running calibration ────────
-// Tells the user when they last calibrated and lets them skip or proceed.
-function CalibrationPrompt({ lastCalibTs, airborne, speedKts, onCalibrate, onSkip }) {
-  const CC = '#4db8ff';
-
-  const ageLabel = () => {
-    if(!lastCalibTs) return 'Never calibrated';
-    const hrs = (Date.now() - lastCalibTs) / 3600000;
-    if(hrs < 0.017) return 'Just now';                           // < 1 min
-    if(hrs < 1)     return `${Math.round(hrs*60)} min ago`;
-    if(hrs < 24)    return `${hrs.toFixed(1)} hrs ago`;
-    const days = Math.floor(hrs/24);
-    return `${days} day${days>1?'s':''} ago`;
-  };
-
-  const isStale = !lastCalibTs || (Date.now()-lastCalibTs) > 24*3600000;
-
-  return (
-    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
-      alignItems:'center',justifyContent:'center',padding:24,
-      background:'rgba(0,5,15,0.72)'}}>
-      <div style={{width:'100%',maxWidth:320,background:'rgba(3,11,30,0.97)',
-        border:`1px solid ${CC}35`,borderRadius:14,padding:'22px 20px'}}>
-
-        {/* Icon */}
-        <div style={{textAlign:'center',marginBottom:12}}>
-          <svg width="36" height="36" viewBox="0 0 36 36">
-            <circle cx="18" cy="18" r="16" stroke={CC} strokeWidth="1.5" fill="none" opacity=".4"/>
-            <circle cx="18" cy="18" r="2" fill={CC}/>
-            <line x1="18" y1="18" x2="18" y2="9"  stroke={CC} strokeWidth="1.8" strokeLinecap="round"/>
-            <line x1="18" y1="18" x2="24" y2="18" stroke={CC} strokeWidth="1.2" strokeLinecap="round" opacity=".6"/>
-          </svg>
-        </div>
-
-        {/* Airborne badge */}
-        {airborne&&(
-          <div style={{textAlign:'center',marginBottom:8}}>
-            <span style={{fontSize:9,color:'#ffb84d',fontFamily:"'Orbitron',monospace",
-              background:'rgba(255,184,77,0.1)',border:'1px solid rgba(255,184,77,0.3)',
-              borderRadius:4,padding:'2px 8px',letterSpacing:'.1em'}}>✈ AIRBORNE · ~{Math.round(speedKts)} kts</span>
-          </div>
-        )}
-
-        {/* Message */}
-        <div style={{textAlign:'center',marginBottom:16}}>
-          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.14em',fontWeight:700,marginBottom:6}}>
-            {airborne ? 'HORIZON CALIBRATION' : 'AR CALIBRATION'}
-          </div>
-          {airborne ? (
-            <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
-              lineHeight:1.5}}>
-              Landmark calibration isn't available at altitude. Horizon calibration
-              will correct your pitch bias — great from a window seat.
-            </div>
-          ) : (
-            <>
-              <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
-                fontWeight:600,marginBottom:4}}>
-                {lastCalibTs ? 'Last calibrated' : 'Not yet calibrated'}
-              </div>
-              {lastCalibTs&&(
-                <div style={{fontSize:16,color:isStale?'#ffb84d':CC,
-                  fontFamily:"'Orbitron',monospace",fontWeight:700,marginBottom:6}}>
-                  {ageLabel()}
-                </div>
-              )}
-              <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
-                lineHeight:1.5,marginTop:4}}>
-                {isStale
-                  ? 'Calibration may have drifted. Recommended before spotting.'
-                  : 'If the AR overlay looks accurate, you can skip calibration.'}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Buttons */}
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <button onClick={onCalibrate} style={{
-            width:'100%',padding:'12px 0',borderRadius:8,cursor:'pointer',
-            background:`${CC}18`,border:`1px solid ${CC}55`,
-            color:CC,fontSize:10,fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.12em',fontWeight:700}}>
-            {airborne ? 'CALIBRATE HORIZON' : 'CALIBRATE NOW'}
-          </button>
-          <button onClick={onSkip} style={{
-            width:'100%',padding:'11px 0',borderRadius:8,cursor:'pointer',
-            background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
-            color:'#4a7898',fontSize:10,fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.12em'}}>
-            {lastCalibTs ? 'SKIP — USE LAST CALIBRATION' : 'SKIP'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Landmark Calibration Overlay ──────────────────────────────────
-function CalibrationOverlay({ allLandmarks, loading, headingRef, pitchRef,
-                               arFov, vfov, airborne, currentHdgBias,
-                               videoRef, onFovChange, onComplete, onSkip }) {
-  // Airborne: skip landmark (phase 1) and zoom (phase 3), horizon only
-  const [phase,     setPhase]   = React.useState(airborne?'horizon':'landmark');
-  const [step,      setStep]    = React.useState(0);
-  const [taps,      setTaps]    = React.useState([]);
-  const [hTaps,     setHTaps]   = React.useState([]);
-  const [tapFx,     setTapFx]   = React.useState(null);
-  const [liveHdg,   setLiveHdg] = React.useState(headingRef.current||0);
-  const [livePitch, setLivePitch]= React.useState(pitchRef?.current||0);
-  // When airborne, preserve existing hdgBias — bearing cal isn't available
-  const solvedRef = React.useRef({hdgBias:airborne?(currentHdgBias||0):0,
-                                   newFov:arFov,pitchBias:null,
-                                   fovWide:null,fovTele:null,zoomLm:null});
-  // Multi-touch suppression: ignore click events that follow a pinch gesture
-  const suppressClick = React.useRef(false);
-  // Programmatic zoom via MediaStream API (iOS 15+, Chrome)
-  const [zoomCap, setZoomCap] = React.useState(null); // {min,max} or null
-  React.useEffect(()=>{
-    const check=()=>{
-      const track=videoRef?.current?.srcObject?.getVideoTracks?.()?.[0];
-      const cap=track?.getCapabilities?.();
-      if(cap?.zoom) setZoomCap({min:cap.zoom.min,max:cap.zoom.max});
-    };
-    // Video track may not be ready immediately — retry briefly
-    check(); const t=setTimeout(check,600);
-    return ()=>clearTimeout(t);
-  },[videoRef]);
-  const applyZoom=React.useCallback(async(level)=>{
-    try{
-      const track=videoRef?.current?.srcObject?.getVideoTracks?.()?.[0];
-      if(!track||!zoomCap) return;
-      await track.applyConstraints({advanced:[{zoom:level==='wide'?zoomCap.min:zoomCap.max}]});
-      // Notify parent so arFov updates → indicator line + display stay accurate
-      if(onFovChange) onFovChange(level,zoomCap);
-    }catch(err){ console.warn('Zoom API:',err); }
-  },[videoRef,zoomCap,onFovChange]);
-  const [zoomStep, setZoomStep] = React.useState(0); // 0=wide 1=tele
-  const [zoomTaps, setZoomTaps] = React.useState([]);
-
-  React.useEffect(()=>{
-    let af;
-    const tick=()=>{
-      setLiveHdg(headingRef.current||0);
-      setLivePitch(pitchRef?.current||0);
-      af=requestAnimationFrame(tick);
-    };
-    af=requestAnimationFrame(tick);
-    return()=>cancelAnimationFrame(af);
-  },[headingRef,pitchRef]);
-
-  const normAngle=a=>((a%360)+540)%360-180;
-  const CC='#2dffb4';
-  const HORIZ_TAPS=3;
-
-  const solveLandmark=allT=>{
-    let newFov=arFov,newBias;
-    if(allT.length>=2){
-      const[t1,t2]=allT;
-      const rb1=normAngle(t1.bearing-t1.rawHdg),rb2=normAngle(t2.bearing-t2.rawHdg);
-      const dx=t1.xPct-t2.xPct;
-      if(Math.abs(dx)>8){const sf=100*normAngle(rb1-rb2)/dx;if(sf>30&&sf<130)newFov=sf;}
-      newBias=normAngle(rb1-(t1.xPct-50)*newFov/100);
-    }else{
-      const rb1=normAngle(allT[0].bearing-allT[0].rawHdg);
-      newBias=normAngle(rb1-(allT[0].xPct-50)*newFov/100);
-    }
-    return{hdgBias:Math.max(-90,Math.min(90,newBias)),newFov};
-  };
-
-  const solveHorizon=htaps=>{
-    let usedVfov=vfov;
-    if(htaps.length>=2){
-      const[t1,t2]=htaps;
-      const dy=t1.yPct-t2.yPct,dp=t1.dp-t2.dp;
-      if(Math.abs(dy)>3&&Math.abs(dp)>3){const sf=dp*100/dy;if(sf>15&&sf<90)usedVfov=sf;}
-    }
-    const biases=htaps.map(t=>(t.yPct-50)*usedVfov/100-t.dp);
-    return Math.max(-45,Math.min(45,biases.reduce((s,b)=>s+b,0)/biases.length));
-  };
-
-  // FOV from a single tap: fov = angularOffset * 100 / (xPct - 50)
-  // Requires |xPct-50| > 4 for numerical stability
-  const solveZoomFov=(xPct,bearing,rawHdg,hdgBias)=>{
-    const offset=normAngle(bearing-rawHdg-hdgBias);
-    const dx=xPct-50;
-    if(Math.abs(dx)<4) return null;  // landmark too close to centre
-    const fov=Math.abs(offset*100/dx);
-    return(fov>5&&fov<130)?fov:null;
-  };
-
-  const lm=allLandmarks[step];
-  const relDeg=lm?normAngle(lm.bearing-liveHdg):0;
-  const onscreen=lm&&Math.abs(relDeg)<=arFov*0.45;
-  const horizonYpct=Math.max(5,Math.min(95,50+livePitch/(vfov/2)*50));
-
-  const handleLandmarkTap=e=>{
-    if(!lm) return;
-    const r=e.currentTarget.getBoundingClientRect();
-    const xPct=(e.clientX-r.left)/r.width*100;
-    const yPct=(e.clientY-r.top)/r.height*100;
-    setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
-    const newTap={xPct,bearing:lm.bearing,rawHdg:headingRef.current};
-    const allTaps=[...taps,newTap];
-    // Always update zoomLm to the MOST RECENTLY tapped landmark.
-    // Using the first tap was a bug: if the user tapped landmark A then B,
-    // zoomLm stayed as A even though B is what the user last aimed at.
-    // The last tapped landmark is the most reliable zoom reference.
-    solvedRef.current={...solvedRef.current,zoomLm:lm};
-    if(allTaps.length>=2||step+1>=allLandmarks.length){
-      solvedRef.current={...solvedRef.current,...solveLandmark(allTaps)};
-      setTaps(allTaps);
-      setPhase('horizon');
-    }else{setTaps(allTaps);setStep(s=>s+1);}
-  };
-
-  const handleHorizonTap=e=>{
-    const r=e.currentTarget.getBoundingClientRect();
-    const xPct=(e.clientX-r.left)/r.width*100;
-    const yPct=(e.clientY-r.top)/r.height*100;
-    setTapFx({x:xPct,y:yPct});setTimeout(()=>setTapFx(null),800);
-    const newHTap={yPct,dp:pitchRef?.current||0};
-    const allHTaps=[...hTaps,newHTap];
-    setHTaps(allHTaps);
-    if(allHTaps.length>=HORIZ_TAPS){
-      const pb=solveHorizon(allHTaps);
-      solvedRef.current={...solvedRef.current,pitchBias:pb};
-      if(airborne){
-        // Airborne: no zoom phase, complete with preserved hdgBias
-        const{hdgBias,newFov}=solvedRef.current;
-        onComplete(hdgBias,newFov,pb,null,null);
-      } else {
-        setZoomStep(0); setZoomTaps([]);
-        setPhase('zoom');
-      }
-    }
-  };
-
-  const skipHorizon=e=>{
-    e.stopPropagation();
-    if(airborne){
-      const{hdgBias,newFov}=solvedRef.current;
-      onComplete(hdgBias,newFov,null,null,null);
-    } else {
-      solvedRef.current={...solvedRef.current,pitchBias:null};
-      setZoomStep(0); setZoomTaps([]);
-      setPhase('zoom');
-    }
-  };
-
-  const skipLandmark=e=>{
-    e.stopPropagation();
-    if(step+1<allLandmarks.length)setStep(s=>s+1);
-    else{solvedRef.current={...solvedRef.current,hdgBias:0,newFov:arFov};setPhase('horizon');}
-  };
-
-  const skipZoom=e=>{
-    e.stopPropagation();
-    const{hdgBias,newFov,pitchBias}=solvedRef.current;
-    onComplete(hdgBias,newFov,pitchBias,null,null);
-  };
-
-  const handleZoomTap=e=>{
-    const r=e.currentTarget.getBoundingClientRect();
-    const xPct=(e.clientX-r.left)/r.width*100;
-    const yPct=(e.clientY-r.top)/r.height*100;
-    const zl=solvedRef.current.zoomLm;
-    if(!zl) return; // no landmark was ever tapped — skip silently
-    const fov=solveZoomFov(xPct,zl.bearing,
-                          headingRef.current,solvedRef.current.hdgBias);
-    setTapFx({x:xPct,y:yPct}); setTimeout(()=>setTapFx(null),800);
-    if(zoomStep===0){
-      // Wide tap — store and advance to tele
-      solvedRef.current={...solvedRef.current,fovWide:fov};
-      setZoomTaps([{xPct,fov}]);
-      setZoomStep(1);
-    } else {
-      // Tele tap — finalise
-      solvedRef.current={...solvedRef.current,fovTele:fov};
-      const{hdgBias,newFov,pitchBias,fovWide}=solvedRef.current;
-      onComplete(hdgBias,newFov,pitchBias,fovWide,fov);
-    }
-  };
-
-  if(loading) return(
-    <div style={{position:'absolute',inset:0,zIndex:80,display:'flex',
-      alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12}}>
-      <div style={{background:'rgba(2,10,28,0.92)',border:`1px solid ${CC}30`,
-        borderRadius:12,padding:'20px 28px',textAlign:'center'}}>
-        <div style={{fontSize:10,color:CC,fontFamily:"'Orbitron',monospace",
-          letterSpacing:'.14em',marginBottom:6}}>FINDING LANDMARKS…</div>
-        <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>
-          Querying OpenStreetMap nearby</div>
-      </div>
-      <button onClick={onSkip} style={{background:'transparent',
-        border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#4a7898',
-        padding:'5px 14px',cursor:'pointer',fontSize:9,
-        fontFamily:"'Orbitron',monospace"}}>SKIP</button>
-    </div>
-  );
-
-  // ── HORIZON PHASE ─────────────────────────────────────────────────
-  if(phase==='horizon'){
-    const done=hTaps.length;
-    const lastDP=hTaps.length?hTaps[hTaps.length-1].dp:null;
-    const tiltDiff=lastDP!=null?Math.abs(livePitch-lastDP):99;
-    const needsTilt=tiltDiff<8;
-    return(
-      <div onClick={!needsTilt?handleHorizonTap:undefined}
-        style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
-          cursor:needsTilt?'default':'crosshair'}}>
-        <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
-          background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
-          borderRadius:12,padding:'12px 14px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-            <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-              letterSpacing:'.14em',fontWeight:700}}>
-              HORIZON CALIBRATION — {done}/{HORIZ_TAPS}
-              {airborne&&<span style={{color:'#ffb84d',marginLeft:8,fontSize:8}}>✈ AIRBORNE</span>}
-            </div>
-            <button onClick={skipHorizon} style={{background:'transparent',
-              border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
-              padding:'3px 10px',cursor:'pointer',fontSize:9,
-              fontFamily:"'Orbitron',monospace"}}>SKIP</button>
-          </div>
-          <div style={{display:'flex',gap:5,marginBottom:8}}>
-            {Array.from({length:HORIZ_TAPS}).map((_,i)=>(
-              <div key={i} style={{height:3,flex:1,borderRadius:2,
-                background:i<done?CC:i===done?`${CC}55`:'rgba(77,184,255,0.15)'}}/>
-            ))}
-          </div>
-          <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
-            {needsTilt&&done>0
-              ?<span style={{color:'#ffb84d'}}>Tilt phone {livePitch>(lastDP||0)?'UP':'DOWN'} more, then tap</span>
-              :<span>Point at the <strong style={{color:CC}}>horizon</strong> and tap where sky meets ground</span>}
-          </div>
-          {/* Accuracy tip — shown before first tap */}
-          {done===0&&<div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
-            lineHeight:1.4,marginTop:4}}>
-            Tip: calibrate at the zoom level you plan to use — tele zoom gives the most precise result
-          </div>}
-
-        </div>
-        {/* Live horizon estimate line */}
-        <div style={{position:'absolute',left:0,right:0,top:`${horizonYpct}%`,pointerEvents:'none'}}>
-          <div style={{height:1,background:'rgba(77,184,255,0.2)',width:'100%'}}/>
-          <div style={{position:'absolute',right:8,top:-10,fontSize:7,
-            color:'rgba(77,184,255,0.4)',fontFamily:"'Orbitron',monospace"}}>← CURRENT EST.</div>
-        </div>
-        <div style={{flex:1,display:'flex',alignItems:'flex-end',
-          justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
-          {needsTilt&&done===0?(
-            <div style={{background:'rgba(2,10,28,0.85)',border:`1px solid ${CC}30`,
-              borderRadius:20,padding:'7px 18px',fontSize:10,color:`${CC}bb`,
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-              TILT PHONE — THEN TAP THE HORIZON
-            </div>
-          ):needsTilt?(
-            <div style={{background:'rgba(2,10,28,0.85)',border:'1px solid #ffb84d40',
-              borderRadius:20,padding:'7px 18px',fontSize:10,color:'#ffb84d',
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-              ↕ TILT MORE BEFORE TAPPING
-            </div>
-          ):(
-            <div style={{background:`${CC}18`,border:`1px solid ${CC}50`,
-              borderRadius:20,padding:'7px 18px',fontSize:10,color:CC,
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-              ✦ TAP THE HORIZON
-            </div>
-          )}
-        </div>
-        {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
-          transform:'translate(-50%,-50%)',width:44,height:44,
-          border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
-          animation:'ping 0.7s ease-out 1 forwards'}}/>}
-      </div>
-    );
-  }
-
-  // ── ZOOM PHASE ───────────────────────────────────────────────────
-  if(phase==='zoom'){
-    const zl=solvedRef.current.zoomLm;
-    // If somehow no landmark was ever tapped (user skipped all), skip zoom entirely
-    if(!zl){
-      const{hdgBias,newFov,pitchBias}=solvedRef.current;
-      onComplete(hdgBias,newFov,pitchBias,null,null);
-      return null;
-    }
-    // Current estimated position of landmark using calibrated hdgBias + arFov
-    const zRelDeg=zl?normAngle(zl.bearing-(liveHdg+solvedRef.current.hdgBias)):0;
-    const zXpct  =50+zRelDeg/(arFov/2)*50;         // where landmark appears now
-    const tooClose=Math.abs(zXpct-50)<8;            // within 8% of centre = unstable
-    const offscreen=Math.abs(zRelDeg)>arFov*0.48;
-    const label=zoomStep===0?'ZOOM ALL THE WAY OUT':'ZOOM ALL THE WAY IN';
-    const icon =zoomStep===0?'⊖':'⊕';
-    return(
-      <div
-        onTouchStart={(e)=>{ if(e.touches.length>1) suppressClick.current=true; }}
-        onClick={(!tooClose)?(e)=>{
-          if(suppressClick.current){suppressClick.current=false;return;}
-          handleZoomTap(e);
-        }:undefined}
-        style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
-          cursor:(!tooClose)?'crosshair':'default'}}>
-        {/* Header */}
-        <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
-          background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
-          borderRadius:12,padding:'12px 14px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-            <div>
-              <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-                letterSpacing:'.14em',fontWeight:700,marginBottom:zoomCap?4:0}}>
-                ZOOM CALIBRATION — {icon} {label}
-              </div>
-              {zoomCap&&(
-                // API available: buttons snap zoom so user never needs to pinch
-                <div style={{display:'flex',gap:6}}>
-                  <button onClick={(e)=>{e.stopPropagation();applyZoom('wide');}} style={{
-                    background:zoomStep===0?`${CC}20`:'transparent',
-                    border:`1px solid ${zoomStep===0?CC:'rgba(77,184,255,0.25)'}`,
-                    borderRadius:5,padding:'3px 10px',cursor:'pointer',
-                    color:zoomStep===0?CC:'#3a6878',fontSize:8,
-                    fontFamily:"'Orbitron',monospace",letterSpacing:'.06em'}}>
-                    ⊖ ZOOM OUT
-                  </button>
-                  <button onClick={(e)=>{e.stopPropagation();applyZoom('tele');}} style={{
-                    background:zoomStep===1?`${CC}20`:'transparent',
-                    border:`1px solid ${zoomStep===1?CC:'rgba(77,184,255,0.25)'}`,
-                    borderRadius:5,padding:'3px 10px',cursor:'pointer',
-                    color:zoomStep===1?CC:'#3a6878',fontSize:8,
-                    fontFamily:"'Orbitron',monospace",letterSpacing:'.06em'}}>
-                    ⊕ ZOOM IN
-                  </button>
-                </div>
-              )}
-            </div>
-            <button onClick={skipZoom} style={{background:'transparent',
-              border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
-              padding:'3px 10px',cursor:'pointer',fontSize:9,
-              fontFamily:"'Orbitron',monospace"}}>SKIP</button>
-          </div>
-          {/* Step dots */}
-          <div style={{display:'flex',gap:5,marginBottom:8}}>
-            {[0,1].map(i=>(
-              <div key={i} style={{height:3,flex:1,borderRadius:2,
-                background:i<zoomStep?CC:i===zoomStep?`${CC}66`:'rgba(77,184,255,0.15)'}}/>
-            ))}
-          </div>
-          <div style={{fontSize:10,color:'#c8eaf8',fontFamily:"'Exo 2',sans-serif",lineHeight:1.5}}>
-            {zoomCap
-              ?(zoomStep===0
-                ?<>Tap <strong style={{color:CC}}>SET WIDE</strong> above, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
-                :<>Tap <strong style={{color:CC}}>SET TELE</strong> above, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>)
-              :(zoomStep===0
-                ?<>Pinch camera <strong style={{color:CC}}>all the way OUT</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong></>
-                :<>Now pinch camera <strong style={{color:CC}}>all the way IN</strong>, then tap <strong style={{color:CC}}>{zl?.name}</strong> again</>)}
-          </div>
-        </div>
-
-        {/* Landmark position indicator — always shown; dashed when app thinks it's offscreen
-             since the pre-calibration compass may be wrong about the landmark's location */}
-        <div style={{position:'absolute',top:0,bottom:0,
-          left:`${Math.max(2,Math.min(98,zXpct))}%`,
-          width:1,
-          background:offscreen?'rgba(255,136,68,0.25)':'rgba(77,184,255,0.18)',
-          borderLeft:offscreen?'1px dashed rgba(255,136,68,0.4)':undefined,
-          pointerEvents:'none'}}>
-          <div style={{position:'absolute',top:'38%',left:6,
-            fontSize:8,color:offscreen?'rgba(255,136,68,0.6)':'rgba(77,184,255,0.5)',
-            fontFamily:"'Orbitron',monospace",
-            whiteSpace:'nowrap'}}>← {zl?.name?.split(' ')[0]}</div>
-        </div>
-
-        {/* Centre instruction / warning */}
-        <div style={{flex:1,display:'flex',alignItems:'flex-end',
-          justifyContent:'center',paddingBottom:36,pointerEvents:'none'}}>
-          {tooClose?(
-            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ffb84d50',
-              borderRadius:20,padding:'7px 18px',fontSize:10,color:'#ffb84d',
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-              ROTATE SLIGHTLY — DON'T CENTER THE LANDMARK
-            </div>
-          ):offscreen?(
-            <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884440',
-              borderRadius:20,padding:'7px 18px',fontSize:9,color:'#ff8844bb',
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
-              ⚠ LANDMARK MAY BE OFF SCREEN — TAP IF YOU CAN SEE IT
-            </div>
-          ):(
-            <div style={{background:`${CC}18`,border:`1px solid ${CC}50`,
-              borderRadius:20,padding:'7px 18px',fontSize:10,color:CC,
-              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-              ✦ TAP {(zl?.tip||'the landmark').toUpperCase()}
-            </div>
-          )}
-        </div>
-
-        {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
-          transform:'translate(-50%,-50%)',width:44,height:44,
-          border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
-          animation:'ping 0.7s ease-out 1 forwards'}}/>}
-      </div>
-    );
-  }
-
-  // ── LANDMARK PHASE ────────────────────────────────────────────────
-  if(!allLandmarks.length||!lm) return null;
-  const arrowDeg=Math.max(-80,Math.min(80,relDeg));
-  const inFront=Math.abs(relDeg)<90;
-  const total=Math.min(allLandmarks.length,2);
-  return(
-    <div onClick={onscreen?handleLandmarkTap:undefined}
-      style={{position:'absolute',inset:0,zIndex:80,display:'flex',flexDirection:'column',
-        cursor:onscreen?'crosshair':'default'}}>
-      <div onClick={e=>e.stopPropagation()} style={{margin:'14px 14px 0',
-        background:'rgba(2,10,28,0.93)',border:`1px solid ${CC}40`,
-        borderRadius:12,padding:'12px 14px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
-            letterSpacing:'.14em',fontWeight:700}}>
-            BEARING CALIBRATION — STEP {taps.length+1}/{total}
-          </div>
-          <button onClick={onSkip} style={{background:'transparent',
-            border:'1px solid rgba(77,184,255,0.25)',borderRadius:5,color:'#4a7898',
-            padding:'3px 10px',cursor:'pointer',fontSize:9,
-            fontFamily:"'Orbitron',monospace"}}>SKIP ALL</button>
-        </div>
-        <div style={{display:'flex',gap:5,marginBottom:8}}>
-          {Array.from({length:total}).map((_,i)=>(
-            <div key={i} style={{height:3,flex:1,borderRadius:2,
-              background:i<taps.length?CC:i===taps.length?`${CC}66`:'rgba(77,184,255,0.15)'}}/>
-          ))}
-        </div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",
-              fontWeight:700,marginBottom:2}}>{lm.name.toUpperCase()}</div>
-            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif"}}>
-              {lm.kind&&<span style={{color:'#3a7898',textTransform:'capitalize',marginRight:6}}>{lm.kind}</span>}
-              {lm.dist.toFixed(1)} nmi · {Math.round(lm.bearing)}°
-              {lm.height>10&&<span style={{color:'#2a5068',marginLeft:6}}>{Math.round(lm.height)}m</span>}
-            </div>
-          </div>
-          {allLandmarks.length>taps.length+1&&(
-            <button onClick={skipLandmark} style={{background:'transparent',flexShrink:0,
-              marginLeft:8,border:'1px solid rgba(77,184,255,0.2)',borderRadius:5,
-              color:'#3a6878',padding:'2px 8px',cursor:'pointer',fontSize:8,
-              fontFamily:"'Orbitron',monospace"}}>CAN'T SEE IT →</button>
-          )}
-        </div>
-      </div>
-      <div style={{position:'absolute',left:'50%',bottom:onscreen?100:80,
-        transform:'translateX(-50%)',display:'flex',flexDirection:'column',
-        alignItems:'center',gap:4,pointerEvents:'none'}}>
-        {!inFront?(
-          <div style={{background:'rgba(2,10,28,0.88)',border:'1px solid #ff884480',
-            borderRadius:8,padding:'6px 14px',fontSize:9,color:'#ff8844',
-            fontFamily:"'Orbitron',monospace"}}>↩ TURN AROUND — BEHIND YOU</div>
-        ):onscreen?(
-          <div style={{background:`${CC}18`,border:`1px solid ${CC}60`,
-            borderRadius:20,padding:'6px 18px',fontSize:10,color:CC,
-            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
-            ✦ TAP {(lm.tip||'the landmark').toUpperCase()}
-          </div>
-        ):(
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
-            <svg width="64" height="64" viewBox="0 0 64 64">
-              <defs><marker id="ah2" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-                <polygon points="0,0 6,3 0,6" fill={CC}/></marker></defs>
-              <path d={arrowDeg<0?"M 44,32 A 18,18 0 0,0 20,32":"M 20,32 A 18,18 0 0,1 44,32"}
-                stroke={CC} strokeWidth="2.5" fill="none" markerEnd="url(#ah2)"/>
-              <text x="32" y="58" textAnchor="middle" fontSize="10" fill={CC}
-                fontFamily="Orbitron,monospace">{Math.abs(Math.round(relDeg))}°</text>
-            </svg>
-            <div style={{background:'rgba(2,10,28,0.88)',border:`1px solid ${CC}40`,
-              borderRadius:8,padding:'5px 14px',fontSize:9,color:'#c8eaf8',
-              fontFamily:"'Orbitron',monospace"}}>
-              ROTATE {relDeg<0?'LEFT':'RIGHT'} {Math.abs(Math.round(relDeg))}°
-            </div>
-          </div>
-        )}
-      </div>
-      {onscreen&&<div style={{position:'absolute',left:`${50+relDeg/arFov*50}%`,top:'42%',
-        transform:'translate(-50%,-50%)',width:12,height:12,
-        border:`2px solid ${CC}`,borderRadius:'50%',background:`${CC}30`,
-        pointerEvents:'none'}}/>}
-      {tapFx&&<div style={{position:'absolute',left:`${tapFx.x}%`,top:`${tapFx.y}%`,
-        transform:'translate(-50%,-50%)',width:44,height:44,
-        border:`2px solid ${CC}`,borderRadius:'50%',pointerEvents:'none',zIndex:90,
-        animation:'ping 0.7s ease-out 1 forwards'}}/>}
-    </div>
-  );
-}
 
 
 // ── Logbook Tail Detail — bottom-sheet shown when user taps a tail chip ──
@@ -3457,13 +2758,20 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
     return '';
   };
 
-  const saveCallsign = () => {
-    const err = validate(draft.trim().toUpperCase());
+  const saveCallsign = async () => {
+    const cs = draft.trim().toUpperCase();
+    const err = validate(cs);
     if(err){ setDraftErr(err); return; }
-    onSetCallsign(draft.trim().toUpperCase());
-    setEditMode(false);
-    setDraftErr('');
-    onRefresh();
+    // Probe the server with a 0-score write to catch profanity/blocklist rejections
+    // before committing the callsign locally. Errors surface as inline UI feedback.
+    try{
+      await onSetCallsign(cs); // parent handles submitScore; throws if server rejects
+      setEditMode(false);
+      setDraftErr('');
+      onRefresh();
+    } catch(e){
+      setDraftErr(e?.message||'Callsign rejected — please try another');
+    }
   };
 
   const tk = (()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
@@ -4415,7 +3723,7 @@ const STYLES=[
 // ── App ────────────────────────────────────────────────────────
 
 // ── Disclaimer ─────────────────────────────────────────────────
-const DISCLAIMER_KEY = 'soratomo_disclaimer_v2'; // v2 = localStorage (was sessionStorage)
+const DISCLAIMER_KEY = 'soratomo_disclaimer_v3'; // v3 = updated location/camera disclosure // v2 = localStorage (was sessionStorage)
 function Disclaimer({ onAccept }) {
   return (
     <div style={{
@@ -4461,7 +3769,7 @@ function Disclaimer({ onAccept }) {
               ['REGULATORY COMPLIANCE',
                'Users are solely responsible for complying with all applicable aviation regulations. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
               ['LOCATION & CAMERA',
-               'This app uses your GPS location and camera for AR features. All processing occurs on-device. Location and camera data are never transmitted to the developer.'],
+               'SoraTomo uses your GPS location to request nearby aircraft from backend proxy services and third-party ADS-B providers. Your coordinates are sent on each data poll — no location history is stored. Camera frames are processed entirely on-device and are never uploaded unless you explicitly use the Share button.'],
               ['THIRD-PARTY DATA',
                'Aircraft data is provided by adsb.lol under their terms of service. The developer is not responsible for its accuracy, completeness, or availability.'],
               ['LIMITATION OF LIABILITY',
@@ -4924,7 +4232,7 @@ export default function App() {
   const calibLandmarks = [];
   const lastCalibTs    = null;
   const [showHelp,    setShowHelp]    = useState(false);
-  // ref so CalibrationOverlay always reads instantaneous compass value at tap time
+  // ref so align handler always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
   const pitchRef = useRef(devicePitch);
@@ -5021,6 +4329,7 @@ export default function App() {
   const posRef=useRef(pos);
   useEffect(()=>{ posRef.current=pos; },[pos]);
   const [rangeNote,    setRangeNote]    = useState(null); // auto-range reduction notice
+  const [sensorError,  setSensorError]  = useState(null); // persistent error banner for permissions/hw failures
   const [showCoords,  setShowCoords]  = useState(false); // lat/lon toggle
 
   const dragRef          = useRef(null);
@@ -5167,8 +4476,13 @@ export default function App() {
       onFix, ()=>{}, {enableHighAccuracy:true, timeout:12000, maximumAge:5000}
     );
     // OS-driven watch — primary continuous source
+    const onGpsError = e => {
+      if(e.code===1) // PERMISSION_DENIED
+        setSensorError('📍 Location access denied. Open Settings → Safari → Location → Allow, then reload.');
+      // POSITION_UNAVAILABLE (2) and TIMEOUT (3) are transient — don't show persistent error
+    };
     const wid = navigator.geolocation.watchPosition(
-      onFix, ()=>{}, {enableHighAccuracy:true, timeout:20000, maximumAge:10000}
+      onFix, onGpsError, {enableHighAccuracy:true, timeout:20000, maximumAge:10000}
     );
     // Supplemental 15s poll — bypasses Safari throttling in flight.
     // maximumAge:20000 means "use a 20s-old GPS fix rather than fall back
@@ -5369,22 +4683,23 @@ export default function App() {
       return next;
     });
 
-    // Mark this type + aircraft ID as scored today
-    if(!upgradeMode){
-      todayCaughtRef.current.types.set(typeKey, {kind, score:effScore});
-    } else {
-      // Upgrade: update the entry to 'captured' with combined score
-      todayCaughtRef.current.types.set(typeKey,
-        {kind:'captured', score:(priorEntry?.score||0)+effScore});
+    // Dedup update — only marks as caught if a score was actually awarded
+    if(result){
+      if(!upgradeMode){
+        todayCaughtRef.current.types.set(typeKey, {kind, score:effScore});
+      } else {
+        todayCaughtRef.current.types.set(typeKey,
+          {kind:'captured', score:(priorEntry?.score||0)+effScore});
+      }
+      if(f.id) todayCaughtRef.current.ids.add(f.id);
+      try{
+        localStorage.setItem('soratomo_today_caught', JSON.stringify({
+          date:  todayCaughtRef.current.date,
+          types: Object.fromEntries(todayCaughtRef.current.types),
+          ids:   [...todayCaughtRef.current.ids],
+        }));
+      }catch{}
     }
-    if(f.id) todayCaughtRef.current.ids.add(f.id);
-    try{
-      localStorage.setItem('soratomo_today_caught', JSON.stringify({
-        date:  todayCaughtRef.current.date,
-        types: Object.fromEntries(todayCaughtRef.current.types),
-        ids:   [...todayCaughtRef.current.ids],
-      }));
-    }catch{}
 
     // ── Daily score accrual + lifetime high-score detection ──
     // Every catch's effective score adds to today's running total. The instant
@@ -5501,13 +4816,13 @@ export default function App() {
         // CALIBRATION PAUSED — prompt + landmark fetch disabled
         // const isAirborne = (drVel.current.speedMs||0) > 80;
         // setCalibAirborne(isAirborne); setCalibPrompt(true); setCalibLandmarks([]);
-        // if(!isAirborne) fetchCalibLandmarks(pos.lat, pos.lon).then(lms=>{ if(lms.length) setCalibLandmarks(lms); });
       }).catch(err=>{
         const msg={
-          NotAllowedError:'⚠ Camera permission denied — check Settings and try again',
+          NotAllowedError:'📷 Camera access denied. Open Settings → Safari → Camera → Allow, then reload.',
           NotFoundError:  '⚠ No camera found on this device',
           NotReadableError:'⚠ Camera is in use by another app',
         }[err?.name]||'⚠ Camera unavailable';
+        setSensorError(msg); // persistent — user must act to fix
         setRangeNote(msg);
       });
     };
@@ -5755,6 +5070,14 @@ export default function App() {
         const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
         const merged = mergeAC(ac1, ac2);
 
+        // Mark feed as live on any successful response — even 0 aircraft means the
+        // connection works; the old code set 'limited' when the sky was clear.
+        const gotResponse = d1 !== null || d2 !== null;
+        if(gotResponse){
+          setApiStatus('live');
+          demoAlerted.current=false;
+          backoffDelay=0;
+        }
         if (merged.length > 0) {
           const parsed = merged; // dual-source merged
           // Merge new positions into state, carrying history forward (survives re-renders)
@@ -5772,10 +5095,7 @@ export default function App() {
               return {...f,...typeFields,history};
             });
           });
-          setApiStatus('live');
-          demoAlerted.current=false; // reset so next outage shows banner again
-          backoffDelay = 0;          // clear backoff on successful response
-          schedule(INTERVAL);
+          schedule(INTERVAL); // status already set above for any successful response
 
           // Queue type lookups for aircraft still missing type info (max 5/cycle)
           // Uses adsbdb.com — returns 200 for all hex codes (empty response for unknowns)
@@ -5825,9 +5145,11 @@ export default function App() {
           }
           return;
         }
+        // Successful response but 0 aircraft in range — don't clear flights or show limited
+        if(gotResponse){ schedule(INTERVAL); return; }
       } catch(e) {}
 
-      // Both sources failed — clear flights, notify user once per outage
+      // Both sources truly failed (network error / non-429 HTTP error)
       setFlights([]);
       setApiStatus('limited');
       if(!demoAlerted.current){
@@ -6062,6 +5384,26 @@ export default function App() {
 
   const activeFov  = arFov;                     // both modes use arFov; default = HFOV
   const activeVFov = arFov*(VFOV/HFOV)*vfovK;  // vfovK = vertical scale learned from align taps
+
+  // ── AR confidence signal ─────────────────────────────────────────────────
+  // Aggregates four sensor quality dimensions into a single 0-3 score:
+  //   GPS (fix age + accuracy), Compass (declination loaded), ADS-B (data freshness),
+  //   Calibration (align taps performed vs default vfovK=1).
+  // Used only for display — does not affect the AR projection.
+  const arConfidence = React.useMemo(()=>{
+    let score = 3; // start optimistic, subtract for each weak signal
+    // GPS: bad if no fix, stale fix (>8s), or low accuracy (>40m)
+    const gpsFix = pos.lat !== 0 || pos.lon !== 0;
+    const gpsAge = pos.ts ? (Date.now() - pos.ts) / 1000 : 999;
+    if(!gpsFix || gpsAge > 8 || (pos.accuracy && pos.accuracy > 40)) score -= 1;
+    // Compass: weak if declination not yet loaded (still 0 at startup briefly)
+    if(magDeclRef.current === 0) score -= 0.5;
+    // ADS-B freshness: bad if last fetch was >6s ago
+    if((Date.now() - lastFetchMs.current) > 6000) score -= 1;
+    // Calibration: if user has never aligned (vfovK still default=1, hdgBias=0, pitchBias=0)
+    if(vfovK === 1 && hdgBias === 0 && pitchBias === 0) score -= 0.5;
+    return Math.max(0, Math.round(score)); // 0=poor 1=fair 2=good 3=excellent
+  },[pos, vfovK, hdgBias, pitchBias, apiStatus]);
   const zoomLevel  = (HFOV/activeFov).toFixed(1); // 1.0x at default, higher when zoomed
 
   // Unified view direction — AR uses device sensors, scan uses free-pan state
@@ -6386,86 +5728,8 @@ export default function App() {
 
       {/* Camera feed — behind everything */}
       {/* Calibration prompt — shown first so user can skip if recently calibrated */}
-      {/* CALIBRATION PAUSED — CalibrationPrompt disabled
-      {cameraMode&&calibPrompt&&!calibShow&&(
-        <CalibrationPrompt
-          lastCalibTs={lastCalibTs}
-          airborne={calibAirborne}
-          speedKts={Math.round((drVel.current.speedMs||0)/0.5144)}
-          onSkip={()=>setCalibPrompt(false)}
-          onCalibrate={()=>{ setCalibPrompt(false); setCalibShow(true); }}/>
-      )}
-      */}
-      {/* CALIBRATION PAUSED — CalibrationOverlay disabled
-      {cameraMode&&calibShow&&(
-        <CalibrationOverlay
-          allLandmarks={calibLandmarks}
-          loading={!calibAirborne&&calibLandmarks.length===0}
-          airborne={calibAirborne}
-          currentHdgBias={hdgBias}
-          headingRef={headingRef}
-          pitchRef={pitchRef}
-          arFov={arFov}
-          vfov={activeVFov}
-          videoRef={videoRef}
-          onFovChange={(level,cap)=>{
-            // Update arFov when zoom buttons are pressed during zoom calibration
-            // so the landmark indicator line and FOV/zoom display stay correct.
-            if(level==='wide'){
-              setArFov(camFov); // exact — camFov is the stored 1× reference
-            } else if(cap?.min&&cap?.max){
-              // Estimate tele FOV from zoom ratio until Phase 3 is complete
-              const estimated=camFov*(cap.min/cap.max);
-              setArFov(Math.max(10,estimated));
-            }
-          }}
-          onSkip={()=>setCalibShow(false)}
-          onComplete={(hdgBias,fov,pitchBias,fovWide,fovTele)=>{
-            setHdgBias(hdgBias);
-            try{localStorage.setItem('soratomo_hdg_bias',String(hdgBias));}catch{}
-
-            // Only update camFov (the 1x reference FOV) when we have an explicit
-            // wide-zoom measurement from Phase 3 zoom calibration. Using fov from
-            // bearing calibration is wrong — the user may have calibrated while
-            // zoomed in, in which case fov ≈ 21° gets stored as the "wide" FOV,
-            // corrupting all future zoom calculations.
-            if(fovWide!=null){
-              setCamFov(fovWide);
-              try{localStorage.setItem('soratomo_cam_fov',String(fovWide));}catch{}
-            }
-
-            // After calibration, always return to a known-good zoom state:
-            // arFov = the calibrated wide FOV (or stored camFov if no new measurement),
-            // hardware = 1× (min zoom). This guarantees arFov and hardware are in sync.
-            // The user can zoom back in after calibration — the pinch-end handler will
-            // sync hardware to match wherever they zoom to.
-            const resetFov = fovWide || camFov;
-            setArFov(resetFov);
-            if(fovTele!=null){
-              setCamFovTele(fovTele);
-              try{localStorage.setItem('soratomo_cam_fov_tele',String(fovTele));}catch{}
-            }
-            if(pitchBias!=null){
-              setPitchBias(pitchBias);
-              try{localStorage.setItem('soratomo_pitch_bias',String(pitchBias));}catch{}
-            }
-            setCalibShow(false);
-            // Reset hardware zoom to min after calibration (ZOOM IN button leaves it at max)
-            try{
-              const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
-              const cap=track?.getCapabilities?.();
-              if(cap?.zoom) track.applyConstraints({advanced:[{zoom:cap.zoom.min}]}).catch(()=>{});
-            }catch{}
-            // Record when calibration was last completed
-            const now=Date.now(); setLastCalibTs(now);
-            try{localStorage.setItem('soratomo_calib_ts',String(now));}catch{}
-            const hMsg=`hdg ${hdgBias>0?'+':''}${Math.round(hdgBias)}°`;
-            const pMsg=pitchBias!=null?` · pitch ${pitchBias>0?'+':''}${Math.round(pitchBias)}°`:'';
-            const zMsg=fovWide!=null?` · wide ${Math.round(fovWide)}°${fovTele?'/tele '+Math.round(fovTele)+'°':''}`:'';
-            setRangeNote(`✓ Calibrated — ${hMsg}${pMsg}${zMsg}`);
-          }}/>
-      )}
-      */}
+      
+      
       {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
         style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',zIndex:0}}/>}
       {/* Tap-to-align: full-screen capture layer while armed */}
@@ -6545,6 +5809,24 @@ export default function App() {
         </div>
       )}
 
+      {/* Persistent sensor error banner — permission/hardware failures needing user action */}
+      {sensorError&&(
+        <div style={{position:'absolute',top:52,left:'50%',transform:'translateX(-50%)',
+          zIndex:88,width:'92%',maxWidth:380,pointerEvents:'auto',
+          background:'rgba(30,8,8,0.97)',border:'1.5px solid #ef4444',
+          borderRadius:10,padding:'10px 14px',
+          display:'flex',alignItems:'flex-start',gap:10}}>
+          <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:'#ef4444',fontFamily:"'Orbitron',monospace",
+              fontWeight:700,letterSpacing:'.1em',marginBottom:3}}>PERMISSION REQUIRED</div>
+            <div style={{fontSize:11,color:'#ffb8b8',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.5}}>{sensorError}</div>
+          </div>
+          <span onClick={()=>setSensorError(null)}
+            style={{fontSize:14,color:'#ef4444',cursor:'pointer',flexShrink:0}}>✕</span>
+        </div>
+      )}
       {/* Tap feedback flash — points scored / already caught / rarity info */}
       {pointsFlash&&(
         <div style={{position:'absolute',top:'18%',left:'50%',zIndex:91,pointerEvents:'none',
@@ -6822,6 +6104,24 @@ export default function App() {
             </div>
           </div>
           <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
+            {/* AR confidence indicator — 4 sensor signals stacked */}
+            {tiltMode&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,marginBottom:2}}>
+                {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=40)&&!!pos.ts&&(Date.now()-pos.ts)<8000],
+                  ['HDG',  magDeclRef.current!==0],
+                  ['DATA', (Date.now()-lastFetchMs.current)<6000&&apiStatus==='live'],
+                  ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],
+                ].map(([label,good])=>(
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:7,color:good?'#2dffb4':'#4a7898',
+                      fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{label}</span>
+                    <div style={{width:6,height:6,borderRadius:'50%',
+                      background:good?'#2dffb4':'#ef4444',
+                      boxShadow:good?'0 0 4px #2dffb488':'0 0 4px #ef444488'}}/>
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <div style={{width:6,height:6,borderRadius:'50%',
@@ -7023,8 +6323,12 @@ export default function App() {
             />}
             {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}
               onClearAll={()=>{
+                // Clear catch store and daily scores
                 saveCatches({}); setCatches({});
                 const fresh={days:{},best:{date:null,score:0}}; saveDaily(fresh); setDaily(fresh);
+                // Also reset today's dedup so scoring works immediately after clearing
+                todayCaughtRef.current={date:todayKey(),types:new Map(),ids:new Set()};
+                try{localStorage.removeItem('soratomo_today_caught');}catch{}
               }}/>}
             {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
