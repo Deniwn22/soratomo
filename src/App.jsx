@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism";
-import "leaflet/dist/leaflet.css"; // Bundled Leaflet styles — replaces unpkg link // WMM magnetic declination — true-north compass correction
 import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
 import { GLOBAL_RARITY, CAT_RARITY, globalRarity, computeRarity } from './rarity.js';
 import { loadGalleryIDB, saveGalleryIDB, deletePhotoIDB, clearGalleryIDB } from './idb.js';
@@ -2204,8 +2203,17 @@ function LbMap({data, onSelect, selected, pos}){
   const userMarkerRef= React.useRef(null);
   const [ready, setReady] = React.useState(false);
 
-  // ── Lazy-import bundled Leaflet (CSS imported at top; no CDN/unpkg) ──
+  // ── Lazy-import bundled Leaflet JS + inject CSS once ──────────────────
+  // JS is loaded from the npm bundle (no unpkg JS dependency).
+  // CSS is injected via a link tag — Vite/Rolldown can't import CSS from
+  // node_modules inside JSX, so we inject it imperatively instead.
   React.useEffect(()=>{
+    if(!document.getElementById('leaflet-css')){
+      const lk=document.createElement('link');
+      lk.id='leaflet-css'; lk.rel='stylesheet';
+      lk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(lk);
+    }
     import('leaflet').then(mod=>{
       leafletRef.current = mod.default || mod;
       setReady(true);
