@@ -1363,7 +1363,7 @@ const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}ca
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
 
 // ── AircraftMarker ─────────────────────────────────────────────
-const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedCallsigns, loggedTypes, proximityM, isDisplayNew }) {
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedCallsigns, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/M_PER_NMI;
@@ -1429,22 +1429,32 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
           border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
           animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
       </>}
-      {/* Primary glow ring — MYTHIC, LEGENDARY, and UNCOMMON only */}
+      {/* Glow ring rules:
+           - Any aircraft within 10 nm (catchable): glow ring always shown
+           - UNCOMMON/LEGENDARY/MYTHIC: glow ring always shown regardless of range
+           - RARE/COMMON beyond 10 nm: no ring
+           Pulse speed: MYTHIC 2s, LEGENDARY 3s, UNCOMMON 4.5s, catchable-others 3.5s */}
       {(()=>{
-        const tk=rarTier.key;
-        if(tk!=='mythic'&&tk!=='legendary'&&tk!=='uncommon') return null;
-        const dur = tk==='mythic'?'2s':tk==='legendary'?'3s':'4.5s';
+        const tk = rarTier.key;
+        const showRing = isCatchable ||
+                         tk==='mythic' || tk==='legendary' || tk==='uncommon';
+        if(!showRing) return null;
+        const dur = tk==='mythic' ? '2s'
+                  : tk==='legendary' ? '3s'
+                  : tk==='uncommon' ? '4.5s'
+                  : '3.5s'; // catchable RARE/COMMON
+        const opacity = isCatchable ? 1 : 0.4; // faint when notable-but-distant
         return <div style={{
           position:'absolute',width:ringInner,height:ringInner,
           borderRadius:'50%',
-          border:`1.5px solid ${ringColor}`,
+          border:`1.5px solid ${rarTier.color}`,
           top:'50%',left:'50%',transform:'translate(-50%,-50%)',
           animation:`glowRing ${dur} ease-in-out infinite`,
-          '--gc':ringColor,
+          '--gc':rarTier.color,
+          opacity,
           pointerEvents:'none',
         }}/>;
       })()}
-      {/* Secondary ring removed — entry ping + primary only */}
 
       {/* Aircraft silhouette + NEW dot wrapped together */}
       <div style={{position:'relative',display:'inline-block'}}>
@@ -1500,7 +1510,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 , (prev,next)=>{
   // Only re-render if visually relevant props changed
   if(prev.isSelected!==next.isSelected||prev.isDisplayNew!==next.isDisplayNew) return false;
-  if(prev.proximityM!==next.proximityM||prev.loggedCallsigns!==next.loggedCallsigns||prev.loggedTypes!==next.loggedTypes) return false;
+  if(prev.proximityM!==next.proximityM||prev.isCatchable!==next.isCatchable||prev.loggedCallsigns!==next.loggedCallsigns||prev.loggedTypes!==next.loggedTypes) return false;
   if(prev.onSelect!==next.onSelect) return false;
   if(prev.f.id!==next.f.id||prev.f.cs!==next.f.cs||prev.f.type!==next.f.type) return false;
   if(prev.f.alt!==next.f.alt||prev.f.hdg!==next.f.hdg||prev.f.spd!==next.f.spd) return false;
@@ -5664,7 +5674,8 @@ export default function App() {
     let timer = null;
     let cancelled = false;
     let abortCtrl = null;
-    const INTERVAL = 1000;  // 1s
+    const INTERVAL  = 2000; // 2s base — halves request rate vs 1s, still live-feeling
+    let backoffDelay = 0;   // exponential backoff on 429 / repeated failures
     const schedule = (delay) => { if(!cancelled) timer = setTimeout(poll, delay); };
 
     // Parse a raw ac[] array from either source into our normalised shape.
@@ -5719,33 +5730,33 @@ export default function App() {
         const dist = Math.max(maxDisplayNmiRef.current, LOG_PROX_NMI);
         const sig  = abortCtrl.signal;
 
-        // DIAGNOSTIC: single source only (adsb.lol) — airplanes.live disabled
-        // to isolate whether dual-source merge causes early-landing artifact.
-        // Re-enable dual-source by restoring the commented block below.
-        const r1 = await fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig});
-        if(!r1.ok) throw new Error('HTTP ' + r1.status);
-        const d1 = await r1.json();
-        // Pipeline lag: our clock vs the aggregator's snapshot timestamp (`now`).
-        // adsb.lol returns ms; readsb-style sources return seconds — normalise.
-        // Clamped to [0,10]s: negative = clock skew, huge = bogus; both untrustworthy.
-        const nowMs = (d1?.now||0) > 1e12 ? d1.now : (d1?.now||0)*1000;
-        const lagS  = nowMs ? Math.min(Math.max((Date.now()-nowMs)/1000, 0), 10) : 0;
-        const ac1 = parseAC(d1?.ac||[], lagS);
+        // Dual-source: adsb.lol + airplanes.live in parallel.
+        // Promise.allSettled means one source down never kills the other.
+        // Each source is hit every 2s (base interval) — half the rate of the old 1s single-source poll.
+        const [res1, res2] = await Promise.allSettled([
+          fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig}),
+          fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
+        ]);
 
-        // DUAL-SOURCE DISABLED FOR DIAGNOSTIC:
-        // const [res1, res2] = await Promise.allSettled([
-        //   fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig}),
-        //   fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
-        // ]);
-        // const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000; return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
-        // const d1 = res1.status==='fulfilled'&&res1.value.ok ? await res1.value.json() : null;
-        // const d2 = res2.status==='fulfilled'&&res2.value.ok ? await res2.value.json() : null;
-        // const ac1 = d1 ? parseAC(d1.ac||[], lagOf(d1)) : [];
-        // const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
-        // const merged = mergeAC(ac1, ac2);
+        // 429 rate-limit handling: if EITHER source returns 429, back off exponentially.
+        const is429 = r => r.status==='fulfilled' && r.value?.status===429;
+        if(is429(res1) || is429(res2)){
+          backoffDelay = Math.min((backoffDelay||2000)*2, 30000); // 2→4→8→16→30s cap
+          setApiStatus('limited');
+          schedule(backoffDelay);
+          return;
+        }
 
-        if (ac1.length > 0) {
-          const parsed = ac1; // single source
+        const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000;
+          return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
+        const d1 = res1.status==='fulfilled'&&res1.value?.ok ? await res1.value.json() : null;
+        const d2 = res2.status==='fulfilled'&&res2.value?.ok ? await res2.value.json() : null;
+        const ac1 = d1 ? parseAC(d1.ac||[], lagOf(d1)) : [];
+        const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
+        const merged = mergeAC(ac1, ac2);
+
+        if (merged.length > 0) {
+          const parsed = merged; // dual-source merged
           // Merge new positions into state, carrying history forward (survives re-renders)
           lastFetchMs.current = Date.now(); // record when live data arrived
           if(cancelled) return;
@@ -5763,6 +5774,7 @@ export default function App() {
           });
           setApiStatus('live');
           demoAlerted.current=false; // reset so next outage shows banner again
+          backoffDelay = 0;          // clear backoff on successful response
           schedule(INTERVAL);
 
           // Queue type lookups for aircraft still missing type info (max 5/cycle)
@@ -7092,6 +7104,7 @@ export default function App() {
             onSelect={handleAircraftSelect}
             loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
             proximityM={proximityM}
+            isCatchable={f.dist<=10*M_PER_NMI}
             isDisplayNew={displayNewIds.has(f.id)}/>
         ))}
       </div>
