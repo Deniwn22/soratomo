@@ -2987,12 +2987,22 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
 
   // ── Day detail view: all catches that contributed to a specific day's score ──
   if(dayDetail){
-    // Scan all types and collect log entries from the target date, sorted by score desc
-    const dayEntries = Object.values(catches||{})
+    // Collect log entries from the target date. The daily SCORE counts only the
+    // first scoring catch per type per day (matching the dedup in recordCatch),
+    // so we keep one entry per type — the highest-scoring — to mirror the day total.
+    const rawEntries = Object.values(catches||{})
       .flatMap(c=>(c.log||[]).map(r=>({...r, typeKey:c.type, cat:c.cat})))
-      .filter(r=>tsToDate(r.ts)===dayDetail.date)
-      .sort((a,b)=>b.score-a.score);
-    const dayTotal = dayEntries.reduce((s,r)=>s+r.score,0);
+      .filter(r=>tsToDate(r.ts)===dayDetail.date);
+    // Dedup by type: one entry per type (highest score) so the sum matches daily score
+    const byType = new Map();
+    for(const r of rawEntries){
+      const ex = byType.get(r.typeKey);
+      if(!ex || r.score > ex.score) byType.set(r.typeKey, r);
+    }
+    const dayEntries = [...byType.values()].sort((a,b)=>b.score-a.score);
+    // Prefer the authoritative daily total when available; fall back to summing entries
+    const storedTotal = daily?.days?.[dayDetail.date];
+    const dayTotal = storedTotal!=null ? storedTotal : dayEntries.reduce((s,r)=>s+r.score,0);
     const fmt = ts => new Date(ts).toLocaleString('en-US',
       {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
     return (
@@ -4329,6 +4339,7 @@ export default function App() {
   const saveLogTimer     = useRef(null); // debounce logbook writes
   const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
   const demoAlerted      = useRef(false);       // prevent repeated demo banners
+  const consecFails      = useRef(0);           // consecutive poll failures — only go 'limited' after 3+
   const hasAutoReduced   = useRef(false);       // one-shot range reduction at sign-on only
   // Dead-reckoning: extrapolate pos between GPS fixes using last known velocity
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
@@ -5065,6 +5076,7 @@ export default function App() {
           setApiStatus('live');
           demoAlerted.current=false;
           backoffDelay=0;
+          consecFails.current=0; // reset failure counter on any good response
         }
         if (merged.length > 0) {
           const parsed = merged; // dual-source merged
@@ -5135,9 +5147,17 @@ export default function App() {
         }
         // Successful response but 0 aircraft in range — don't clear flights or show limited
         if(gotResponse){ schedule(INTERVAL); return; }
-      } catch(e) {}
+      } catch(e) {
+        // AbortError = poll was cancelled (e.g. during photo capture) — NOT a real failure.
+        // Don't clear flights or flip to 'limited'; just reschedule and keep showing data.
+        if(e?.name === 'AbortError'){ schedule(INTERVAL); return; }
+        // Any other transient error (parse, network blip): keep existing flights on screen,
+        // don't go red on a single failure. Only escalate after repeated failures.
+        consecFails.current = (consecFails.current||0) + 1;
+        if(consecFails.current < 3){ schedule(INTERVAL); return; }
+      }
 
-      // Both sources truly failed (network error / non-429 HTTP error)
+      // Repeated genuine failures (3+ in a row) — clear flights, notify once
       setFlights([]);
       setApiStatus('limited');
       if(!demoAlerted.current){
