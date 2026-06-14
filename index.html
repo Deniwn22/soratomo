@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- iOS PWA — required for fullscreen home-screen launch -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SoraTomo">
+
+  <!-- Android / browser chrome colour -->
+  <meta name="theme-color" content="#010a18">
+
+  <!-- Description for install prompts -->
+  <meta name="description" content="空友 — AR aircraft spotting companion. Point your phone at the sky to identify aircraft.">
+
+  <!-- iOS home screen icon — must come before other icon tags -->
+  <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+
+  <!-- Fonts: preconnect first, then stylesheet — prevents render-blocking DNS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Exo+2:wght@300;400;500&display=swap">
+
+  <title>SoraTomo</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
