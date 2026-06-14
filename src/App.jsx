@@ -2203,27 +2203,26 @@ function LbMap({data, onSelect, selected, pos}){
   const userMarkerRef= React.useRef(null);
   const [ready, setReady] = React.useState(false);
 
-  // ── Lazy-import bundled Leaflet JS + inject CSS once ──────────────────
-  // JS is loaded from the npm bundle (no unpkg JS dependency).
-  // CSS is injected via a link tag — Vite/Rolldown can't import CSS from
-  // node_modules inside JSX, so we inject it imperatively instead.
+  // ── Load Leaflet from CDN once (JS + CSS) ───────────────────────────
   React.useEffect(()=>{
-    if(!document.getElementById('leaflet-css')){
+    if(window.L){ leafletRef.current=window.L; setReady(true); return; }
+    if(!document.getElementById('lf-css')){
       const lk=document.createElement('link');
-      lk.id='leaflet-css'; lk.rel='stylesheet';
+      lk.id='lf-css'; lk.rel='stylesheet';
       lk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
       document.head.appendChild(lk);
     }
-    import('leaflet').then(mod=>{
-      leafletRef.current = mod.default || mod;
-      setReady(true);
-    }).catch(e=>console.error('Leaflet bundle load failed', e));
+    const sc=document.createElement('script');
+    sc.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    sc.onload=()=>{ leafletRef.current=window.L; setReady(true); };
+    sc.onerror=()=>console.error('Leaflet CDN load failed');
+    document.head.appendChild(sc);
   },[]);
 
   // ── Initialise map after Leaflet is ready ────────────────────────
   React.useEffect(()=>{
     if(!ready||!mapDivRef.current||mapObjRef.current) return;
-    const L=leafletRef.current;
+    const L=leafletRef.current||window.L;
     const lat=pos?.lat||38.9, lon=pos?.lon||(-77.0);
     const map=L.map(mapDivRef.current,{
       center:[lat,lon], zoom:8,
