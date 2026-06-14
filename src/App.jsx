@@ -1476,14 +1476,21 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
           border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
           animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
       </>}
-      {/* Primary ring — fixed size, 60% opacity regardless of range */}
-      <div style={{
-        position:'absolute',width:ringInner,height:ringInner,
-        borderRadius:'50%',border:`1.5px solid ${ringColor}99`,
-        top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-        animation:`ring ${rarePulse?'1.4s':'2.8s'} ease-out infinite`,pointerEvents:'none',
-        opacity:0.6,
-      }}/>
+      {/* Primary glow ring — MYTHIC, LEGENDARY, and UNCOMMON only */}
+      {(()=>{
+        const tk=rarTier.key;
+        if(tk!=='mythic'&&tk!=='legendary'&&tk!=='uncommon') return null;
+        const dur = tk==='mythic'?'2s':tk==='legendary'?'3s':'4.5s';
+        return <div style={{
+          position:'absolute',width:ringInner,height:ringInner,
+          borderRadius:'50%',
+          border:`1.5px solid ${ringColor}`,
+          top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+          animation:`glowRing ${dur} ease-in-out infinite`,
+          '--gc':ringColor,
+          pointerEvents:'none',
+        }}/>;
+      })()}
       {/* Secondary ring removed — entry ping + primary only */}
 
       {/* Aircraft silhouette + NEW dot wrapped together */}
@@ -4421,6 +4428,7 @@ const FilterIcon=({active})=>(
 const STYLES=[
   "@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Exo+2:wght@300;400;500&display=swap');",
   "@keyframes ring{0%{transform:translate(-50%,-50%) scale(.7);opacity:.75}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}",
+"@keyframes glowRing{0%,100%{opacity:0.45;box-shadow:0 0 3px var(--gc)}50%{opacity:0.85;box-shadow:0 0 10px var(--gc)}}",
   "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
   "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
