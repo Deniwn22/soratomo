@@ -31,13 +31,13 @@ const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
 const altColor = altM => {
   const ft=altM*3.28084;
-  if(ft>45000) return '#e879f9'; // magenta-purple: extreme altitude (bizjets, some airliners)
+  if(ft>45000) return '#e879f9'; // lavender:       extreme altitude
   if(ft>38000) return '#a855f7'; // purple:         very high cruise FL380-450
   if(ft>32000) return '#e8f4ff'; // ghost white:    upper cruise FL320-380
   if(ft>25000) return '#b8e4ff'; // ice blue:       cruise FL250-320
   if(ft>18000) return '#4db8ff'; // sky blue:       mid FL180-250
-  if(ft>10000) return '#2b9de0'; // blue:           low-mid 10k-18k ft
-  return '#0ea5e9';              // bright cyan:    low altitude <10k ft
+  if(ft>10000) return '#1d6fa4'; // steel blue:     low-mid 10k-18k ft
+  return '#2563eb';              // royal blue:     low altitude <10k ft
 };
 const ALT_MAX   = 45000;      // ft — altitude slider ceiling
 const HFOV      = 85;          // degrees — default horizontal AR FOV
