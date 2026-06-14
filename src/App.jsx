@@ -1335,7 +1335,6 @@ const getDeviceId = () => {
 const CALLSIGN_KEY = 'soratomo_callsign';
 
 const LOG_KEY='soratomo_logbook', PROX_KEY='soratomo_prox';
-const GAL_KEY      ='soratomo_gallery';
 const CATCH_KEY    ='soratomo_catches_v1';
 const DAILY_KEY    ='soratomo_daily_v1';
 // Daily score store: { days:{ 'YYYY-MM-DD': totalScore }, best:{date,score} }.
@@ -1363,17 +1362,6 @@ const saveTypeCache=map=>{
       .slice(-MAX_TYPE_CACHE);
     localStorage.setItem(TYPE_CACHE_KEY,JSON.stringify(entries));
   }catch{}
-};
-const loadGallery=()=>{try{return JSON.parse(localStorage.getItem(GAL_KEY)||'[]');}catch{return [];}};
-// Gallery already capped at 20 in-memory (see setGallery call).
-// saveGallery enforces same cap on disk so stale localStorage entries can't exceed it.
-// TODO: migrate photos to IndexedDB — localStorage quota (~5MB) is insufficient for many photos.
-const GAL_MAX=20;
-const saveGallery=g=>{
-  const capped=g.length>GAL_MAX?g.slice(0,GAL_MAX):g;
-  try{localStorage.setItem(GAL_KEY,JSON.stringify(capped));}catch(e){
-    console.warn('SoraTomo: gallery save failed (localStorage quota?)',e);
-  }
 };
 const loadLog   = () => {try{const r=JSON.parse(localStorage.getItem(LOG_KEY)||'[]');return r.filter(e=>Array.isArray(e.tails));}catch{return [];}};
 const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}catch{}};
@@ -4228,16 +4216,9 @@ export default function App() {
   // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
   // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
   const [camFov, setCamFov] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov_v2')||'77');}catch{return 77;}});
-  // const [calibShow,       setCalibShow]       = useState(false);
-  // const [calibPrompt,     setCalibPrompt]     = useState(false);
-  // const [calibAirborne,   setCalibAirborne]   = useState(false);
-  // const [calibLandmarks,  setCalibLandmarks]  = useState([]);
-  // const [lastCalibTs,     setLastCalibTs]     = useState(...);
-  const calibShow      = false;   // CALIBRATION PAUSED
-  const calibPrompt    = false;
-  const calibAirborne  = false;
-  const calibLandmarks = [];
-  const lastCalibTs    = null;
+  // Landmark calibration removed (tap-to-align replaced it). These stay false
+  // so the camera-view dimming logic that references them remains inert.
+  const calibShow = false, calibPrompt = false;
   const [showHelp,    setShowHelp]    = useState(false);
   // ref so align handler always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
