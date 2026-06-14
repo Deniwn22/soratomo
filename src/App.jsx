@@ -5401,8 +5401,7 @@ export default function App() {
     let score = 3; // start optimistic, subtract for each weak signal
     // GPS: bad if no fix, stale fix (>8s), or low accuracy (>40m)
     const gpsFix = pos.lat !== 0 || pos.lon !== 0;
-    const gpsAge = pos.ts ? (Date.now() - pos.ts) / 1000 : 999;
-    if(!gpsFix || gpsAge > 8 || (pos.accuracy && pos.accuracy > 40)) score -= 1;
+    if(!gpsFix || (pos.accuracy && pos.accuracy > 60)) score -= 1;
     // Compass: weak if declination not yet loaded (still 0 at startup briefly)
     if(magDeclRef.current === 0) score -= 0.5;
     // ADS-B freshness: bad if last fetch was >6s ago
@@ -6114,7 +6113,7 @@ export default function App() {
             {/* AR confidence indicator — 4 sensor signals stacked */}
             {tiltMode&&(
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,marginBottom:2}}>
-                {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=40)&&!!pos.ts&&(Date.now()-pos.ts)<8000],
+                {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
                   ['HDG',  magDeclRef.current!==0],
                   ['DATA', (Date.now()-lastFetchMs.current)<6000&&apiStatus==='live'],
                   ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],

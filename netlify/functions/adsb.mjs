@@ -44,16 +44,16 @@ export default async (req) => {
 
 
   // ── Input validation — clamp/reject before hitting upstream ───────────────
-  const latV  = parseFloat(latM ? latM[1] : m[1]);
-  const lonV  = parseFloat(lonM ? lonM[1] : m[2]);
-  const distV = parseInt(distM ? distM[1] : m[3], 10);
+  const latV  = parseFloat(latM?.[1] ?? m?.[1]);
+  const lonV  = parseFloat(lonM?.[1] ?? m?.[2]);
+  const distV = parseInt(distM?.[1] ?? m?.[3], 10);
 
-  if (isNaN(latV) || latV < -90   || latV > 90)
+  if (isNaN(latV) || latV < -90  || latV > 90)
     return new Response(JSON.stringify({error:'lat out of range'}),{status:400,headers:{'Content-Type':'application/json'}});
-  if (isNaN(lonV) || lonV < -180  || lonV > 180)
+  if (isNaN(lonV) || lonV < -180 || lonV > 180)
     return new Response(JSON.stringify({error:'lon out of range'}),{status:400,headers:{'Content-Type':'application/json'}});
-  if (isNaN(distV) || distV < 10  || distV > 250)
-    return new Response(JSON.stringify({error:'dist must be 10–250 nm'}),{status:400,headers:{'Content-Type':'application/json'}});
+  if (isNaN(distV) || distV < 1  || distV > 500)
+    return new Response(JSON.stringify({error:'dist must be 1–500 nm'}),{status:400,headers:{'Content-Type':'application/json'}});
 
   // Round to bucket — nearby users share the same upstream request
   const lat  = parseFloat(parseFloat(latM[1]).toFixed(COORD_DP));
