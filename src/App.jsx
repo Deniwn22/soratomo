@@ -1466,10 +1466,10 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
         return <div style={{
           position:'absolute',width:ringInner,height:ringInner,
           borderRadius:'50%',
-          border:`1.5px solid ${rarTier.color}`,
+          border:`2px solid ${rarTier.color}`,
           top:'50%',left:'50%',transform:'translate(-50%,-50%)',
           animation:`glowRing ${dur} ease-in-out infinite`,
-          '--gc':rarTier.color,
+          filter:`drop-shadow(0 0 4px ${rarTier.color})`,
           opacity,
           pointerEvents:'none',
         }}/>;
@@ -3706,7 +3706,7 @@ const FilterIcon=({active})=>(
 const STYLES=[
   /* Google Fonts loaded via index.html <link> — removed from here to avoid render-blocking */
   "@keyframes ring{0%{transform:translate(-50%,-50%) scale(.7);opacity:.75}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}",
-"@keyframes glowRing{0%,100%{opacity:0.45;box-shadow:0 0 3px var(--gc)}50%{opacity:0.85;box-shadow:0 0 10px var(--gc)}}",
+"@keyframes glowRing{0%,100%{opacity:0.4}50%{opacity:1}}",
   "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
   "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
