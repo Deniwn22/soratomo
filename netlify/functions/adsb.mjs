@@ -35,25 +35,16 @@ export default async (req) => {
   const lonM   = path.match(/\/lon\/([\d.-]+)/);
   const distM  = path.match(/\/dist\/(\d+)/);
 
-  if (!latM || !lonM) {
-    return new Response(JSON.stringify({ error: 'bad path' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
+  if (!latM || !lonM) return badRequest('bad path');
 
   // ── Input validation — clamp/reject before hitting upstream ───────────────
-  const latV  = parseFloat(latM?.[1]);
-  const lonV  = parseFloat(lonM?.[1]);
+  const latV  = parseFloat(latM[1]);
+  const lonV  = parseFloat(lonM[1]);
   const distV = distM ? parseInt(distM[1], 10) : 200; // default 200 nm if absent
 
-  if (isNaN(latV) || latV < -90  || latV > 90)
-    return new Response(JSON.stringify({error:'lat out of range'}),{status:400,headers:{'Content-Type':'application/json'}});
-  if (isNaN(lonV) || lonV < -180 || lonV > 180)
-    return new Response(JSON.stringify({error:'lon out of range'}),{status:400,headers:{'Content-Type':'application/json'}});
-  if (isNaN(distV) || distV < 1  || distV > 500)
-    return new Response(JSON.stringify({error:'dist must be 1–500 nm'}),{status:400,headers:{'Content-Type':'application/json'}});
+  if (!Number.isFinite(latV) || latV < -90  || latV > 90)  return badRequest('lat out of range');
+  if (!Number.isFinite(lonV) || lonV < -180 || lonV > 180) return badRequest('lon out of range');
+  if (!Number.isFinite(distV) || distV < 1  || distV > 500) return badRequest('dist must be 1–500 nm');
 
   // Round to bucket — nearby users share the same upstream request
   const lat  = parseFloat(parseFloat(latM[1]).toFixed(COORD_DP));
@@ -92,6 +83,13 @@ export default async (req) => {
     return jsonResponse({ ac: [], now: now / 1000, error: err.message }, false, 200);
   }
 };
+
+function badRequest(message) {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  });
+}
 
 function jsonResponse(data, hit, status = 200) {
   return new Response(JSON.stringify(data), {
