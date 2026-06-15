@@ -3682,6 +3682,7 @@ const STYLES=[
   /* Google Fonts loaded via index.html <link> — removed from here to avoid render-blocking */
   "@keyframes ring{0%{transform:translate(-50%,-50%) scale(.7);opacity:.75}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}",
 "@keyframes glowRing{0%,100%{opacity:0.4}50%{opacity:1}}",
+  "@keyframes targetPulse{0%,100%{box-shadow:0 0 6px rgba(255,255,255,0.15)}50%{box-shadow:0 0 14px rgba(255,255,255,0.4)}}",
   "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
   "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
@@ -4206,6 +4207,7 @@ export default function App() {
   // so the camera-view dimming logic that references them remains inert.
   const calibShow = false, calibPrompt = false;
   const [showHelp,    setShowHelp]    = useState(false);
+  const [targetsOpen, setTargetsOpen] = useState(true); // Best Targets strip expanded/collapsed
   // ref so align handler always reads instantaneous compass value at tap time
   const headingRef = useRef(heading);
   useEffect(()=>{ headingRef.current = heading; },[heading]);
@@ -5693,6 +5695,41 @@ export default function App() {
   const selected = selectedId ? mapped.find(f=>f.id===selectedId)||null : null;
   const proximityM=proximityNmi*1852;
 
+  // ── Best Targets — a glanceable shortlist of aircraft worth chasing ──────────
+  // Computed from `mapped` (live feed). Four distinct targets; deduped so the same
+  // aircraft never fills two cards (highest-priority label wins: rarity > photo >
+  // new > closest). Recomputed each render but cheap (single pass over mapped).
+  const bestTargets = useMemo(()=>{
+    if(!mapped.length) return [];
+    const within = mapped.filter(f=>f.type && f.type!=='UNKN');
+    if(!within.length) return [];
+    const rarOf = f => computeRarity(f.type, getAircraftCat(f.type,f.emitter||''), 0);
+    const used = new Set();
+    const out = [];
+    const pick = (label, emoji, cand) => {
+      if(!cand || used.has(cand.id)) return;
+      used.add(cand.id);
+      const r = rarOf(cand);
+      const mil = isMilCat(getAircraftCat(cand.type,cand.emitter||''), cand.type);
+      out.push({label, emoji, f:cand, rar:r, mil,
+        hot: mil || r.key==='mythic' || r.key==='legendary'});
+    };
+    // 1. RAREST — highest rarity score in range
+    const rarest = [...within].sort((a,b)=>rarOf(b).score-rarOf(a).score)[0];
+    pick('RAREST','\u2b50', rarest);
+    // 2. PHOTO — highest-rarity uncaught-today aircraft within 10 nm, decent elevation
+    const photoCands = within.filter(f=>f.dist<=10*M_PER_NMI && (f.elev==null||f.elev>3));
+    const photo = photoCands.sort((a,b)=>rarOf(b).score-rarOf(a).score)[0];
+    pick('PHOTO','\ud83d\udcf7', photo);
+    // 3. NEW — nearest aircraft whose type isn't in the CatchDex yet
+    const newCands = within.filter(f=>!loggedTypes.has(f.type)).sort((a,b)=>a.dist-b.dist);
+    pick('NEW','\ud83c\udd95', newCands[0]);
+    // 4. CLOSEST — nearest aircraft overall
+    const closest = [...within].sort((a,b)=>a.dist-b.dist)[0];
+    pick('CLOSEST','\u2708\ufe0f', closest);
+    return out;
+  },[mapped, loggedTypes]);
+
   return (
     <div onMouseDown={onDown} onTouchStart={onDown}
       onClick={()=>{setSelectedId(null);setShowFilters(false);}}
@@ -5802,6 +5839,68 @@ export default function App() {
           </div>
           <span onClick={()=>setSensorError(null)}
             style={{fontSize:14,color:'#ef4444',cursor:'pointer',flexShrink:0}}>✕</span>
+        </div>
+      )}
+      {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
+      {!showFilters && !showHelp && bestTargets.length>0 && (
+        <div style={{position:'absolute',top:tiltMode?92:84,left:0,right:0,zIndex:40,
+          pointerEvents:'none',padding:'0 8px'}}>
+          {targetsOpen ? (
+            <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
+              WebkitOverflowScrolling:'touch',paddingBottom:2,
+              scrollbarWidth:'none',alignItems:'stretch'}}>
+              {/* Collapse handle */}
+              <div onClick={()=>setTargetsOpen(false)} style={{flexShrink:0,display:'flex',
+                flexDirection:'column',alignItems:'center',justifyContent:'center',
+                background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.25)',
+                borderRadius:8,padding:'0 7px',cursor:'pointer'}}>
+                <span style={{fontSize:7,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',writingMode:'vertical-rl',transform:'rotate(180deg)'}}>TARGETS</span>
+              </div>
+              {bestTargets.map(t=>(
+                <div key={t.label} onClick={()=>{ handleSelectFlight(t.f); }}
+                  style={{flexShrink:0,minWidth:96,maxWidth:120,cursor:'pointer',
+                    background:'rgba(4,14,36,0.94)',
+                    border:`1.5px solid ${t.hot?t.rar.color:'rgba(77,184,255,0.22)'}`,
+                    borderRadius:8,padding:'5px 8px',position:'relative',
+                    boxShadow:t.hot?`0 0 8px ${t.rar.color}55`:'none',
+                    animation:t.hot?'targetPulse 2.4s ease-in-out infinite':'none'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:2}}>
+                    <span style={{fontSize:9}}>{t.emoji}</span>
+                    <span style={{fontSize:7,color:t.hot?t.rar.color:'#4db8ff',
+                      fontFamily:"'Orbitron',monospace",fontWeight:700,
+                      letterSpacing:'.08em'}}>{t.label}</span>
+                    {t.mil&&<span style={{fontSize:6,color:'#ff8c00',
+                      fontFamily:"'Orbitron',monospace",fontWeight:700,marginLeft:'auto'}}>MIL</span>}
+                  </div>
+                  <div style={{fontSize:11,color:'#e8f4ff',fontFamily:"'Orbitron',monospace",
+                    fontWeight:700,letterSpacing:'.02em',whiteSpace:'nowrap',
+                    overflow:'hidden',textOverflow:'ellipsis'}}>{t.f.cs||t.f.type}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
+                    <span style={{width:5,height:5,borderRadius:'50%',
+                      background:t.rar.color,flexShrink:0}}/>
+                    <span style={{fontSize:8,color:'#7a9ab8',
+                      fontFamily:"'Exo 2',sans-serif"}}>{t.f.type}</span>
+                    <span style={{fontSize:8,color:'#4a7898',marginLeft:'auto',
+                      fontFamily:"'Orbitron',monospace"}}>{distNmi(t.f.dist)}nm</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div onClick={()=>setTargetsOpen(true)} style={{display:'inline-flex',
+              alignItems:'center',gap:5,pointerEvents:'auto',cursor:'pointer',
+              background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.3)',
+              borderRadius:8,padding:'4px 10px'}}>
+              <span style={{fontSize:9}}>\ud83c\udfaf</span>
+              <span style={{fontSize:8,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
+                fontWeight:700,letterSpacing:'.1em'}}>TARGETS</span>
+              <span style={{fontSize:8,color:'#e8f4ff',fontFamily:"'Orbitron',monospace",
+                fontWeight:700}}>{bestTargets.length}</span>
+              {bestTargets.some(t=>t.hot)&&<span style={{width:5,height:5,borderRadius:'50%',
+                background:'#ef4444',boxShadow:'0 0 5px #ef4444'}}/>}
+            </div>
+          )}
         </div>
       )}
       {/* Tap feedback flash — points scored / already caught / rarity info */}
