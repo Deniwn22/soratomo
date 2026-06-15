@@ -5843,14 +5843,14 @@ export default function App() {
       )}
       {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
       {!showFilters && !showHelp && bestTargets.length>0 && (
-        <div style={{position:'absolute',top:tiltMode?92:84,left:0,right:0,zIndex:40,
-          pointerEvents:'none',padding:'0 8px'}}>
+        <div style={{position:'absolute',top:78,left:0,right:0,zIndex:40,
+          pointerEvents:'none',padding:'0 14px'}}>
           {targetsOpen ? (
             <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
               WebkitOverflowScrolling:'touch',paddingBottom:2,
               scrollbarWidth:'none',alignItems:'stretch'}}>
               {/* Collapse handle */}
-              <div onClick={()=>setTargetsOpen(false)} style={{flexShrink:0,display:'flex',
+              <div onClick={e=>{e.stopPropagation();setTargetsOpen(false);}} style={{flexShrink:0,display:'flex',
                 flexDirection:'column',alignItems:'center',justifyContent:'center',
                 background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.25)',
                 borderRadius:8,padding:'0 7px',cursor:'pointer'}}>
@@ -5858,7 +5858,7 @@ export default function App() {
                   letterSpacing:'.08em',writingMode:'vertical-rl',transform:'rotate(180deg)'}}>TARGETS</span>
               </div>
               {bestTargets.map(t=>(
-                <div key={t.label} onClick={()=>{ handleSelectFlight(t.f); }}
+                <div key={t.label} onClick={e=>{ e.stopPropagation(); handleSelectFlight(t.f); }}
                   style={{flexShrink:0,minWidth:96,maxWidth:120,cursor:'pointer',
                     background:'rgba(4,14,36,0.94)',
                     border:`1.5px solid ${t.hot?t.rar.color:'rgba(77,184,255,0.22)'}`,
@@ -5888,7 +5888,7 @@ export default function App() {
               ))}
             </div>
           ) : (
-            <div onClick={()=>setTargetsOpen(true)} style={{display:'inline-flex',
+            <div onClick={e=>{e.stopPropagation();setTargetsOpen(true);}} style={{display:'inline-flex',
               alignItems:'center',gap:5,pointerEvents:'auto',cursor:'pointer',
               background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.3)',
               borderRadius:8,padding:'4px 10px'}}>
