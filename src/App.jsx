@@ -5843,7 +5843,7 @@ export default function App() {
       )}
       {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
       {!showFilters && !showHelp && bestTargets.length>0 && (
-        <div style={{position:'absolute',top:tiltMode?100:78,left:0,right:0,zIndex:40,
+        <div style={{position:'absolute',top:78,left:0,right:0,zIndex:40,
           pointerEvents:'none',padding:'0 14px'}}>
           {targetsOpen ? (
             <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
@@ -6179,9 +6179,11 @@ export default function App() {
                 </span>
               )}
             </div>
-            {/* AR confidence indicator — 4 sensor signals in a horizontal row */}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
+            {/* AR confidence indicator — 4 sensor signals, horizontal, above the LIVE/AR/cam row */}
             {tiltMode&&(
-              <div style={{display:'flex',alignItems:'center',gap:9,marginTop:6}}>
+              <div style={{display:'flex',alignItems:'center',gap:9}}>
                 {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
                   ['HDG',  magDeclRef.current!==0],
                   ['DATA', dataFresh],
@@ -6197,8 +6199,6 @@ export default function App() {
                 ))}
               </div>
             )}
-          </div>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
             <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <div style={{width:6,height:6,borderRadius:'50%',
