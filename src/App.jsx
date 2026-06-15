@@ -5843,7 +5843,7 @@ export default function App() {
       )}
       {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
       {!showFilters && !showHelp && bestTargets.length>0 && (
-        <div style={{position:'absolute',top:78,left:0,right:0,zIndex:40,
+        <div style={{position:'absolute',top:tiltMode?100:78,left:0,right:0,zIndex:40,
           pointerEvents:'none',padding:'0 14px'}}>
           {targetsOpen ? (
             <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
@@ -5858,13 +5858,14 @@ export default function App() {
                   letterSpacing:'.08em',writingMode:'vertical-rl',transform:'rotate(180deg)'}}>TARGETS</span>
               </div>
               {bestTargets.map(t=>(
-                <div key={t.label} onClick={e=>{ e.stopPropagation(); handleSelectFlight(t.f); }}
+                <div key={t.label} onClick={e=>{ e.stopPropagation();
+                    if(selectedId===t.f.id){ setSelectedId(null); } else { handleSelectFlight(t.f); } }}
                   style={{flexShrink:0,minWidth:96,maxWidth:120,cursor:'pointer',
-                    background:'rgba(4,14,36,0.94)',
-                    border:`1.5px solid ${t.hot?t.rar.color:'rgba(77,184,255,0.22)'}`,
+                    background:selectedId===t.f.id?'rgba(12,32,60,0.97)':'rgba(4,14,36,0.94)',
+                    border:`1.5px solid ${selectedId===t.f.id?'#4db8ff':t.hot?t.rar.color:'rgba(77,184,255,0.22)'}`,
                     borderRadius:8,padding:'5px 8px',position:'relative',
-                    boxShadow:t.hot?`0 0 8px ${t.rar.color}55`:'none',
-                    animation:t.hot?'targetPulse 2.4s ease-in-out infinite':'none'}}>
+                    boxShadow:selectedId===t.f.id?'0 0 10px rgba(77,184,255,0.5)':t.hot?`0 0 8px ${t.rar.color}55`:'none',
+                    animation:t.hot&&selectedId!==t.f.id?'targetPulse 2.4s ease-in-out infinite':'none'}}>
                   <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:2}}>
                     <span style={{fontSize:9}}>{t.emoji}</span>
                     <span style={{fontSize:7,color:t.hot?t.rar.color:'#4db8ff',
@@ -6178,26 +6179,26 @@ export default function App() {
                 </span>
               )}
             </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
-            {/* AR confidence indicator — 4 sensor signals stacked */}
+            {/* AR confidence indicator — 4 sensor signals in a horizontal row */}
             {tiltMode&&(
-              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,marginBottom:2}}>
+              <div style={{display:'flex',alignItems:'center',gap:9,marginTop:6}}>
                 {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
                   ['HDG',  magDeclRef.current!==0],
                   ['DATA', dataFresh],
                   ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],
                 ].map(([label,good])=>(
-                  <div key={label} style={{display:'flex',alignItems:'center',gap:4}}>
-                    <span style={{fontSize:7,color:good?'#2dffb4':'#4a7898',
-                      fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{label}</span>
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:3}}>
                     <div style={{width:6,height:6,borderRadius:'50%',
                       background:good?'#2dffb4':'#ef4444',
                       boxShadow:good?'0 0 4px #2dffb488':'0 0 4px #ef444488'}}/>
+                    <span style={{fontSize:7,color:good?'#2dffb4':'#4a7898',
+                      fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{label}</span>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
             <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <div style={{width:6,height:6,borderRadius:'50%',
