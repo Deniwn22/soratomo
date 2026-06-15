@@ -4592,8 +4592,13 @@ export default function App() {
       todayCaughtRef.current = {date:tk0, types:new Map(), ids:new Set()};
       try{localStorage.removeItem('soratomo_today_caught');}catch{}
     }
-    // 2. Same aircraft ID tapped/photo'd twice → always block
-    if(f.id && todayCaughtRef.current.ids.has(f.id)) return null;
+    // 2. Same physical aircraft tapped/photo'd twice → always block.
+    //    Identity prefers ICAO hex, but falls back to registration (tail) then callsign,
+    //    so aircraft broadcasting a tail number but no/unstable hex still dedup correctly.
+    //    (Military & some GA aircraft omit hex or flicker their type code between polls,
+    //     which previously let the same tail be caught repeatedly with decaying rarity.)
+    const acIdent = (f.id || (f.reg ? `reg:${f.reg}` : '') || (f.cs ? `cs:${f.cs}` : '')) || '';
+    if(acIdent && todayCaughtRef.current.ids.has(acIdent)) return null;
     // 3. Type already scored today:
     //    - If first was 'captured' and now 'spotted' → block (no extra points)
     //    - If first was 'spotted' and now 'captured' → allow UPGRADE (delta only)
@@ -4613,10 +4618,9 @@ export default function App() {
     const catLabel0 = ({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
       'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
       'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat0]||'Aircraft');
-    // priorCount comes from current catches snapshot (safe — catches rarely changes mid-call)
-    const ex0       = (typeof catches !== 'undefined' ? catches : {})[typeKey];
-    const priorCnt0 = ex0 ? (ex0.spotted+ex0.captured) : 0;
-    const rar0      = computeRarity(f.type, cat0, priorCnt0);
+    // Rarity is deterministic — a function of the aircraft type's global scarcity only.
+    // The same aircraft always scores the same tier (no decay from prior catches).
+    const rar0      = computeRarity(f.type, cat0);
     const fullCap0  = Math.min(100, Math.round(rar0.score*1.7*proxMult0));
     const fullSpt0  = Math.max(1,   Math.round(rar0.score*proxMult0));
     const effScore  = upgradeMode
@@ -4673,7 +4677,7 @@ export default function App() {
         todayCaughtRef.current.types.set(typeKey,
           {kind:'captured', score:(priorEntry?.score||0)+effScore});
       }
-      if(f.id) todayCaughtRef.current.ids.add(f.id);
+      if(acIdent) todayCaughtRef.current.ids.add(acIdent);
       try{
         localStorage.setItem('soratomo_today_caught', JSON.stringify({
           date:  todayCaughtRef.current.date,
@@ -4882,8 +4886,9 @@ export default function App() {
       const alreadyCaughtToday = f => {
         const tk0 = todayKey();
         if(todayCaughtRef.current.date !== tk0) return false;
-        // Same aircraft ID → always blocked
-        if(f.id && todayCaughtRef.current.ids.has(f.id)) return true;
+        // Same physical aircraft → always blocked (hex, else registration, else callsign)
+        const ident = (f.id || (f.reg ? `reg:${f.reg}` : '') || (f.cs ? `cs:${f.cs}` : '')) || '';
+        if(ident && todayCaughtRef.current.ids.has(ident)) return true;
         const typeKey = f.type||'UNKN';
         const prior = todayCaughtRef.current.types.get(typeKey);
         if(!prior) return false;

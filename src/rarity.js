@@ -49,13 +49,19 @@ export const globalRarity = (icaoType, cat) => {
 };
 
 /**
- * Blend global scarcity (70%) with personal novelty (30%).
- * priorCount = number of times this user has already caught this type.
+ * Deterministic rarity — a function of the aircraft's global scarcity ONLY.
+ * The same aircraft type always yields the same tier, regardless of how many
+ * times the user has caught it. (priorCount is accepted but ignored, kept for
+ * call-site compatibility.)
+ *
+ * Formula preserves the tiers users already saw on icons: the old display path
+ * always passed priorCount=0, giving 0.70*g + 0.30*100 = 0.70*g + 30. We keep
+ * exactly that mapping so no aircraft changes tier with this switch — it only
+ * makes the SCORED catch match what the icon already showed.
  */
-export const computeRarity = (icaoType, cat, priorCount=0) => {
-  const g        = globalRarity(icaoType, cat);
-  const personal = 100 * Math.exp(-priorCount/3);
-  const score    = Math.round(0.70*g + 0.30*personal);
+export const computeRarity = (icaoType, cat, _priorCount=0) => {
+  const g     = globalRarity(icaoType, cat);
+  const score = Math.round(0.70*g + 30);
   const tier =
     score>=85 ? {key:'mythic',   label:'MYTHIC',    color:'#ef4444'} :
     score>=70 ? {key:'legendary',label:'LEGENDARY', color:'#f59e0b'} :
