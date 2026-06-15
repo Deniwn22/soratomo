@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism";
 import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
-import { GLOBAL_RARITY, CAT_RARITY, globalRarity, computeRarity } from './rarity.js';
+import { computeRarity } from './rarity.js';
 import { loadGalleryIDB, saveGalleryIDB, deletePhotoIDB, clearGalleryIDB } from './idb.js';
 
 const D2R = Math.PI / 180;
@@ -1373,7 +1373,6 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/M_PER_NMI;
   const isNearby   = f.dist <= proximityM;
-  const isNewAc    = !loggedCallsigns.has(f.cs);
   // Red ring: first-ever sighting of this ICAO type (takes priority over green/amber)
   const isNewType  = isNearby && f.type && f.type!=='UNKN' && !(loggedTypes||new Set()).has(f.type);
 
@@ -1385,7 +1384,6 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   const ringColor  = isNearby ? rarTier.color : `${rarTier.color}66`;
   const badgeColor = isNearby ? rarTier.color : null;
   // Faster pulse for the rarest finds so they visually 'pop' more urgently
-  const rarePulse  = rarTier.score>=70;
 
   // Log-linear size scale: very dramatic range — 58px at 1nmi, 34px at 10nmi, 17px at 50nmi, 11px at 100+nmi
   const rawSize  = Math.max(11, Math.min(58, Math.round(58 - Math.log10(Math.max(0.5,dNmi)) * 24)));
@@ -1557,28 +1555,6 @@ function Toasts({ items }) {
   );
 }
 
-
-// ── CityMarker ─────────────────────────────────────────────────
-function CityMarker({ city, heading, devicePitch, fov }) {
-  if(city.dist>185200) return null; // 185.2 km = 100 nmi
-  const vfov=fov*(VFOV/HFOV);
-  const sc=toScreenTilt(city.bear,-1,heading,devicePitch,fov,vfov);
-  if(!sc.on) return null;
-  const {x,y}=sc;
-  const diff=((city.bear-heading+540)%360)-180;
-  const fade=Math.max(0,1-Math.abs(diff)/(fov/2));
-  const distFade=Math.min(1,city.dist/80000);
-  const opacity=fade*0.65*Math.min(1,distFade+0.3);
-  return (
-    <div style={{position:'absolute',left:`${x}%`,top:`${y}%`,
-      transform:'translate(-50%,-50%)',textAlign:'center',
-      pointerEvents:'none',zIndex:3,opacity}}>
-      <div style={{width:3,height:3,background:'rgba(100,180,220,0.5)',borderRadius:'50%',margin:'0 auto 3px'}}/>
-      <div style={{fontSize:9,color:'#7abcd8',fontFamily:"'Orbitron',monospace",whiteSpace:'nowrap',letterSpacing:'.05em'}}>{city.name}</div>
-      <div style={{fontSize:8,color:'rgba(100,170,200,0.55)',fontFamily:"'Orbitron',monospace"}}>{distNmi(city.dist)} nmi</div>
-    </div>
-  );
-}
 
 // ── CompassStrip ───────────────────────────────────────────────
 function CompassStrip({ heading }) {
@@ -2749,7 +2725,8 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
     if(!v) return 'Callsign required';
     if(v.length < 2) return 'Min 2 characters';
     if(v.length > 12) return 'Max 12 characters';
-    if(!/^[A-Za-z0-9_-]+$/.test(v)) return 'Letters, numbers, _ and - only';
+    // Must match the server rule exactly (leaderboard.mjs): uppercase letters + digits only.
+    if(!/^[A-Z0-9]{2,12}$/.test(v)) return 'Letters and numbers only';
     return '';
   };
 
@@ -4216,8 +4193,7 @@ export default function App() {
   const streamRef       = useRef(null);
   // Refs for stale-closure access inside the mount-once mv/pinch handler
   const cameraModeRef   = useRef(false);
-  const camFovRef       = useRef(77);
-  const lastPinchTime   = useRef(0); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
+  const camFovRef       = useRef(77); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
   const [showDex,     setShowDex]     = useState(false);
@@ -5309,14 +5285,7 @@ export default function App() {
     }
   },[flights,pos,proximityNmi]);
 
-  const handleProxChange = nmi => {
-    setProximityNmi(nmi);
-    try{ localStorage.setItem(PROX_KEY,String(nmi)); }catch{}
-    activeEncounters.current.clear();
-    // NOTE: do NOT clear lastLoggedTime here — the 4hr cooldown must survive proximity changes
-  };
-
-  const handleResetAllFilters = () => {
+    const handleResetAllFilters = () => {
     setAltFloor(0); setAltCeiling(ALT_MAX);
     setTypeFilter('all');
     setMinSpeedKts(0); setMaxSpeedKts(700);
@@ -5399,24 +5368,7 @@ export default function App() {
   const activeFov  = arFov;                     // both modes use arFov; default = HFOV
   const activeVFov = arFov*(VFOV/HFOV)*vfovK;  // vfovK = vertical scale learned from align taps
 
-  // ── AR confidence signal ─────────────────────────────────────────────────
-  // Aggregates four sensor quality dimensions into a single 0-3 score:
-  //   GPS (fix age + accuracy), Compass (declination loaded), ADS-B (data freshness),
-  //   Calibration (align taps performed vs default vfovK=1).
-  // Used only for display — does not affect the AR projection.
-  const arConfidence = React.useMemo(()=>{
-    let score = 3; // start optimistic, subtract for each weak signal
-    // GPS: bad if no fix, stale fix (>8s), or low accuracy (>40m)
-    const gpsFix = pos.lat !== 0 || pos.lon !== 0;
-    if(!gpsFix || (pos.accuracy && pos.accuracy > 60)) score -= 1;
-    // Compass: weak if declination not yet loaded (still 0 at startup briefly)
-    if(magDeclRef.current === 0) score -= 0.5;
-    // ADS-B freshness: bad if last fetch was >6s ago
-    if((Date.now() - lastFetchMs.current) > 6000) score -= 1;
-    // Calibration: if user has never aligned (vfovK still default=1, hdgBias=0, pitchBias=0)
-    if(vfovK === 1 && hdgBias === 0 && pitchBias === 0) score -= 0.5;
-    return Math.max(0, Math.round(score)); // 0=poor 1=fair 2=good 3=excellent
-  },[pos, vfovK, hdgBias, pitchBias, apiStatus]);
+
   const zoomLevel  = (HFOV/activeFov).toFixed(1); // 1.0x at default, higher when zoomed
 
   // Unified view direction — AR uses device sensors, scan uses free-pan state
@@ -6326,17 +6278,19 @@ export default function App() {
               pos={pos}
               boardData={boardData}
               boardStatus={boardStatus}
-              onSetCallsign={cs=>{
-                setCallsign(cs);
-                try{localStorage.setItem(CALLSIGN_KEY,cs);}catch{}
-                // Immediate submit with new callsign
+              onSetCallsign={async cs=>{
+                // Submit to the server FIRST so a rejected callsign (profanity/format)
+                // never gets persisted locally. The server validates server-side; if it
+                // throws, we propagate so the panel can show the inline error and NOT save.
                 const tk=todayKey();
                 const score=daily.days?.[tk]||0;
-                if(score>0){
-                  const reg=regionFor(pos.lat,pos.lon);
-                  submitScore({callsign:cs,score,region:reg.code,regionLabel:reg.label,
-                    date:tk,deviceId:deviceId.current}).catch(()=>{});
-                }
+                const reg=regionFor(pos.lat,pos.lon);
+                // Submit even at score 0 so the server can validate the callsign up front.
+                await submitScore({callsign:cs,score:Math.max(score,0),region:reg.code,
+                  regionLabel:reg.label,date:tk,deviceId:deviceId.current});
+                // Only reached if submitScore resolved (server accepted) — now persist.
+                setCallsign(cs);
+                try{localStorage.setItem(CALLSIGN_KEY,cs);}catch{}
               }}
               onRefresh={()=>{
                 setBoardStatus('loading');

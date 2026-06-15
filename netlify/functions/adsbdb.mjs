@@ -23,6 +23,11 @@ export default async (req) => {
   // Path: /adsbdb/v0/aircraft/a1b2c3
   const path = url.pathname.replace(/^\/adsbdb/, ''); // → /v0/aircraft/hex
 
+  // Restrict to aircraft hex lookups only — this is the sole endpoint the app uses.
+  // Prevents the function from acting as an open proxy to arbitrary adsbdb.com paths.
+  const m = path.match(/^\/v0\/aircraft\/([0-9a-fA-F]{6})$/);
+  if (!m) return badRequest('invalid aircraft hex');
+
   const key = path.toLowerCase();
 
   // ── In-process cache ───────────────────────────────────────────
@@ -59,6 +64,13 @@ export default async (req) => {
     return typeResponse('{}', false);
   }
 };
+
+function badRequest(message) {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  });
+}
 
 function typeResponse(body, hit) {
   return new Response(body, {

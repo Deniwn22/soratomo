@@ -6,7 +6,9 @@
 
 // ── Submit today's score ────────────────────────────────────────────────────
 export async function submitScore({ callsign, score, region, regionLabel, date, deviceId }) {
-  if(!callsign || !deviceId || score < 1) return;
+  // Require callsign + deviceId. Score 0 is allowed so the server can validate
+  // a new callsign (profanity/format) up front, before the user has any points.
+  if(!callsign || !deviceId || score < 0) return;
   const res = await fetch('/leaderboard', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
