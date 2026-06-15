@@ -1378,7 +1378,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   const isNewType  = isNearby && f.type && f.type!=='UNKN' && !(loggedTypes||new Set()).has(f.type);
 
   // Ring = RARITY of the aircraft, so the user instantly sees how special it is:
-  //   MYTHIC(pink) > LEGENDARY(purple) > RARE(blue) > UNCOMMON(teal) > COMMON(grey).
+  //   MYTHIC(red) > LEGENDARY(amber) > RARE(gold) > UNCOMMON(teal) > COMMON(grey).
   // Uses global scarcity (objective) so the cue is consistent regardless of personal history.
   // Dot = AR accuracy: green/yellow/orange (tilt mode only) — unchanged.
   const rarTier    = computeRarity(f.type, cat, 0);   // priorCount 0 → pure global scarcity
@@ -2922,7 +2922,7 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
   const TIER = {
     mythic:{label:'MYTHIC',color:'#ef4444',rank:5},
     legendary:{label:'LEGENDARY',color:'#f59e0b',rank:4},
-    rare:{label:'RARE',color:'#4db8ff',rank:3},
+    rare:{label:'RARE',color:'#fbbf24',rank:3},
     uncommon:{label:'UNCOMMON',color:'#2dffb4',rank:2},
     common:{label:'COMMON',color:'#7a98a8',rank:1},
   };
@@ -4645,20 +4645,24 @@ export default function App() {
       ? Math.max(1, fullCap0 - (priorEntry?.score||0))
       : kind==='captured' ? fullCap0 : fullSpt0;
 
+    // Build result SYNCHRONOUSLY here — never inside the setCatches updater, because
+    // React may defer that updater (automatic batching), leaving result=null when the
+    // dedup/daily-score/flash code below checks it. This caused the first few catches
+    // of a session to score nothing until React 'warmed up' and flushed synchronously.
+    result = {...rar0, score:effScore, cs:f.cs, type:typeKey, cat:cat0, kind,
+      card:{
+        cs:f.cs||f.reg, airline:f.airline||'', type:f.type, catLabel:catLabel0,
+        altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
+        distNmiVal:f.dist!=null?parseFloat(distNmi(f.dist)):null,
+        bearDeg:f.bear!=null?Math.round(f.bear):null,
+        location:nearestCity(posRef.current.lat,posRef.current.lon),
+        timestamp:Date.now(),
+        rarity:{label:rar0.label,color:rar0.color,score:effScore,kind},
+      }};
+
     setCatches(prev=>{
       const ex = prev[typeKey];
-      const priorCount = ex ? (ex.spotted+ex.captured) : 0;
       const cat = cat0, rar = rar0, catLabel = catLabel0;
-      result = {...rar, score:effScore, cs:f.cs, type:typeKey, cat, kind,
-        card:{
-          cs:f.cs||f.reg, airline:f.airline||'', type:f.type, catLabel,
-          altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
-          distNmiVal:f.dist!=null?parseFloat(distNmi(f.dist)):null,
-          bearDeg:f.bear!=null?Math.round(f.bear):null,
-          location:nearestCity(posRef.current.lat,posRef.current.lon),
-          timestamp:Date.now(),
-          rarity:{label:rar.label,color:rar.color,score:effScore,kind},
-        }};
       const e = ex || {type:typeKey, cat, spotted:0, captured:0,
                        best:null, first:Date.now(), last:Date.now(), rarest:null, log:[]};
       e[kind] += 1;
