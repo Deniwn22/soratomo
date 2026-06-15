@@ -157,3 +157,6 @@ export default async function handler(req, context) {
 
   return new Response(JSON.stringify({error:'Method not allowed'}),{status:405,headers});
 }
+
+// Netlify path routing — maps /leaderboard and /leaderboard/* to this function
+export const config = { path: '/leaderboard' };
