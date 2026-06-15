@@ -4340,6 +4340,7 @@ export default function App() {
   const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
   const demoAlerted      = useRef(false);       // prevent repeated demo banners
   const consecFails      = useRef(0);           // consecutive poll failures — only go 'limited' after 3+
+  const [dataFresh, setDataFresh] = useState(false); // drives the DATA confidence dot (re-renders)
   const hasAutoReduced   = useRef(false);       // one-shot range reduction at sign-on only
   // Dead-reckoning: extrapolate pos between GPS fixes using last known velocity
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
@@ -5052,19 +5053,21 @@ export default function App() {
           fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
         ]);
 
-        // 429 rate-limit handling: if EITHER source returns 429, back off exponentially.
         const is429 = r => r.status==='fulfilled' && r.value?.status===429;
-        if(is429(res1) || is429(res2)){
+        const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000;
+          return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
+        const d1 = res1.status==='fulfilled'&&res1.value?.ok ? await res1.value.json() : null;
+        const d2 = res2.status==='fulfilled'&&res2.value?.ok ? await res2.value.json() : null;
+
+        // 429 handling: only back off if BOTH sources failed AND at least one was rate-limited.
+        // If even one source returned usable data, use it — don't discard good data because
+        // the other source happened to be rate-limited this cycle.
+        if(d1===null && d2===null && (is429(res1) || is429(res2))){
           backoffDelay = Math.min((backoffDelay||2000)*2, 30000); // 2→4→8→16→30s cap
           setApiStatus('limited');
           schedule(backoffDelay);
           return;
         }
-
-        const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000;
-          return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
-        const d1 = res1.status==='fulfilled'&&res1.value?.ok ? await res1.value.json() : null;
-        const d2 = res2.status==='fulfilled'&&res2.value?.ok ? await res2.value.json() : null;
         const ac1 = d1 ? parseAC(d1.ac||[], lagOf(d1)) : [];
         const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
         const merged = mergeAC(ac1, ac2);
@@ -5077,11 +5080,10 @@ export default function App() {
           demoAlerted.current=false;
           backoffDelay=0;
           consecFails.current=0; // reset failure counter on any good response
+          lastFetchMs.current = Date.now(); // record successful fetch — even if 0 aircraft in range
         }
         if (merged.length > 0) {
           const parsed = merged; // dual-source merged
-          // Merge new positions into state, carrying history forward (survives re-renders)
-          lastFetchMs.current = Date.now(); // record when live data arrived
           if(cancelled) return;
           setFlights(prev=>{
             const prevMap=new Map(prev.map(p=>[p.id,p]));
@@ -5686,6 +5688,15 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[rangeNote]);
 
+  // DATA confidence dot — re-evaluates every 2s so it doesn't read a stale ref at render.
+  // Fresh = last successful fetch <6s ago AND status is live.
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      setDataFresh((Date.now()-lastFetchMs.current)<6000 && apiStatus==='live');
+    },2000);
+    return ()=>clearInterval(t);
+  },[apiStatus]);
+
   // Track first-appearance aircraft for ping animation.
   // Keyed off `flights` (the ADS-B data feed, updates every 2s) NOT `mapped`,
   // which recomputes on every orientation change in AR mode — that caused the
@@ -6119,7 +6130,7 @@ export default function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,marginBottom:2}}>
                 {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
                   ['HDG',  magDeclRef.current!==0],
-                  ['DATA', (Date.now()-lastFetchMs.current)<6000&&apiStatus==='live'],
+                  ['DATA', dataFresh],
                   ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],
                 ].map(([label,good])=>(
                   <div key={label} style={{display:'flex',alignItems:'center',gap:4}}>
