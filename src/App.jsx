@@ -70,25 +70,27 @@ const getAircraftCat = (icao, emitter='') => {
   // Regional jets — includes Fokker F50/F70/F100 (civil turboprops/jets)
   if(/^CRJ|^ERJ|^E[127]\d\d|^RJ|^F5[0-9]|^F7[0-9]|^F10/.test(t)) return 'regional';
   // Bizjets: Gulfstream, Citation, Learjet, Challenger, Falcon, Phenom
-  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^LJ|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^PRM1/.test(t)) return 'bizjet';
+  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1/.test(t)) return 'bizjet';
 
   // ── Piston/GA — MUST come before military to avoid C172 → military ──
   // Cessna 1xx/2xx, Piper PA, Cirrus SR, Diamond DA, Mooney, Beech Bonanza, TBM, PC-12
-  if(/^C1[5-9]\d|^C20[5-9]|^C21\d|^PA[234]\d|^SR2[02]|^DA[24]\d|^M20|^AA5|^BE[23]\d|^TBM|^PC12|^PL4/.test(t)) return 'piston';
+  if(/^C1[5-9]\d|^C20[5-9]|^C21\d|^PA[234]\d|^P28[A-Z]|^P32[A-Z]|^SR2[02]|^DA[24]\d|^M20|^AA5|^BE3[36]|^BE58|^BE55|^BE76|^TBM|^PC12|^PL4|^RV[6-9]|^RV1[04]|^GLAS|^COL[34]|^LNC/.test(t)) return 'piston';
 
   // ── Helicopters (type-code) — MUST come before military to avoid A109 → military ──
   // Bell, Sikorsky, Robinson, Eurocopter/Airbus-H, AgustaWestland, MD, military rotary
-  if(/^B0[6-9]|^B4[0-4]|^S6[0-9]|^S7[0-9]|^S9[0-9]|^R2[0-9]|^R4[0-9]|^R6[0-9]|^EC[2-7]|^AS3[0-5]|^AS5[0-9]|^AW[019]|^H1[02-9]|^H2[0-9]|^MD[6-9]|^A10[9]|^CH4[67]|^UH[16]|^AH[16]|^OH5|^MH6|^HH6/.test(t)) return 'helicopter';
+  if(/^B0[6-9]|^B4[0-4]|^S6[0-9]|^S7[0-9]|^S9[0-9]|^R2[0-9]|^R4[0-9]|^R6[0-9]|^EC[2-7]|^AS3[0-5]|^AS5[0-9]|^AS6[05]|^AW[019]|^H1[02-9]|^H2[0-9]|^MD5|^A10[9]|^A139|^A169|^A189|^CH4[67]|^UH[16]|^UH60|^AH[16]|^AH64|^OH5|^MH6|^HH6|^HH60|^H60|^VH3|^VH6|^B407|^B412|^B429|^B505|^AS6[05]/.test(t)) return 'helicopter';
 
   // ── Military — specific codes only, no false-positive prefixes ──
   // ^C17[A-Z]?$ : C-17 Globemaster (NOT C172 Cessna)
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
-  if(/^C17[A-Z]?$|^C5[AM]|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22/.test(t)) return 'milTransport';
+  if(/^C17[A-Z]?$|^C5[AM]|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
   // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
-  if(/^F[012][0-9]|^FA18|^B52|^B1[AB]|^B2A|^A10[A-Z]?$|^U2[A-Z]?$|^SR7/.test(t)) return 'military';
+  if(/^F[012][0-9]|^FA18|^B52|^B1[AB]|^B2A|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
+  // Vintage / warbird military: T-33, T-28, T-6, L-29/39 jet trainers, P-51, MiG, Su
+  if(/^T33|^T28|^T6[A-Z]?$|^L29|^L39|^P51|^P40|^MG[0-9]|^SU2[57]|^SU3[0457]|^SU57|^F4U|^F6F|^P38|^P47|^YAK|^OV10|^T37|^B25|^B29|^PBY|^A1[A-Z]?$|^OV1/.test(t)) return 'military';
 
   return 'narrow';
 };
