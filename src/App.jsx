@@ -28,6 +28,38 @@ const R_EFF = 7432833;
 const getElev  = (distM,altM) => Math.atan2(altM - OBS_ALT_M - distM*distM/(2*R_EFF), distM)/D2R;
 // True-horizon dip below 0° elevation at altitude: √(2h/R_eff). ~3.2° at FL350, ~0 on ground.
 const getHorizonDipDeg = () => Math.sqrt(2*Math.max(OBS_ALT_M,0)/R_EFF)/D2R;
+
+// ── Solar position — true azimuth & elevation of the sun for a given location/time ──
+// Used as an in-flight heading anchor: the sun's true azimuth is computable exactly,
+// so tapping the sun gives a magnetometer-free absolute heading reference. Standard
+// low-precision solar position algorithm (NOAA), accurate to ~0.1° — far better than
+// a fuselage-distorted magnetometer.
+const getSunPosition = (lat, lon, when=new Date()) => {
+  const rad = Math.PI/180, deg = 180/Math.PI;
+  // Days since J2000.0
+  const jd = (when.getTime()/86400000) + 2440587.5;
+  const n  = jd - 2451545.0;
+  // Mean longitude & mean anomaly of the sun (degrees)
+  const L = (280.460 + 0.9856474*n) % 360;
+  const g = ((357.528 + 0.9856003*n) % 360) * rad;
+  // Ecliptic longitude
+  const lambda = (L + 1.915*Math.sin(g) + 0.020*Math.sin(2*g)) * rad;
+  // Obliquity of the ecliptic
+  const eps = (23.439 - 0.0000004*n) * rad;
+  // Right ascension & declination
+  const ra  = Math.atan2(Math.cos(eps)*Math.sin(lambda), Math.cos(lambda));
+  const dec = Math.asin(Math.sin(eps)*Math.sin(lambda));
+  // Greenwich mean sidereal time → local sidereal time → hour angle
+  const gmst = (18.697374558 + 24.06570982441908*n) % 24;
+  const lst  = ((gmst*15 + lon) % 360) * rad;
+  const ha   = lst - ra;
+  const latR = lat * rad;
+  // Elevation & azimuth (azimuth measured clockwise from true north)
+  const elev = Math.asin(Math.sin(latR)*Math.sin(dec) + Math.cos(latR)*Math.cos(dec)*Math.cos(ha));
+  let az = Math.atan2(Math.sin(ha), Math.cos(ha)*Math.sin(latR) - Math.tan(dec)*Math.cos(latR));
+  az = (az*deg + 180) % 360; // convert: 0°=N, clockwise
+  return { azimuth: (az+360)%360, elevation: elev*deg };
+};
 const mToFt    = m  => Math.round(m*3.28084).toLocaleString();
 const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
@@ -4326,6 +4358,15 @@ export default function App() {
   const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
   const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
   const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
+  // ── Gyro-anchored heading (in-flight, magnetometer-immune) ──────────────
+  // headingSource: 'compass' (magnetometer, default/ground) | 'gyro' (integrated yaw).
+  // In gyro mode the magnetometer is ignored; heading = gyroAnchor + integrated yaw.
+  const [headingSource, setHeadingSource] = useState('compass');
+  const headingSourceRef = useRef('compass');
+  useEffect(()=>{ headingSourceRef.current = headingSource; },[headingSource]);
+  const gyroHeadingRef  = useRef(0);     // current integrated gyro heading (true degrees)
+  const gyroAnchoredRef = useRef(false); // has the user anchored gyro to a known azimuth yet?
+  const gyroLastTsRef   = useRef(0);     // last devicemotion timestamp for dt integration
   const magDeclRef      = useRef(0);     // magnetic declination at user position (deg, east-positive)
   const declAnchor      = useRef(null);  // {lat,lon} where declination was last computed
   const posEMA          = useRef(null);   // EMA-smoothed / averaged user position
@@ -4516,12 +4557,21 @@ export default function App() {
       // Both webkitCompassHeading (iOS) and deviceorientationabsolute alpha (Android)
       // are referenced to MAGNETIC north — add declination to get TRUE heading,
       // matching the true-north bearings computed from aircraft lat/lon.
-      const magHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
-      const rawHdg=(magHdg + magDeclRef.current + 360)%360;
-      // Circular EMA: operate on shortest-arc delta to avoid 0°↔360° discontinuity
-      if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
-      else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
-      const hdgVal = Math.round(smoothHdg*10)/10;
+      let hdgVal;
+      if(headingSourceRef.current === 'gyro' && gyroAnchoredRef.current){
+        // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
+        hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
+      } else {
+        // Compass mode: magnetometer (declination-corrected), smoothed with circular EMA.
+        const magHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
+        const rawHdg=(magHdg + magDeclRef.current + 360)%360;
+        if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
+        else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
+        hdgVal = Math.round(smoothHdg*10)/10;
+        // Keep the gyro heading shadowing the compass while in compass mode, so a
+        // later switch to gyro starts from the right place even before an explicit anchor.
+        gyroHeadingRef.current = smoothHdg;
+      }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
       if(beta!=null){
@@ -4557,15 +4607,50 @@ export default function App() {
       }
     };
 
+    // devicemotion: gyroscope (rotationRate) — used to integrate heading in gyro mode.
+    // Immune to magnetic distortion inside a metal fuselage. We project the device's
+    // angular velocity onto the local vertical (gravity) axis to get the true yaw rate
+    // regardless of how the phone is tilted/held — pure rotationRate.alpha is only
+    // correct when the phone is flat.
+    let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
+    const hMotion = e => {
+      const rr = e.rotationRate;
+      if(!rr) return;
+      // Track gravity direction from accelerationIncludingGravity (low-pass)
+      const ag = e.accelerationIncludingGravity;
+      if(ag && ag.x!=null){
+        gAx = gAx*0.9 + ag.x*0.1;
+        gAy = gAy*0.9 + ag.y*0.1;
+        gAz = gAz*0.9 + ag.z*0.1;
+      }
+      const gm = Math.hypot(gAx,gAy,gAz) || 1;
+      // Angular velocity about device axes (deg/s). Project onto unit gravity vector
+      // → rotation rate about the true vertical = yaw rate (compass change rate).
+      const wx=rr.beta||0, wy=rr.gamma||0, wz=rr.alpha||0;
+      const yawRate = (wx*gAx + wy*gAy + wz*gAz)/gm; // deg/s about vertical
+      const now = e.timeStamp || performance.now();
+      const last = gyroLastTsRef.current;
+      gyroLastTsRef.current = now;
+      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
+      if(!last) return;
+      let dt = (now - last)/1000;
+      if(dt<=0 || dt>0.5) return; // ignore gaps / first sample
+      // Integrate. Sign: device-frame yaw is opposite compass convention → subtract.
+      gyroHeadingRef.current = (((gyroHeadingRef.current - yawRate*dt)%360)+360)%360;
+      if(!rafId) rafId = requestAnimationFrame(process);
+    };
+
     window.addEventListener('deviceorientation',         hOrientation);
     window.addEventListener('deviceorientationabsolute', hAbsolute);
-    orientRef.current = { hOrientation, hAbsolute };
+    window.addEventListener('devicemotion',              hMotion);
+    orientRef.current = { hOrientation, hAbsolute, hMotion };
   },[]);
 
   useEffect(()=>()=>{
     if(orientRef.current){
       window.removeEventListener('deviceorientation',         orientRef.current.hOrientation);
       window.removeEventListener('deviceorientationabsolute', orientRef.current.hAbsolute);
+      if(orientRef.current.hMotion) window.removeEventListener('devicemotion', orientRef.current.hMotion);
     }
   },[]);
 
@@ -4775,18 +4860,29 @@ export default function App() {
     if(fl) setSelectedId(prev=>prev===fl.id?null:fl.id);
   },[recordCatch]);
 
+  // iOS 13+ requires SEPARATE permission for orientation AND motion (gyro). Request both.
+  const requestSensorPerms = () => {
+    const reqs = [];
+    if(typeof window.DeviceOrientationEvent?.requestPermission==='function')
+      reqs.push(window.DeviceOrientationEvent.requestPermission());
+    if(typeof window.DeviceMotionEvent?.requestPermission==='function')
+      reqs.push(window.DeviceMotionEvent.requestPermission());
+    if(!reqs.length) return Promise.resolve('granted'); // non-iOS — no prompt needed
+    // Orientation is the critical one; motion (gyro) is a bonus for in-flight heading.
+    return Promise.all(reqs.map(p=>p.catch(()=>'denied')))
+      .then(results => results[0]==='granted' ? 'granted' : 'denied');
+  };
+
   const handleARToggle = e => {
     e.stopPropagation(); setShowFilters(false);
     if(tiltMode){ setTiltMode(false); return; }
     const activate=()=>{ registerOrientation(); setTiltMode(true); };
-    if(typeof window.DeviceOrientationEvent?.requestPermission==='function'){
-      window.DeviceOrientationEvent.requestPermission()
-        .then(p=>{
-          if(p==='granted') activate();
-          else setRangeNote('⚠ Motion sensor permission denied — tap AR again to retry');
-        })
-        .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
-    } else { activate(); }
+    requestSensorPerms()
+      .then(p=>{
+        if(p==='granted') activate();
+        else setRangeNote('⚠ Motion sensor permission denied — tap AR again to retry');
+      })
+      .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
   };
 
   const handleCamToggle = e => {
@@ -4814,14 +4910,12 @@ export default function App() {
         setRangeNote(msg);
       });
     };
-    if(typeof window.DeviceOrientationEvent?.requestPermission==='function'){
-      window.DeviceOrientationEvent.requestPermission()
-        .then(p=>{
-          if(p==='granted') activateCam();
-          else setRangeNote('⚠ Motion sensor permission denied — tap Camera again to retry');
-        })
-        .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
-    } else { activateCam(); }
+    requestSensorPerms()
+      .then(p=>{
+        if(p==='granted') activateCam();
+        else setRangeNote('⚠ Motion sensor permission denied — tap Camera again to retry');
+      })
+      .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
   };
 
   const capturePhoto = e => {
@@ -5581,6 +5675,54 @@ export default function App() {
       return;
     }
 
+    // ── SUN target — anchors gyro heading to the computed solar azimuth ──────────
+    // The sun's TRUE azimuth is exact for our GPS position + time. The horizontal
+    // offset of the tap from screen centre tells us where the sun sits relative to
+    // our view, so: trueHeadingAtScreenCentre = sunAzimuth − tapHorizontalOffset.
+    // This sets the gyro anchor with zero reliance on the (fuselage-distorted) compass.
+    if(alignTarget==='sun'){
+      const sun = getSunPosition(posRef.current.lat, posRef.current.lon, new Date());
+      if(sun.elevation < -2){
+        setAlignNote('Sun is below the horizon — use AIRCRAFT or TRACK');
+        setTimeout(()=>setAlignNote(null),2600);
+        return;
+      }
+      const hOff = (xPct-50)*activeFov/100;       // tap offset from centre (deg, +right)
+      const centreHdg = ((sun.azimuth - hOff)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+      // Also set pitch from the sun's known elevation (bonus vertical calibration)
+      const tS = sun.elevation - pitchRef.current;
+      if(Math.abs(tS - xS*vfovK) < 25) updatePitchModel(xS, tS);
+      setAlignMode(false);
+      setAlignNote(`\u2713 Sun lock \u2014 heading anchored to ${Math.round(centreHdg)}\u00b0 (gyro)`);
+      setTimeout(()=>setAlignNote(null),3000);
+      return;
+    }
+
+    // ── TRACK target — anchors gyro heading to GPS course-over-ground ────────────
+    // In steady flight the GPS track is a reliable TRUE direction. Point the phone
+    // straight down the aircraft's nose and tap centre: phone-forward = GPS track.
+    if(alignTarget==='track'){
+      const spd = drVel.current.speedMs||0;
+      if(spd < 30){
+        setAlignNote('TRACK needs steady flight (>60 kts) — use SUN or AIRCRAFT');
+        setTimeout(()=>setAlignNote(null),2800);
+        return;
+      }
+      const trk = drVel.current.trackDeg;
+      const hOff = (xPct-50)*activeFov/100;
+      const centreHdg = ((trk - hOff)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+      setAlignMode(false);
+      setAlignNote(`\u2713 Track lock \u2014 heading anchored to ${Math.round(centreHdg)}\u00b0 (gyro)`);
+      setTimeout(()=>setAlignNote(null),3000);
+      return;
+    }
+
     // ── AIRCRAFT target: implied-correction matching ──
     // DON'T match by distance to the drawn icon: the icon position embeds the broken
     // calibration we're trying to fix. For each candidate compute the bias correction
@@ -5617,6 +5759,14 @@ export default function App() {
     const {pb,k}=updatePitchModel(xS, tS);
     setHdgBias(nb);
     try{ localStorage.setItem('soratomo_hdg_bias_v2', String(nb)); }catch{}
+    // Airborne: also anchor the gyro to this known aircraft bearing so heading holds
+    // without the magnetometer. centreHdg = aircraft true bearing − tap offset.
+    if(airborne){
+      const centreHdg = ((best.bear - hDiffTap)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+    }
     setAlignMode(false);
     const kNote=Math.abs(k-1)>0.02?` · vFOV ×${k.toFixed(2)}`:'';
     setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
@@ -5760,21 +5910,22 @@ export default function App() {
             transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
             <div style={{background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
               padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',fontFamily:"'Exo 2',sans-serif"}}>
-              {alignTarget==='horizon'
-                ? 'Tap the true horizon'
+              {alignTarget==='horizon' ? 'Tap the true horizon'
+                : alignTarget==='sun' ? '\u2600 Tap the centre of the sun'
+                : alignTarget==='track' ? 'Point down the aircraft nose, tap centre'
                 : (alignCandidates&&alignCandidates.length
                     ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap the real one`
-                    : `No aircraft within ${alignRadiusNmi} nm \u2014 switch to HORIZON`)}
+                    : `No aircraft within ${alignRadiusNmi} nm \u2014 switch to SUN or HORIZON`)}
             </div>
-            <div style={{display:'flex',gap:8}}>
-              {['aircraft','horizon'].map(t=>(
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'center',maxWidth:340}}>
+              {[['aircraft','\u2708 AIRCRAFT'],['sun','\u2600 SUN'],['track','\u2191 TRACK'],['horizon','\u2014 HORIZON']].map(([t,label])=>(
                 <button key={t} onClick={e=>{e.stopPropagation();setAlignTarget(t);setAlignNote(null);}} style={{
                   background:alignTarget===t?'rgba(77,184,255,0.2)':'rgba(3,11,30,0.85)',
                   border:`1.5px solid ${alignTarget===t?'#4db8ff':'rgba(77,184,255,0.3)'}`,
-                  borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
+                  borderRadius:7,padding:'6px 10px',cursor:'pointer'}}>
                   <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",
-                    color:alignTarget===t?'#4db8ff':'#4a7898',letterSpacing:'.08em'}}>
-                    {t==='aircraft'?'✈ AIRCRAFT':'— HORIZON'}
+                    color:alignTarget===t?'#4db8ff':'#4a7898',letterSpacing:'.06em'}}>
+                    {label}
                   </span>
                 </button>
               ))}
@@ -6204,6 +6355,25 @@ export default function App() {
                       fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{label}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {/* Heading-source badge — GYRO (in-flight, magnetometer-free) vs COMPASS. */}
+            {/* Tap to toggle back to compass; gyro is set by SUN/TRACK/aircraft align. */}
+            {tiltMode&&(
+              <div onClick={()=>{
+                  if(headingSource==='gyro'){ setHeadingSource('compass'); gyroAnchoredRef.current=false; }
+                }}
+                style={{display:'flex',alignItems:'center',gap:4,cursor:headingSource==='gyro'?'pointer':'default',
+                  pointerEvents:'auto',background:headingSource==='gyro'?'rgba(45,255,180,0.12)':'transparent',
+                  border:headingSource==='gyro'?'1px solid rgba(45,255,180,0.4)':'1px solid transparent',
+                  borderRadius:6,padding:'2px 7px'}}>
+                <span style={{fontSize:8,color:headingSource==='gyro'?'#2dffb4':'#4a7898',
+                  fontFamily:"'Orbitron',monospace",fontWeight:700,letterSpacing:'.1em'}}>
+                  {headingSource==='gyro'?'\u25c9 GYRO':'\u25cb COMPASS'}
+                </span>
+                {headingSource==='gyro'&&(
+                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap\u2192mag</span>
+                )}
               </div>
             )}
             <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
