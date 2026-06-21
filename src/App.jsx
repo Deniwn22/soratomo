@@ -5860,10 +5860,13 @@ export default function App() {
     bear:getBearing(pos.lat,pos.lon,a.lat,a.lon),
   })),[pos]);
 
-  // Auto-center on selected aircraft only when few aircraft in view (>3 is busy/airport area)
+  // Auto-center on selected aircraft only in 2D SCAN mode (non-tilt), where `heading`
+  // is a manual pan control. In tilt/AR mode `heading` is driven LIVE by the compass —
+  // overwriting it here froze the heading on the selected aircraft's bearing (the
+  // "hdg won't move once it sees a plane" bug). Never touch heading in tilt mode.
   const handleSelectFlight=flight=>{
     setSelectedId(flight.id);
-    if(mapped.length<=3) setHeading(flight.bear);
+    if(!tiltMode && mapped.length<=3) setHeading(flight.bear);
     setSearch('');
     setShowFilters(false);
   };
