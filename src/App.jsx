@@ -4318,6 +4318,7 @@ export default function App() {
     return {date:todayKey(), types:new Map(), ids:new Set()};
   })());
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
+  const [sensorDbg, setSensorDbg] = useState(null);  // TEMP: raw sensor diagnostic readout
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
   // Gallery uses IndexedDB (idb.js) — async load on mount
@@ -4562,9 +4563,19 @@ export default function App() {
         // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
         hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
       } else {
-        // Compass mode: magnetometer (declination-corrected), smoothed with circular EMA.
-        const magHdg=(webkit!=null&&webkit>=0)?webkit:(360-(alpha||0)+360)%360;
-        const rawHdg=(magHdg + magDeclRef.current + 360)%360;
+        // Compass mode, smoothed with circular EMA.
+        // CRITICAL iOS/Android difference:
+        //  • iOS webkitCompassHeading is already referenced to TRUE north (Apple applies
+        //    magnetic declination internally) → do NOT add declination again.
+        //  • Android deviceorientationabsolute alpha is MAGNETIC north → add declination.
+        // Adding declination to the iOS value double-corrected it by ~10° (the DC-area
+        // declination), which is why headings read consistently off.
+        let rawHdg;
+        if(webkit!=null && webkit>=0){
+          rawHdg = (webkit + 360) % 360;                       // iOS: already true north
+        } else {
+          rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
+        }
         if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
         else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
         hdgVal = Math.round(smoothHdg*10)/10;
@@ -4574,6 +4585,14 @@ export default function App() {
       }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
+      // TEMP DIAGNOSTIC — surface raw sensor values to diagnose frozen heading
+      setSensorDbg({
+        webkit: webkit==null?'null':webkit.toFixed(1),
+        alpha: alpha==null?'null':alpha.toFixed(1),
+        beta: beta==null?'null':beta.toFixed(1),
+        hdg: hdgVal.toFixed(1),
+        src: headingSourceRef.current,
+      });
       if(beta!=null){
         const raw=Math.max(-60,Math.min(90,beta-90));
         // EMA (heavier smoothing) — seed on first reading, no snap-from-0
@@ -5939,6 +5958,18 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* TEMP sensor diagnostic — remove after debugging the frozen-heading issue */}
+      {tiltMode && sensorDbg && (
+        <div style={{position:'absolute',bottom:170,left:10,zIndex:90,
+          background:'rgba(0,0,0,0.8)',border:'1px solid #2dffb4',borderRadius:6,
+          padding:'6px 9px',fontSize:10,color:'#2dffb4',fontFamily:'monospace',
+          lineHeight:1.5,pointerEvents:'none'}}>
+          <div>webkit: {sensorDbg.webkit}</div>
+          <div>alpha: {sensorDbg.alpha}</div>
+          <div>beta: {sensorDbg.beta}</div>
+          <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
+        </div>
+      )}
       {alignNote&&(
         <div style={{position:'absolute',top:'21%',left:'50%',transform:'translateX(-50%)',zIndex:86,
           background:'rgba(3,11,30,0.9)',border:'1px solid rgba(45,255,180,0.35)',borderRadius:10,
@@ -6343,7 +6374,7 @@ export default function App() {
             {tiltMode&&(
               <div style={{display:'flex',alignItems:'center',gap:9}}>
                 {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
-                  ['HDG',  magDeclRef.current!==0],
+                  ['HDG',  pos.lat!==0],  // heading reference valid once we have a position fix
                   ['DATA', dataFresh],
                   ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],
                 ].map(([label,good])=>(
