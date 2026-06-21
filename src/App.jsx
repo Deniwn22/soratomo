@@ -63,9 +63,6 @@ const getSunPosition = (lat, lon, when=new Date()) => {
 const mToFt    = m  => Math.round(m*3.28084).toLocaleString();
 const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
-// Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
-// Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
-const SHOW_SENSOR_DIAG = false;
 const altColor = altM => {
   const ft=altM*3.28084;
   if(ft>45000) return '#e879f9'; // lavender:       extreme altitude
@@ -4551,7 +4548,7 @@ export default function App() {
     if(orientRef.current) return;
     // ── Shared state ───────────────────────────────────────────────
     let rafId=null;
-    let alpha=null, beta=null, gamma=null, webkit=null; // heading fields (any event can update)
+    let alpha=null, beta=null, webkit=null; // heading fields (any event can update)
     let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
     let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
 
@@ -4588,28 +4585,14 @@ export default function App() {
       }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
-      // Sensor diagnostic — only computes/updates state when the flag is on (off on the ground).
-      if(SHOW_SENSOR_DIAG){
-        // Tilt-compensated heading from alpha/beta/gamma (Euler → world heading),
-        // for comparison against webkitCompassHeading during in-flight troubleshooting.
-        let tcHdg = 'n/a';
-        if(alpha!=null && beta!=null && gamma!=null){
-          const _x=beta*Math.PI/180, _y=gamma*Math.PI/180, _z=alpha*Math.PI/180;
-          const cZ=Math.cos(_z),sZ=Math.sin(_z),cY=Math.cos(_y),sY=Math.sin(_y),sX=Math.sin(_x);
-          const Vx=-cZ*sY - sZ*sX*cY, Vy=-sZ*sY + cZ*sX*cY;
-          let h=Math.atan2(Vx,Vy)*180/Math.PI;
-          tcHdg=(((h%360)+360)%360).toFixed(1);
-        }
-        setSensorDbg({
-          webkit: webkit==null?'null':webkit.toFixed(1),
-          alpha: alpha==null?'null':alpha.toFixed(1),
-          beta: beta==null?'null':beta.toFixed(1),
-          gamma: gamma==null?'null':gamma.toFixed(1),
-          tcHdg,
-          hdg: hdgVal.toFixed(1),
-          src: headingSourceRef.current,
-        });
-      }
+      // TEMP DIAGNOSTIC — surface raw sensor values to diagnose frozen heading
+      setSensorDbg({
+        webkit: webkit==null?'null':webkit.toFixed(1),
+        alpha: alpha==null?'null':alpha.toFixed(1),
+        beta: beta==null?'null':beta.toFixed(1),
+        hdg: hdgVal.toFixed(1),
+        src: headingSourceRef.current,
+      });
       if(beta!=null){
         const raw=Math.max(-60,Math.min(90,beta-90));
         // EMA (heavier smoothing) — seed on first reading, no snap-from-0
@@ -4630,7 +4613,6 @@ export default function App() {
     const hOrientation = e => {
       alpha  = e.alpha;
       beta   = e.beta;           // ONLY this handler may write beta
-      gamma  = e.gamma;
       webkit = e.webkitCompassHeading ?? null;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
@@ -5979,8 +5961,8 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Sensor diagnostic overlay — gated by SHOW_SENSOR_DIAG (off on the ground) */}
-      {SHOW_SENSOR_DIAG && tiltMode && sensorDbg && (
+      {/* TEMP sensor diagnostic — remove after debugging the frozen-heading issue */}
+      {tiltMode && sensorDbg && (
         <div style={{position:'absolute',bottom:170,left:10,zIndex:90,
           background:'rgba(0,0,0,0.8)',border:'1px solid #2dffb4',borderRadius:6,
           padding:'6px 9px',fontSize:10,color:'#2dffb4',fontFamily:'monospace',
@@ -5988,8 +5970,6 @@ export default function App() {
           <div>webkit: {sensorDbg.webkit}</div>
           <div>alpha: {sensorDbg.alpha}</div>
           <div>beta: {sensorDbg.beta}</div>
-          <div>gamma: {sensorDbg.gamma}</div>
-          <div style={{color:'#ffd700'}}>tcHdg: {sensorDbg.tcHdg}</div>
           <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
         </div>
       )}
