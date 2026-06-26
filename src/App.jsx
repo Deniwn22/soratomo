@@ -3838,259 +3838,6 @@ function Disclaimer({ onAccept }) {
   );
 }
 
-// ── Stats ───────────────────────────────────────────────────────
-function Stats({ entries, onClose }) {
-  const [detail, setDetail] = React.useState(null); // logbook entry tapped for detail
-
-  const totalTails  = entries.reduce((s,e)=>s+e.tails.length,0);
-  const totalTypes  = entries.length;
-  const allTails    = entries.flatMap(e=>e.tails);
-  const closestEver = allTails.length
-    ? Math.min(...allTails.map(t=>t.closestNmi)).toFixed(1)
-    : '—';
-  const firstEver  = allTails.length ? Math.min(...allTails.map(t=>t.timestamp||Infinity)) : null;
-  const latestEver = allTails.length ? Math.max(...allTails.map(t=>t.timestamp||0)) : null;
-
-  const rarest  = entries.length
-    ? [...entries].sort((a,b)=>a.tails.length-b.tails.length||b.lastSeen-a.lastSeen)[0]
-    : null;
-  const mostSeen = entries.length
-    ? [...entries].sort((a,b)=>b.tails.length-a.tails.length)[0]
-    : null;
-
-  const catOrder  = ['narrow','wide','super','jumbo','regional','bizjet','military',''];
-  const catNames  = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
-    jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
-  const catCounts = {};
-  entries.forEach(e=>{
-    const c=e.cat||getAircraftCat(e.type!=='UNKN'?e.type:'');
-    catCounts[c]=(catCounts[c]||0)+e.tails.length;
-  });
-  const maxCat = Math.max(1,...Object.values(catCounts));
-  const catRows = catOrder.filter(c=>catCounts[c]>0);
-
-  const Big = ({val,label,sub}) => (
-    <div style={{background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.15)',
-      borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
-      <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
-        color:'#b8e4ff',letterSpacing:'.04em',lineHeight:1}}>{val}</div>
-      <div style={{fontSize:8,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
-        letterSpacing:'.12em',marginTop:4}}>{label}</div>
-      {sub&&<div style={{fontSize:8,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{sub}</div>}
-    </div>
-  );
-
-  // ── Detail view for a specific type entry ───────────────────────
-  if(detail) {
-    const cat = detail.cat||getAircraftCat(detail.type!=='UNKN'?detail.type:'');
-    const col = altColor(Math.max(...detail.tails.map(t=>t.alt))/3.28084);
-    const catLabel = catNames[cat]||'Aircraft';
-    return (
-      <div onClick={e=>e.stopPropagation()} style={{
-        position:'absolute',inset:0,zIndex:65,
-        background:'rgba(1,6,18,0.99)',
-        display:'flex',flexDirection:'column',
-        animation:'slideUp 0.25s ease',fontFamily:"'Exo 2',sans-serif",
-      }}>
-        {/* Header */}
-        <div style={{padding:'14px 16px 12px',borderBottom:'1px solid rgba(77,184,255,0.12)',flexShrink:0}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-            <button onClick={()=>setDetail(null)} style={{background:'transparent',
-              border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#5a8898',
-              fontSize:11,cursor:'pointer',padding:'4px 10px',fontFamily:"'Orbitron',monospace"}}>
-              ← BACK
-            </button>
-            <button onClick={onClose} style={{background:'transparent',
-              border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,color:'#5a8898',
-              fontSize:12,cursor:'pointer',padding:'4px 10px',fontFamily:"'Orbitron',monospace"}}>
-              X CLOSE
-            </button>
-          </div>
-          {/* Type hero */}
-          <div style={{display:'flex',alignItems:'center',gap:14}}>
-            <svg width="40" height="40" viewBox="-12 -12 24 24" style={{flexShrink:0}}>
-              <PlaneShape cat={cat} color={col} fc={0.7}/>
-            </svg>
-            <div>
-              <div style={{fontSize:20,fontFamily:"'Orbitron',monospace",fontWeight:700,
-                color:col,letterSpacing:'.1em'}}>{detail.type==='UNKN'?'????':detail.type}</div>
-              <div style={{fontSize:10,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
-                {catLabel}
-                {detail.owner&&<span style={{color:'#4a7888'}}> · {detail.owner}</span>}
-              </div>
-              <div style={{fontSize:9,color:'#3a5868',fontFamily:"'Orbitron',monospace",marginTop:3,letterSpacing:'.06em'}}>
-                {detail.tails.length} UNIQUE TAIL{detail.tails.length!==1?'S':''} LOGGED
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tail list */}
-        <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'6px 0'}}>
-          {[...detail.tails].sort((a,b)=>a.closestNmi-b.closestNmi).map(t=>(
-            <div key={t.key} style={{padding:'11px 16px',
-              borderBottom:'0.5px solid rgba(77,184,255,0.07)'}}>
-              {/* Tail header */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
-                    color:t.isNew?'#2dffb4':'#b8e4ff',letterSpacing:'.08em'}}>{t.reg||t.cs}</div>
-                  {t.isNew&&<div style={{fontSize:8,background:'rgba(45,255,180,0.1)',
-                    border:'1px solid #2dffb433',borderRadius:3,padding:'1px 4px',
-                    color:'#2dffb4',fontFamily:"'Orbitron',monospace"}}>FIRST</div>}
-                </div>
-                <div style={{fontSize:8,color:'#2a4a58',fontFamily:"'Orbitron',monospace"}}>
-                  {fmtTime(t.timestamp)}
-                </div>
-              </div>
-              {/* Stats grid */}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,marginBottom:4}}>
-                {[
-                  ['DISTANCE', t.closestNmi+' nmi'],
-                  ['ALTITUDE', (t.alt||0).toLocaleString()+' ft'],
-                  ['SPEED',    (t.spd||0)+' kts'],
-                  ['HEADING',  (t.hdg!=null?t.hdg.toString().padStart(3,'0'):'---')+'°'],
-                  ['CALLSIGN', t.cs||'—'],
-                  ['AIRLINE',  t.airline||'—'],
-                ].map(([lbl,val])=>(
-                  <div key={lbl} style={{background:'rgba(4,14,36,0.7)',borderRadius:4,padding:'4px 6px'}}>
-                    <div style={{fontSize:7,color:'#2a5a6a',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{lbl}</div>
-                    <div style={{fontSize:9,color:'#7aaabb',fontFamily:"'Orbitron',monospace",marginTop:1,fontWeight:600}}>{val}</div>
-                  </div>
-                ))}
-              </div>
-              {/* User location at time of logging */}
-              <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.04em'}}>
-                📍 {t.userCity||t.city||'Unknown'}
-                {t.userLat&&t.userLon&&<span style={{color:'#2a4050',marginLeft:6}}>
-                  {t.userLat.toFixed(2)}° {t.userLon.toFixed(2)}°
-                </span>}
-              </div>
-              {/* Share button */}
-              <button onClick={e=>{e.stopPropagation();shareAircraft({
-                cs:t.cs||t.reg,airline:t.airline||'',type:detail.type,
-                catLabel:({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
-                  'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet',
-                  'military':'Military','milTransport':'Mil Transport',
-                  'helicopter':'Helicopter','piston':'Piston/GA'}[cat]||'Aircraft'),
-                altFt:null,closestNmi:t.closestNmi,logAltFt:t.alt,
-                spdKts:t.spd,hdgDeg:t.hdg,location:t.city,timestamp:t.timestamp,
-              })}} style={{marginTop:7,width:'100%',padding:'6px 0',
-                background:'transparent',borderRadius:5,cursor:'pointer',
-                border:'1px solid rgba(77,184,255,0.22)',color:'#4a8898',
-                fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
-                <ShareIcon/> SHARE
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Main stats view ──────────────────────────────────────────────
-  return (
-    <div onClick={e=>e.stopPropagation()} style={{
-      position:'absolute',inset:0,zIndex:60,
-      background:'rgba(1,6,18,0.98)',
-      display:'flex',flexDirection:'column',
-      animation:'slideUp 0.3s ease',
-    }}>
-      <div style={{padding:'14px 16px 10px',borderBottom:'1px solid rgba(77,184,255,0.12)',flexShrink:0}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
-            color:'#b8e4ff',letterSpacing:'.18em'}}>SPOTTING STATS</div>
-          <button onClick={onClose} style={{background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
-            borderRadius:6,color:'#5a8898',fontSize:12,cursor:'pointer',padding:'4px 10px',
-            fontFamily:"'Orbitron',monospace"}}>X CLOSE</button>
-        </div>
-        {firstEver&&<div style={{fontSize:9,color:'#3a6878',fontFamily:"'Orbitron',monospace",
-          letterSpacing:'.06em',marginTop:4}}>
-          SINCE {fmtTime(firstEver).split(' ').slice(0,2).join(' ')}
-        </div>}
-      </div>
-
-      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 16px'}}>
-        {totalTails===0?(
-          <div style={{textAlign:'center',padding:'48px 20px',color:'#3a6878',
-            fontSize:11,fontFamily:"'Orbitron',monospace",lineHeight:2,letterSpacing:'.08em'}}>
-            NO DATA YET<br/>
-            <span style={{fontSize:10,color:'#2a4a58'}}>LOG SOME AIRCRAFT FIRST</span>
-          </div>
-        ):(
-          <>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
-              <Big val={totalTails}  label="TOTAL TAILS"   sub={`${totalTypes} type${totalTypes!==1?'s':''}`}/>
-              <Big val={closestEver+' nmi'} label="CLOSEST EVER" sub={latestEver?'last: '+fmtTime(latestEver):undefined}/>
-            </div>
-
-            {rarest&&(
-              <div onClick={()=>setDetail(rarest)} style={{
-                background:'rgba(4,14,36,0.9)',border:'1px solid rgba(45,255,180,0.2)',
-                borderRadius:8,padding:'10px 14px',marginBottom:8,
-                display:'flex',justifyContent:'space-between',alignItems:'center',
-                cursor:'pointer',WebkitTapHighlightColor:'rgba(45,255,180,0.08)'}}>
-                <div>
-                  <div style={{fontSize:9,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
-                    letterSpacing:'.12em',marginBottom:4}}>RAREST CATCH <span style={{color:'#2a4a5a'}}>↗ TAP FOR DETAIL</span></div>
-                  <div style={{fontSize:16,fontFamily:"'Orbitron',monospace",fontWeight:700,
-                    color:'#2dffb4'}}>{rarest.type==='UNKN'?'????':rarest.type}</div>
-                  <div style={{fontSize:9,color:'#5a7888',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
-                    {rarest.tails.length} sighting{rarest.tails.length!==1?'s':''}
-                    {rarest.tails[0]?.reg?' · '+rarest.tails[0].reg:''}
-                  </div>
-                </div>
-                <svg width="32" height="32" viewBox="-12 -12 24 24" style={{opacity:0.85,flexShrink:0}}>
-                  <PlaneShape cat={rarest.cat||getAircraftCat(rarest.type!=='UNKN'?rarest.type:'')}
-                    color="#2dffb4" fc={0.7}/>
-                </svg>
-              </div>
-            )}
-            {mostSeen&&mostSeen!==rarest&&(
-              <div onClick={()=>setDetail(mostSeen)} style={{
-                background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.12)',
-                borderRadius:8,padding:'10px 14px',marginBottom:14,
-                display:'flex',justifyContent:'space-between',alignItems:'center',
-                cursor:'pointer',WebkitTapHighlightColor:'rgba(77,184,255,0.08)'}}>
-                <div>
-                  <div style={{fontSize:9,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
-                    letterSpacing:'.12em',marginBottom:4}}>MOST SEEN <span style={{color:'#2a4a5a'}}>↗ TAP FOR DETAIL</span></div>
-                  <div style={{fontSize:16,fontFamily:"'Orbitron',monospace",fontWeight:700,
-                    color:'#e8f4ff'}}>{mostSeen.type==='UNKN'?'????':mostSeen.type}</div>
-                  <div style={{fontSize:9,color:'#5a7888',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
-                    {mostSeen.tails.length} unique tails logged
-                  </div>
-                </div>
-                <svg width="32" height="32" viewBox="-12 -12 24 24" style={{opacity:0.85,flexShrink:0}}>
-                  <PlaneShape cat={mostSeen.cat||getAircraftCat(mostSeen.type!=='UNKN'?mostSeen.type:'')}
-                    color="#e8f4ff" fc={0.7}/>
-                </svg>
-              </div>
-            )}
-
-            <div style={{fontSize:9,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
-              letterSpacing:'.12em',marginBottom:8}}>BY CATEGORY</div>
-            {catRows.map(c=>(
-              <div key={c} style={{marginBottom:6}}>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
-                  <span style={{fontSize:9,color:'#7aacb8',fontFamily:"'Exo 2',sans-serif"}}>{catNames[c]}</span>
-                  <span style={{fontSize:9,color:'#4a8898',fontFamily:"'Orbitron',monospace"}}>{catCounts[c]}</span>
-                </div>
-                <div style={{height:5,background:'rgba(77,184,255,0.08)',borderRadius:3,overflow:'hidden'}}>
-                  <div style={{height:'100%',borderRadius:3,
-                    background:c==='military'?'#e879f9':c==='bizjet'?'#2dffb4':'#4db8ff',
-                    width:`${(catCounts[c]/maxCat)*100}%`,
-                    transition:'width 0.4s ease'}}/>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Gallery ─────────────────────────────────────────────────────
 function Gallery({ photos, onClose, onDelete, onClear, selected, onSelect }) {
@@ -4227,7 +3974,6 @@ export default function App() {
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
   const [showDex,     setShowDex]     = useState(false);
-  const [showStats,   setShowStats]   = useState(false);
   const [density] = useState('compact'); // compact|normal (setter unused — fixed value)
   // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
   // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
@@ -5905,11 +5651,7 @@ export default function App() {
     // 1. RAREST — highest rarity score in range
     const rarest = [...within].sort((a,b)=>rarOf(b).score-rarOf(a).score)[0];
     pick('RAREST','\u2b50', rarest);
-    // 2. PHOTO — highest-rarity uncaught-today aircraft within 10 nm, decent elevation
-    const photoCands = within.filter(f=>f.dist<=10*M_PER_NMI && (f.elev==null||f.elev>3));
-    const photo = photoCands.sort((a,b)=>rarOf(b).score-rarOf(a).score)[0];
-    pick('PHOTO','\ud83d\udcf7', photo);
-    // 3. NEW — nearest aircraft whose type isn't in the CatchDex yet
+    // 2. NEW — nearest aircraft whose type isn't in the CatchDex yet
     const newCands = within.filter(f=>!loggedTypes.has(f.type)).sort((a,b)=>a.dist-b.dist);
     pick('NEW','\ud83c\udd95', newCands[0]);
     // 4. CLOSEST — nearest aircraft overall
@@ -6500,18 +6242,18 @@ export default function App() {
               )}
               {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
               <button onClick={e=>{e.stopPropagation();
-                if(showLog||showFilters||showDex||showStats||showBoard){setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);setShowBoard(false);}
-                else{setShowDex(true);setShowLog(false);setShowFilters(false);setShowStats(false);}
+                if(showLog||showFilters||showDex||showBoard){setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}
+                else{setShowDex(true);setShowLog(false);setShowFilters(false);}
               }} style={{
-                background:(showLog||showFilters||showDex||showStats)?'rgba(77,184,255,0.1)':'transparent',
-                border:`1px solid ${(showLog||showFilters||showDex||showStats||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
+                background:(showLog||showFilters||showDex)?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${(showLog||showFilters||showDex||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 6px',cursor:'pointer',
                 display:'flex',alignItems:'center',gap:4,position:'relative'}}>
                 {/* Lines icon */}
                 <svg width="11" height="10" viewBox="0 0 11 10">
-                  <rect x="0" y="0" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
-                  <rect x="0" y="4" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
-                  <rect x="0" y="8" width="7"  height="1.5" rx="0.75" fill={(showLog||showFilters||showDex||showStats)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="0" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="4" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="8" width="7"  height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
                 </svg>
                 {/* Filter dot when active */}
                 {isFilterActive&&<div style={{width:5,height:5,borderRadius:'50%',
@@ -6525,7 +6267,7 @@ export default function App() {
               </button>
               {/* Help / Info button */}
               <button onClick={e=>{e.stopPropagation();setShowHelp(v=>!v);
-                setShowLog(false);setShowFilters(false);setShowStats(false);setShowDex(false);setShowBoard(false);setShowBoard(false);}} style={{
+                setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}} style={{
                 background:showHelp?'rgba(77,184,255,0.1)':'transparent',
                 border:`1px solid ${showHelp?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 7px',cursor:'pointer',
@@ -6548,18 +6290,18 @@ export default function App() {
       {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
       {/* Combined DEX / STATS / LOG / FILTER / BOARD tabbed panel */}
-      {(showLog||showFilters||showDex||showStats||showBoard)&&(
+      {(showLog||showFilters||showDex||showBoard)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['dex','DEX'],['stats','STATS'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
-              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='stats'&&showStats)||(t==='board'&&showBoard);
+            {[['dex','DEX'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='board'&&showBoard);
               return (
               <button key={t} onClick={()=>{
-                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowStats(t==='stats'); setShowBoard(t==='board');
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowBoard(t==='board');
               }} style={{
                 flex:1,padding:'11px 0',background:'transparent',border:'none',
                 borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
@@ -6576,7 +6318,7 @@ export default function App() {
                 )}
               </button>
             );})}
-            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowStats(false);setShowBoard(false);}} style={{
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}} style={{
               background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
               color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
               fontFamily:"'Orbitron',monospace"}}>✕</button>
@@ -6630,7 +6372,6 @@ export default function App() {
                 todayCaughtRef.current={date:todayKey(),types:new Map(),ids:new Set()};
                 try{localStorage.removeItem('soratomo_today_caught');}catch{}
               }}/>}
-            {showStats&&<Stats entries={logbook} onClose={()=>setShowStats(false)}/>}
             {showLog&&<Logbook entries={logbook} pos={pos}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}
               onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
