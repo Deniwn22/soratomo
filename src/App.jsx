@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism";
 import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
-import { computeRarity } from './rarity.js';
+import { computeRarity, GLOBAL_RARITY } from './rarity.js';
 import { loadGalleryIDB, saveGalleryIDB, deletePhotoIDB, clearGalleryIDB } from './idb.js';
 
 const D2R = Math.PI / 180;
@@ -2926,6 +2926,136 @@ function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStat
   );
 }
 
+// ── Trophy Case ─────────────────────────────────────────────────
+// Full ICAO checklist (all GLOBAL_RARITY types), grouped by category. Each entry's
+// silhouette is an outline until that type is collected, then filled and colored by
+// the rarity tier of the FIRST catch. A camera glyph fills in once the type is
+// photographed. Shows first-seen date + collect/photo counts per type.
+const TROPHY_CATS = [
+  ['military',    'MILITARY'],
+  ['milTransport','MIL TRANSPORT'],
+  ['helicopter',  'HELICOPTERS'],
+  ['super',       'SUPERJUMBO'],
+  ['jumbo',       'JUMBO'],
+  ['wide',        'WIDEBODY'],
+  ['narrow',      'NARROWBODY'],
+  ['regional',    'REGIONAL'],
+  ['bizjet',      'BUSINESS JETS'],
+  ['piston',      'PISTON / GA'],
+];
+
+const TIER_COLOR = { mythic:'#ef4444', legendary:'#f59e0b', rare:'#fbbf24', uncommon:'#2dffb4', common:'#7a98a8' };
+
+// Build the grouped master list once (module scope — never changes).
+const TROPHY_GROUPS = (() => {
+  const groups = {};
+  for(const [type] of GLOBAL_RARITY){
+    const cat = getAircraftCat(type, '');
+    (groups[cat] = groups[cat] || []).push(type);
+  }
+  return groups;
+})();
+
+function TrophyCase({ catches }){
+  const CC = '#4db8ff';
+  // Totals for the progress header
+  const allTypes = GLOBAL_RARITY.length;
+  const collected = Object.keys(catches).filter(t=>catches[t] && (catches[t].spotted>0||catches[t].captured>0)).length;
+  const photographed = Object.keys(catches).filter(t=>catches[t] && catches[t].captured>0).length;
+  const pct = Math.round((collected/allTypes)*100);
+
+  const fmtFirst = ts => {
+    if(!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+      +' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  };
+
+  return (
+    <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Progress header */}
+      <div style={{flexShrink:0,padding:'12px 14px 10px',borderBottom:`1px solid ${CC}1a`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+          <div style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,color:'#b8e4ff',letterSpacing:'.14em'}}>TROPHY CASE</div>
+          <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",color:CC}}>{collected}/{allTypes} · {pct}%</div>
+        </div>
+        <div style={{height:5,borderRadius:3,background:'rgba(77,184,255,0.12)',overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${CC},#2dffb4)`,borderRadius:3,transition:'width .4s'}}/>
+        </div>
+        <div style={{display:'flex',gap:16,marginTop:7,fontSize:9,fontFamily:"'Orbitron',monospace",color:'#5a8aa8',letterSpacing:'.08em'}}>
+          <span>✈ {collected} COLLECTED</span>
+          <span>📷 {photographed} PHOTOGRAPHED</span>
+        </div>
+      </div>
+
+      {/* Scrollable grouped grid */}
+      <div style={{flex:1,overflowY:'auto',padding:'8px 12px 24px'}}>
+        {TROPHY_CATS.map(([catKey,catLabel])=>{
+          const types = TROPHY_GROUPS[catKey] || [];
+          if(!types.length) return null;
+          const got = types.filter(t=>catches[t]&&(catches[t].spotted>0||catches[t].captured>0)).length;
+          return (
+            <div key={catKey} style={{marginBottom:18}}>
+              {/* Category header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,
+                paddingBottom:4,borderBottom:'1px solid rgba(77,184,255,0.1)'}}>
+                <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#7aacc8',
+                  letterSpacing:'.16em',fontWeight:700}}>{catLabel}</span>
+                <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#4a7898'}}>{got}/{types.length}</span>
+              </div>
+              {/* Type grid */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:7}}>
+                {types.map(type=>{
+                  const c = catches[type];
+                  const caught = !!(c && (c.spotted>0||c.captured>0));
+                  const shot = !!(c && c.captured>0);
+                  // Color: rarity tier of the FIRST catch (stored in best.tier) → fall back to category color
+                  const tierKey = c?.best?.tier;
+                  const iconColor = caught ? (TIER_COLOR[tierKey] || '#90c8e8') : '#2a4458';
+                  const collectCount = c ? (c.spotted||0)+(c.captured||0) : 0;
+                  return (
+                    <div key={type} style={{
+                      background: caught ? 'rgba(8,20,48,0.85)' : 'rgba(4,11,24,0.5)',
+                      border:`0.5px solid ${caught ? iconColor+'44' : 'rgba(25,55,95,0.4)'}`,
+                      borderRadius:8,padding:'8px 6px 7px',display:'flex',flexDirection:'column',alignItems:'center',
+                      opacity: caught ? 1 : 0.72}}>
+                      {/* Icon row: aircraft silhouette + camera glyph */}
+                      <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4}}>
+                        <svg width="30" height="30" viewBox="-12 -12 24 24" style={{display:'block',overflow:'visible',
+                          filter: caught ? `drop-shadow(0 0 3px ${iconColor}66)` : 'none'}}>
+                          {/* Caught → filled rarity color. Uncaught → muted "ghost" silhouette. */}
+                          <PlaneShape cat={catKey} color={iconColor} fc={1}/>
+                        </svg>
+                        {/* Camera — faint grayscale outline until photographed, then full emoji */}
+                        <span style={{fontSize:13,lineHeight:1,opacity: shot?1:0.28,
+                          filter: shot?'none':'grayscale(1) brightness(1.4)'}}>📷</span>
+                      </div>
+                      {/* Type code */}
+                      <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                        color: caught ? '#c8e8ff' : '#4a6878',letterSpacing:'.04em'}}>{type}</div>
+                      {/* First-seen date */}
+                      <div style={{fontSize:7.5,fontFamily:"'Exo 2',sans-serif",color: caught?'#5a8aa8':'#3a5468',marginTop:2,textAlign:'center',lineHeight:1.2}}>
+                        {caught ? fmtFirst(c.first) : 'not collected'}
+                      </div>
+                      {/* Counts */}
+                      {caught && (
+                        <div style={{fontSize:7.5,fontFamily:"'Orbitron',monospace",color:'#6a98b8',marginTop:2,letterSpacing:'.04em'}}>
+                          ✈{collectCount}{shot?` · 📷${c.captured}`:''}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 function CatchDex({ catches, daily, onShare, onClearAll }) {
   const CC = '#4db8ff';
   const [detail,    setDetail]    = React.useState(null); // a type's catch entry, for the detail view
@@ -3979,6 +4109,7 @@ export default function App() {
   const [logbook,     setLogbook]     = useState(()=>loadLog());
   const [showLog,     setShowLog]     = useState(false);
   const [showDex,     setShowDex]     = useState(false);
+  const [showTrophy,  setShowTrophy]  = useState(false);
   const [density] = useState('compact'); // compact|normal (setter unused — fixed value)
   // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
   // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
@@ -6247,11 +6378,11 @@ export default function App() {
               )}
               {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
               <button onClick={e=>{e.stopPropagation();
-                if(showLog||showFilters||showDex||showBoard){setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}
+                if(showLog||showFilters||showDex||showBoard||showTrophy){setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);setShowTrophy(false);}
                 else{setShowDex(true);setShowLog(false);setShowFilters(false);}
               }} style={{
-                background:(showLog||showFilters||showDex)?'rgba(77,184,255,0.1)':'transparent',
-                border:`1px solid ${(showLog||showFilters||showDex||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
+                background:(showLog||showFilters||showDex||showTrophy)?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${(showLog||showFilters||showDex||showTrophy||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
                 borderRadius:5,padding:'5px 6px',cursor:'pointer',
                 display:'flex',alignItems:'center',gap:4,position:'relative'}}>
                 {/* Lines icon */}
@@ -6295,18 +6426,18 @@ export default function App() {
       {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
 
       {/* Combined DEX / STATS / LOG / FILTER / BOARD tabbed panel */}
-      {(showLog||showFilters||showDex||showBoard)&&(
+      {(showLog||showFilters||showDex||showBoard||showTrophy)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
             borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
-            {[['dex','DEX'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
-              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='board'&&showBoard);
+            {[['trophy','TROPHY'],['dex','DEX'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='board'&&showBoard)||(t==='trophy'&&showTrophy);
               return (
               <button key={t} onClick={()=>{
-                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowBoard(t==='board');
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowBoard(t==='board'); setShowTrophy(t==='trophy');
               }} style={{
                 flex:1,padding:'11px 0',background:'transparent',border:'none',
                 borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
@@ -6323,7 +6454,7 @@ export default function App() {
                 )}
               </button>
             );})}
-            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}} style={{
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);setShowTrophy(false);}} style={{
               background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
               color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
               fontFamily:"'Orbitron',monospace"}}>✕</button>
@@ -6368,6 +6499,7 @@ export default function App() {
                   .catch(()=>setBoardStatus('error'));
               }}
             />}
+            {showTrophy&&<TrophyCase catches={catches}/>}
             {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}
               onClearAll={()=>{
                 // Clear catch store and daily scores
