@@ -40,6 +40,31 @@ VITE_FIREBASE_PROJECT_ID    # Firestore project
 Both must be set with `SECRETS_SCAN_OMIT_KEYS` and `SECRETS_SCAN_SMART_DETECTION_ENABLED=false`
 so Netlify's secret scanner allows the public Firebase web key in the bundle.
 
+### Optional: restrict CORS (post-launch)
+
+```
+ALLOWED_ORIGIN   # comma-separated allow-list; unset = open ('*')
+```
+
+Leave unset while testing / before the native wrapper exists. To lock down, set e.g.
+`https://soratomo.app,https://www.soratomo.app,capacitor://localhost,http://localhost:5173`.
+All four functions read this one var — no code changes needed.
+
+## Leaderboard 90-day retention (REQUIRED for privacy-policy accuracy)
+
+The privacy policy states leaderboard entries are auto-deleted 90 days after the last
+submission. The function writes an `expireAt` Firestore **timestamp** on every score
+(now + 90 days, refreshed each submit). For Firestore to actually delete on that date,
+you must enable the native TTL policy **once** in the Firebase console:
+
+1. Firebase console → Firestore Database → **TTL** tab
+2. **Create policy** → Collection group: `scores_daily`, Timestamp field: `expireAt`
+3. Save. Firestore then deletes each document within ~24–72h after its `expireAt`.
+
+Until this policy is enabled, the `expireAt` field is written but nothing acts on it —
+so the data is *not* auto-deleted and the privacy claim is not yet truthful. **Enable
+the TTL policy before launch.**
+
 ## Development
 
 ```bash

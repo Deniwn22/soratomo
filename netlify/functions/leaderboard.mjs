@@ -42,6 +42,17 @@ function toFirestoreValue(v) {
   return { stringValue: String(v) };
 }
 
+// Firestore timestamp value — required (not a string) for the native TTL policy to act on it.
+function toTimestampValue(date) {
+  return { timestampValue: date.toISOString() };
+}
+
+// Retention window for leaderboard entries. Firestore deletes a document automatically
+// once `expireAt` passes — BUT ONLY if a TTL policy on the `expireAt` field is enabled
+// in the Firebase console (Firestore → TTL). The field below makes the data eligible;
+// the console policy is the on-switch. See deployment notes.
+const RETENTION_DAYS = 90;
+
 function fromFirestoreFields(fields) {
   if(!fields) return null;
   const out = {};
@@ -102,7 +113,8 @@ export default async function handler(req, context) {
                 + `&updateMask.fieldPaths=regionLabel`
                 + `&updateMask.fieldPaths=date`
                 + `&updateMask.fieldPaths=deviceId`
-                + `&updateMask.fieldPaths=updatedAt`;
+                + `&updateMask.fieldPaths=updatedAt`
+                + `&updateMask.fieldPaths=expireAt`;
 
     const fsBody = {
       fields: {
@@ -113,6 +125,10 @@ export default async function handler(req, context) {
         date:        toFirestoreValue(date),
         deviceId:    toFirestoreValue(deviceId),
         updatedAt:   toFirestoreValue(new Date().toISOString()),
+        // expireAt = now + 90 days. Refreshed on every submit, so an active player's
+        // entry keeps sliding forward; an abandoned entry is deleted 90 days after
+        // its last update (matches the privacy policy claim once the TTL policy is on).
+        expireAt:    toTimestampValue(new Date(Date.now() + RETENTION_DAYS*24*60*60*1000)),
       }
     };
 
