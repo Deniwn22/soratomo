@@ -1983,7 +1983,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
       borderLeft:`1px solid ${isNew?'#2dffb433':color+'22'}`,
       borderRight:`1px solid ${isNew?'#2dffb433':color+'22'}`,
       borderRadius:'12px 12px 0 0',
-      padding:'6px 10px 7px',animation:'slideUp 0.28s cubic-bezier(0.2,0,0.2,1)',
+      padding:'6px 10px 7px',animation:'slideUpCentered 0.28s cubic-bezier(0.2,0,0.2,1)',
     }}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,gap:6}}>
         <div style={{minWidth:0,flex:1}}>
@@ -3718,6 +3718,7 @@ const STYLES=[
   "@keyframes targetPulse{0%,100%{box-shadow:0 0 6px rgba(255,255,255,0.15)}50%{box-shadow:0 0 14px rgba(255,255,255,0.4)}}",
   "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
   "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
+  "@keyframes slideUpCentered{from{transform:translateX(-50%) translateY(105%)}to{transform:translateX(-50%) translateY(0)}}",
   "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
   "@keyframes slideDown{from{transform:translateY(-8%);opacity:0}to{transform:translateY(0);opacity:1}}",
   "@keyframes fadeUp{0%{transform:translate(-50%,0);opacity:1}70%{transform:translate(-50%,-22px);opacity:1}100%{transform:translate(-50%,-32px);opacity:0}}",
