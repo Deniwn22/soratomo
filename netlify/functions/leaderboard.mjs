@@ -51,11 +51,27 @@ function fromFirestoreFields(fields) {
   return out;
 }
 
+// ── CORS origin control ─────────────────────────────────────────────────────
+// Single source of truth for Access-Control-Allow-Origin, driven by the
+// ALLOWED_ORIGIN env var (set in Netlify):
+//   • unset          → '*'  (open; current pre-launch behaviour, nothing breaks)
+//   • comma-sep list → echoes the request Origin if listed, else the first entry.
+// To lock down later, set ALLOWED_ORIGIN, e.g.
+//   "https://soratomo.app,https://www.soratomo.app,capacitor://localhost"
+function corsOrigin(req) {
+  const allow = (process.env.ALLOWED_ORIGIN || '').trim();
+  if (!allow) return '*';
+  const list = allow.split(',').map(s => s.trim()).filter(Boolean);
+  const origin = req?.headers?.get?.('origin') || '';
+  if (origin && list.includes(origin)) return origin;
+  return list[0] || '*';
+}
+
 // ── Handler ────────────────────────────────────────────────────────────────
 export default async function handler(req, context) {
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': corsOrigin(req),
   };
 
   if(req.method === 'OPTIONS')

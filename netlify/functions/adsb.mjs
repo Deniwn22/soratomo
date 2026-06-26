@@ -28,6 +28,7 @@ let reqCount = 0;
 export default async (req) => {
   // Path: /adsb/v2/lat/38.9123/lon/-77.0456/dist/200
   const url  = new URL(req.url);
+  const origin = corsOrigin(req);  // CORS allow-origin for all responses below
   const path = url.pathname.replace(/^\/adsb/, ''); // → /v2/lat/.../lon/.../dist/...
 
   // Extract coordinates for rounding
@@ -35,16 +36,16 @@ export default async (req) => {
   const lonM   = path.match(/\/lon\/([\d.-]+)/);
   const distM  = path.match(/\/dist\/(\d+)/);
 
-  if (!latM || !lonM) return badRequest('bad path');
+  if (!latM || !lonM) return badRequest('bad path', origin);
 
   // ── Input validation — clamp/reject before hitting upstream ───────────────
   const latV  = parseFloat(latM[1]);
   const lonV  = parseFloat(lonM[1]);
   const distV = distM ? parseInt(distM[1], 10) : 200; // default 200 nm if absent
 
-  if (!Number.isFinite(latV) || latV < -90  || latV > 90)  return badRequest('lat out of range');
-  if (!Number.isFinite(lonV) || lonV < -180 || lonV > 180) return badRequest('lon out of range');
-  if (!Number.isFinite(distV) || distV < 1  || distV > 500) return badRequest('dist must be 1–500 nm');
+  if (!Number.isFinite(latV) || latV < -90  || latV > 90)  return badRequest('lat out of range', origin);
+  if (!Number.isFinite(lonV) || lonV < -180 || lonV > 180) return badRequest('lon out of range', origin);
+  if (!Number.isFinite(distV) || distV < 1  || distV > 500) return badRequest('dist must be 1–500 nm', origin);
 
   // Round to bucket — nearby users share the same upstream request
   const lat  = parseFloat(parseFloat(latM[1]).toFixed(COORD_DP));
@@ -56,7 +57,7 @@ export default async (req) => {
   const now    = Date.now();
   const cached = cache.get(key);
   if (cached && now - cached.ts < CACHE_TTL) {
-    return jsonResponse(cached.data, true);
+    return jsonResponse(cached.data, true, 200, origin);
   }
 
   // ── Upstream fetch ─────────────────────────────────────────────
@@ -77,26 +78,44 @@ export default async (req) => {
       }
     }
 
-    return jsonResponse(data, false);
+    return jsonResponse(data, false, 200, origin);
   } catch (err) {
     // Return empty-but-valid response so the app falls back to DEMO gracefully
-    return jsonResponse({ ac: [], now: now / 1000, error: err.message }, false, 200);
+    return jsonResponse({ ac: [], now: now / 1000, error: err.message }, false, 200, origin);
   }
 };
 
-function badRequest(message) {
+// ── CORS origin control ─────────────────────────────────────────────────────
+// Single source of truth for the Access-Control-Allow-Origin header.
+// Behaviour is driven by the ALLOWED_ORIGIN env var (set in Netlify):
+//   • unset            → '*'  (open; current pre-launch behaviour, nothing breaks)
+//   • comma-sep list   → echoes the request Origin if it's in the list, else the
+//                        first listed origin. Lets one var cover the web domain,
+//                        the Capacitor/native scheme, and localhost without code edits.
+// To lock down later: set ALLOWED_ORIGIN in Netlify, e.g.
+//   "https://soratomo.app,https://www.soratomo.app,capacitor://localhost,http://localhost:5173"
+function corsOrigin(req) {
+  const allow = (process.env.ALLOWED_ORIGIN || '').trim();
+  if (!allow) return '*';                       // not configured → stay open
+  const list = allow.split(',').map(s => s.trim()).filter(Boolean);
+  const origin = req?.headers?.get?.('origin') || '';
+  if (origin && list.includes(origin)) return origin;  // echo matching origin
+  return list[0] || '*';                        // fallback to first allowed
+}
+
+function badRequest(message, origin = '*') {
   return new Response(JSON.stringify({ error: message }), {
     status: 400,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin },
   });
 }
 
-function jsonResponse(data, hit, status = 200) {
+function jsonResponse(data, hit, status = 200, origin = '*') {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type':                'application/json',
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': origin,
       'X-Cache':                     hit ? 'HIT' : 'MISS',
       // Tell Netlify's CDN to cache for 2 s — deduplicates across Lambda instances
       'Cache-Control':               'public, s-maxage=2, stale-while-revalidate=1',
