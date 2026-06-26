@@ -1976,7 +1976,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
   ];
   return (
     <div onClick={e=>e.stopPropagation()} style={{
-      position:'absolute',bottom:0,left:122,zIndex:50,
+      position:'absolute',bottom:0,left:'50%',transform:'translateX(-50%)',zIndex:50,
       width:'min(58%,320px)',maxWidth:'320px',boxSizing:'border-box',
       background:'linear-gradient(175deg,rgba(3,12,28,0.97) 0%,rgba(2,8,20,0.99) 100%)',
       borderTop:`1px solid ${isNew?'#2dffb455':color+'2a'}`,
@@ -2001,7 +2001,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
         </div>
         <button onClick={onClose} style={{background:'transparent',border:`1px solid ${color}25`,
           borderRadius:6,color:'#6a9ab8',fontSize:13,cursor:'pointer',padding:'2px 9px',flexShrink:0,
-          fontFamily:"'Orbitron',monospace",letterSpacing:'0.06em',lineHeight:1.3}}>\u2715</button>
+          fontFamily:"'Orbitron',monospace",letterSpacing:'0.06em',lineHeight:1.3}}>✕</button>
       </div>
       <div style={{background:'rgba(4,15,36,0.9)',borderRadius:6,border:`0.5px solid ${color}18`,
         padding:'3px 9px',marginBottom:3,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
