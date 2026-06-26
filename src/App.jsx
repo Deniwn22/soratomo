@@ -1976,10 +1976,11 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
   ];
   return (
     <div onClick={e=>e.stopPropagation()} style={{
-      position:'absolute',bottom:0,left:0,zIndex:50,
-      width:'min(56%,340px)',maxWidth:'340px',boxSizing:'border-box',
+      position:'absolute',bottom:0,left:122,zIndex:50,
+      width:'min(58%,320px)',maxWidth:'320px',boxSizing:'border-box',
       background:'linear-gradient(175deg,rgba(3,12,28,0.97) 0%,rgba(2,8,20,0.99) 100%)',
       borderTop:`1px solid ${isNew?'#2dffb455':color+'2a'}`,
+      borderLeft:`1px solid ${isNew?'#2dffb433':color+'22'}`,
       borderRight:`1px solid ${isNew?'#2dffb433':color+'22'}`,
       borderRadius:'12px 12px 0 0',
       padding:'6px 10px 7px',animation:'slideUp 0.28s cubic-bezier(0.2,0,0.2,1)',
