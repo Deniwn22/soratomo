@@ -1405,7 +1405,7 @@ const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}ca
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
 
 // ── AircraftMarker ─────────────────────────────────────────────
-const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedCallsigns, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/M_PER_NMI;
@@ -1554,7 +1554,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 , (prev,next)=>{
   // Only re-render if visually relevant props changed
   if(prev.isSelected!==next.isSelected||prev.isDisplayNew!==next.isDisplayNew) return false;
-  if(prev.proximityM!==next.proximityM||prev.isCatchable!==next.isCatchable||prev.loggedCallsigns!==next.loggedCallsigns||prev.loggedTypes!==next.loggedTypes) return false;
+  if(prev.proximityM!==next.proximityM||prev.isCatchable!==next.isCatchable||prev.loggedTypes!==next.loggedTypes) return false;
   if(prev.onSelect!==next.onSelect) return false;
   if(prev.f.id!==next.f.id||prev.f.cs!==next.f.cs||prev.f.type!==next.f.type) return false;
   if(prev.f.alt!==next.f.alt||prev.f.hdg!==next.f.hdg||prev.f.spd!==next.f.spd) return false;
@@ -3587,7 +3587,6 @@ function FilterPanel({
   search,onSearch,allFlights,pos,onSelect,
   typeFilter,onTypeFilter,
   minSpeedKts,maxSpeedKts,onMinSpd,onMaxSpd,
-  maxDisplayNmi,onMaxDist,
   onResetAll,onClose,
 }) {
   const results=search.trim().length>=2
@@ -3707,13 +3706,6 @@ function FilterPanel({
   );
 }
 
-const FilterIcon=({active})=>(
-  <svg width="13" height="11" viewBox="0 0 13 11">
-    <rect x="0"   y="0"   width="13" height="1.5" rx="0.75" fill={active?'#4db8ff':'#4a7898'}/>
-    <rect x="1.5" y="4"   width="10" height="1.5" rx="0.75" fill={active?'#4db8ff':'#4a7898'}/>
-    <rect x="3.5" y="8"   width="6"  height="1.5" rx="0.75" fill={active?'#4db8ff':'#4a7898'}/>
-  </svg>
-);
 
 const STYLES=[
   /* Google Fonts loaded via index.html <link> — removed from here to avoid render-blocking */
@@ -4236,10 +4228,10 @@ export default function App() {
   const [showLog,     setShowLog]     = useState(false);
   const [showDex,     setShowDex]     = useState(false);
   const [showStats,   setShowStats]   = useState(false);
-  const [density,     setDensity]     = useState('compact'); // compact|normal
+  const [density] = useState('compact'); // compact|normal (setter unused — fixed value)
   // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
   // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
-  const [camFov, setCamFov] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov_v2')||'77');}catch{return 77;}});
+  const [camFov] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov_v2')||'77');}catch{return 77;}}); // setter unused
   // Landmark calibration removed (tap-to-align replaced it). These stay false
   // so the camera-view dimming logic that references them remains inert.
   const calibShow = false, calibPrompt = false;
@@ -4274,8 +4266,7 @@ export default function App() {
   const [showBoard,   setShowBoard]   = useState(false);
   const [boardData,   setBoardData]   = useState([]); // [{callsign,score,deviceId,regionLabel}]
   const [boardStatus, setBoardStatus] = useState('idle'); // 'idle'|'loading'|'ok'|'error'
-  const [showCallsignSetup, setShowCallsignSetup] = useState(false);
-  const deviceId = useRef(getDeviceId());
+  const [deviceId] = useState(getDeviceId); // stable device id — set once, read during render OK
   const submitTimer = useRef(null);
 
   // Auto-fetch leaderboard when BOARD tab opens; auto-refresh every 60s while open
@@ -4330,7 +4321,7 @@ export default function App() {
   const [showGallery, setShowGallery] = useState(false);
   const [galSelected, setGalSelected] = useState(null); // enlarged photo
   const prevMappedRef = useRef(new Set());
-  const [proximityNmi,setProximityNmi]= useState(()=>loadProx());
+  const [proximityNmi]= useState(()=>loadProx()); // setter unused
   const [toasts,      setToasts]      = useState([]);
   const [typeFilter,  setTypeFilter]  = useState('all');
   const [minSpeedKts, setMinSpeedKts] = useState(0);
@@ -4391,7 +4382,7 @@ export default function App() {
       const info = geomagnetism.model().point([pos.lat, pos.lon]);
       magDeclRef.current = info.decl;   // east-positive: true = magnetic + decl
       declAnchor.current = {lat:pos.lat, lon:pos.lon};
-    }catch(e){ /* model failure → leave previous value (0 = uncorrected, same as before) */ }
+    }catch{ /* model failure → leave previous value (0 = uncorrected, same as before) */ }
   },[pos]);
 
   // Derived: all logged callsigns including this session
@@ -4821,9 +4812,9 @@ export default function App() {
         const newToday  = prevToday + result.score;
         const days = {...prev.days, [tk]: newToday};
         // Prior best EXCLUDING today, so beating your own earlier-today total isn't a 'record'
-        let priorBest = 0, priorDate = null;
+        let priorBest = 0;
         for(const [d,s] of Object.entries(prev.days)){
-          if(d!==tk && s>priorBest){ priorBest=s; priorDate=d; }
+          if(d!==tk && s>priorBest){ priorBest=s; }
         }
         const crossed = prevToday <= priorBest && newToday > priorBest && priorBest > 0;
         const best = newToday >= (prev.best?.score||0) ? {date:tk, score:newToday} : prev.best;
@@ -4842,7 +4833,7 @@ export default function App() {
             region: reg.code,
             regionLabel: reg.label,
             date: tk,
-            deviceId: deviceId.current,
+            deviceId: deviceId,
           }).catch(()=>{}); // silent fail — offline is fine
         }, 30000);
         // Celebrate only on a genuine crossing of a non-zero prior record (not the very first day)
@@ -5095,7 +5086,7 @@ export default function App() {
       const thumb=TC.toDataURL('image/jpeg',0.65);
       const entry={id:ts,timestamp:ts,thumb,heading:Math.round(heading),count:mapped.length};
       setGallery(prev=>{const next=[entry,...prev].slice(0,20);saveGalleryIDB(next);return next;});
-    }catch(err){}
+    }catch{}
   };
 
   useEffect(()=>{
@@ -6599,12 +6590,11 @@ export default function App() {
               typeFilter={typeFilter} onTypeFilter={setTypeFilter}
               minSpeedKts={minSpeedKts} maxSpeedKts={maxSpeedKts}
               onMinSpd={setMinSpeedKts} onMaxSpd={setMaxSpeedKts}
-              maxDisplayNmi={maxDisplayNmi} onMaxDist={setMaxDisplayNmi}
               onResetAll={handleResetAllFilters}
               onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
             {showBoard&&<LeaderboardPanel
               callsign={callsign}
-              deviceId={deviceId.current}
+              deviceId={deviceId}
               daily={daily}
               pos={pos}
               boardData={boardData}
@@ -6618,7 +6608,7 @@ export default function App() {
                 const reg=regionFor(pos.lat,pos.lon);
                 // Submit even at score 0 so the server can validate the callsign up front.
                 await submitScore({callsign:cs,score:Math.max(score,0),region:reg.code,
-                  regionLabel:reg.label,date:tk,deviceId:deviceId.current});
+                  regionLabel:reg.label,date:tk,deviceId:deviceId});
                 // Only reached if submitScore resolved (server accepted) — now persist.
                 setCallsign(cs);
                 try{localStorage.setItem(CALLSIGN_KEY,cs);}catch{}
@@ -6716,7 +6706,7 @@ export default function App() {
             dimmed={selectedId!==null&&selectedId!==f.id}
             tiltMode={tiltMode}
             onSelect={handleAircraftSelect}
-            loggedCallsigns={loggedCallsigns} loggedTypes={loggedTypes}
+            loggedTypes={loggedTypes}
             proximityM={proximityM}
             isCatchable={f.dist<=10*M_PER_NMI}
             isDisplayNew={displayNewIds.has(f.id)}/>
