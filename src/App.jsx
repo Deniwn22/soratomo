@@ -1978,10 +1978,10 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
     <div onClick={e=>e.stopPropagation()} style={{
       position:'absolute',bottom:0,left:0,right:0,zIndex:50,
       background:'linear-gradient(175deg,rgba(3,12,28,0.97) 0%,rgba(2,8,20,0.99) 100%)',
-      borderTop:`1px solid ${isNew?'#2dffb455':color+'2a'}`,borderRadius:'14px 14px 0 0',
-      padding:'16px 16px 18px',animation:'slideUp 0.28s cubic-bezier(0.2,0,0.2,1)',
+      borderTop:`1px solid ${isNew?'#2dffb455':color+'2a'}`,borderRadius:'12px 12px 0 0',
+      padding:'9px 11px 10px',animation:'slideUp 0.28s cubic-bezier(0.2,0,0.2,1)',
     }}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{fontSize:21,fontFamily:"'Orbitron',monospace",fontWeight:700,color,
@@ -1990,24 +1990,24 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
               border:'1px solid #2dffb455',borderRadius:4,padding:'2px 6px',
               color:'#2dffb4',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>NEW</div>}
           </div>
-          <div style={{fontSize:12,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",marginTop:4}}>
+          <div style={{fontSize:12,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
             {f.airline}{f.type&&<span style={{color:'#5a8898',marginLeft:8}}>· {f.type}</span>}
             <span style={{color:'#3a6878',marginLeft:6,fontSize:11}}>({catLabel})</span>
           </div>
         </div>
         <button onClick={onClose} style={{background:'transparent',border:`1px solid ${color}25`,
-          borderRadius:6,color:'#6a9ab8',fontSize:12,cursor:'pointer',padding:'4px 10px',
+          borderRadius:6,color:'#6a9ab8',fontSize:12,cursor:'pointer',padding:'3px 8px',
           fontFamily:"'Orbitron',monospace",letterSpacing:'0.06em'}}>X CLOSE</button>
       </div>
-      <div style={{background:'rgba(4,15,36,0.9)',borderRadius:7,border:`0.5px solid ${color}18`,
-        padding:'6px 10px',marginBottom:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div style={{background:'rgba(4,15,36,0.9)',borderRadius:6,border:`0.5px solid ${color}18`,
+        padding:'4px 9px',marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>OVER</span>
         <span style={{fontSize:12,color:'#a8d8f0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{over}</span>
       </div>
       {/* Rarity indicator */}
-      <div style={{background:`${rarity.color}14`,borderRadius:7,
+      <div style={{background:`${rarity.color}14`,borderRadius:6,
         border:`0.5px solid ${rarity.color}45`,
-        padding:'6px 10px',marginBottom:6,
+        padding:'4px 9px',marginBottom:4,
         display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",
           letterSpacing:'.1em'}}>RARITY</span>
@@ -2025,7 +2025,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
         return (
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
             background:`${cc}10`,border:`0.5px solid ${cc}35`,
-            borderRadius:7,padding:'5px 10px',marginBottom:10}}>
+            borderRadius:6,padding:'4px 9px',marginBottom:4}}>
             <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>ACCURACY</span>
             <div style={{textAlign:'right'}}>
               <span style={{fontSize:11,color:cc,fontFamily:"'Orbitron',monospace",fontWeight:700,letterSpacing:'.1em'}}>● {f.confidence}</span>
@@ -2034,23 +2034,23 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           </div>
         );
       })()}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
         {stats.map(s=>(
-          <div key={s.l} style={{background:'rgba(8,20,48,0.85)',borderRadius:8,
-            padding:'8px 9px',border:'0.5px solid rgba(25,55,95,0.7)'}}>
-            <div style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'0.07em',marginBottom:4}}>{s.l}</div>
+          <div key={s.l} style={{background:'rgba(8,20,48,0.85)',borderRadius:6,
+            padding:'5px 7px',border:'0.5px solid rgba(25,55,95,0.7)'}}>
+            <div style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'0.07em',marginBottom:2}}>{s.l}</div>
             <div style={{fontSize:12,color:'#90c8e8',fontFamily:"'Orbitron',monospace",fontWeight:600,whiteSpace:'nowrap'}}>{s.v}</div>
           </div>
         ))}
       </div>
       {/* Action buttons */}
-      <div style={{display:'flex',flexDirection:'column',gap:7,marginTop:10}}>
+      <div style={{display:'flex',flexDirection:'column',gap:6,marginTop:7}}>
         <button onClick={()=>shareAircraft({
           cs:f.cs,airline:f.airline,type:f.type,catLabel,
           altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
           distNmiVal:distNmi(f.dist),bearDeg:Math.round(f.bear),
           hdgDeg:Math.round(f.hdg),location:over,timestamp:Date.now(),
-        })} style={{width:'100%',padding:'9px 0',
+        })} style={{width:'100%',padding:'7px 0',
           background:'transparent',borderRadius:7,cursor:'pointer',
           border:'1px solid rgba(77,184,255,0.28)',color:'#4db8ff',
           fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
