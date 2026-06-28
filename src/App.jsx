@@ -150,8 +150,10 @@ const getAircraftCat = (icao, emitter='') => {
 const PlaneShape = ({cat, color, fc, icao=''}) => {
   const f = Math.max(0.38, fc); // floor raised: wings always legible (was 0.08 → near-invisible head-on)
 
-  // icao-specific shapes take priority; falls through to category shape for everything else
-  switch(icao || cat){
+  // icao-specific shapes take priority; falls through to category shape for everything else.
+  // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
+  const ICAO_SHAPES = {'F22':1};
+  switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
       // F-22 Raptor — user-supplied silhouette, traced from reference (SVG viewBox 0 0 200 200).
