@@ -146,23 +146,35 @@ const getAircraftCat = (icao, emitter='') => {
 // Uses SVG mask: the uploaded image (white silhouette on transparent bg)
 // reveals the `color` fill only where the aircraft shape is.
 // Scales cleanly at any icon size; takes the rarity tier color automatically.
-const F22_MASK_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABiElEQVR4nO1aSRLDIAyz+/8/t5emkyGUsMgWAevUmSRYFmIxVISI9xdMDi9m8BlAE+Dc80wXhAMYQXM9znJBOMA7YKmnGS4IB7AJsBECsAmwEQKwCbARArAJsLG9AOoVqHWXp6ou3MyDjG5vrYUwHQKIvb11fWAmAJK4pQjbT4IhAJsAGyEAmwAbIQCbABshAJsAGyb7bMudG7o2gDbmda6PFAHSEOtaCyHE8BzAvNlFxO5WkP3HhhS9buhywGzJi/RzalJtxsRzaHFDtQOekrxIG9dbpZ6UeA53big64OnJi9znkFVnhcRzyLnh4oBVkxfJ56alhyvjcIPulniK7cvhEIBNgI0QwOsaekaoqr6OH2wy3vgtg+mD1ZfFtLOXLoZqnL39iRBs7HsLgpq3YhlENMIYDqiYcSzuFfwYs7cnNJXv/fuuFe7H4iWiIxNbL6dmAXoCXTYfmURr3rHg1iQAInnrb5uHjmUA1FptOR+YOQB6hW1YrMEdYF1ZouMPkz0T8iqrkTE/s+/kHPkxZBwAAAAASUVORK5CYII=';
-const F22Shape = ({color}) => (
-  <g>
-    <defs>
-      <mask id="f22m" maskUnits="userSpaceOnUse" x="-12" y="-12" width="24" height="24">
-        <image href={F22_MASK_URI} x="-12" y="-12" width="24" height="24"
-          preserveAspectRatio="xMidYMid meet"/>
-      </mask>
-    </defs>
-    <rect x="-12" y="-12" width="24" height="24" fill={color} mask="url(#f22m)"/>
-  </g>
-);
 
-const PlaneShape = ({cat, color, fc}) => {
+const PlaneShape = ({cat, color, fc, icao=''}) => {
   const f = Math.max(0.38, fc); // floor raised: wings always legible (was 0.08 → near-invisible head-on)
 
-  switch(cat){
+  // icao-specific shapes take priority; falls through to category shape for everything else
+  switch(icao || cat){
+
+    case 'F22': {
+      // F-22 Raptor — user-supplied silhouette, traced from reference (SVG viewBox 0 0 200 200).
+      // Path transformed to PlaneShape coords (±12, nose at min-y). Scale driven by fc so
+      // the icon shrinks at head-on viewing angles like other categories.
+      const s = Math.max(0.38, fc);
+      // Scale the path: nominal is s=1 → fits ±11. Apply s as a uniform scale factor.
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.86,-8.82)} L${P(-1.09,-5.73)} L${P(-2.12,-4.70)}` +
+          ` L${P(-2.58,-1.38)} L${P(-7.96,3.55)} L${P(-7.96,4.93)} L${P(-7.05,5.84)}` +
+          ` L${P(-3.61,7.10)} L${P(-3.61,7.33)} L${P(-5.21,8.94)} L${P(-5.21,10.43)}` +
+          ` L${P(-3.27,11.00)} L${P(-1.55,9.40)} L${P(-1.32,8.25)} L${P(-0.74,8.48)}` +
+          ` L${P(-0.29,8.14)} L${P(-0.17,9.40)} L${P(0.06,9.51)} L${P(0.29,8.14)}` +
+          ` L${P(0.74,8.48)} L${P(1.32,8.25)} L${P(1.55,9.28)} L${P(3.27,11.00)}` +
+          ` L${P(5.21,10.43)} L${P(5.21,8.94)} L${P(3.61,7.56)} L${P(3.38,7.10)}` +
+          ` L${P(6.36,6.07)} L${P(7.39,5.50)} L${P(7.96,4.93)} L${P(7.96,3.55)}` +
+          ` L${P(2.58,-1.38)} L${P(2.12,-4.70)} L${P(1.09,-5.61)} L${P(0.86,-8.82)}` +
+          ` L${P(0.29,-10.54)} Z`
+        }/>
+      );
+    }
 
     case 'super': {
       // A380 — enormous double-deck, 4 engines, massive wingspan
@@ -1505,9 +1517,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
             filter:`drop-shadow(0 0 ${isNearby?6:4}px ${ringColor}88)`,
             transform:`rotate(${aspect}deg)`,
           }}>
-          {f.type&&(f.type==='F22'||f.type.startsWith('F22'))
-            ? <F22Shape color={color}/>
-            : <PlaneShape cat={cat} color={color} fc={wingFC}/>}
+          <PlaneShape cat={cat} color={color} fc={wingFC} icao={f.type||''}/>
         </svg>
         {/* Accuracy dot — green=HIGH, yellow=MED, orange=LOW confidence (tilt mode only) */}
         {tiltMode && f.confidence && (()=>{
@@ -3024,7 +3034,7 @@ function TrophyCase({ catches }){
                         <svg width="30" height="30" viewBox="-12 -12 24 24" style={{display:'block',overflow:'visible',
                           filter: caught ? `drop-shadow(0 0 3px ${iconColor}66)` : 'none'}}>
                           {/* Caught → filled rarity color. Uncaught → muted "ghost" silhouette. */}
-                          <PlaneShape cat={catKey} color={iconColor} fc={1}/>
+                          <PlaneShape cat={catKey} color={iconColor} fc={1} icao={type}/>
                         </svg>
                         {/* Camera — faint grayscale outline until photographed, then full emoji */}
                         <span style={{fontSize:13,lineHeight:1,opacity: shot?1:0.28,
@@ -3512,7 +3522,7 @@ function Logbook({ entries, pos, onClose, onClear }) {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <svg width="26" height="26" viewBox="-12 -12 24 24" style={{flexShrink:0,opacity:0.85}}>
-                    <PlaneShape cat={cat} color={col} fc={0.7}/>
+                    <PlaneShape cat={cat} color={col} fc={0.7} icao={e.type||''}/>
                   </svg>
                   <div>
                     <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
