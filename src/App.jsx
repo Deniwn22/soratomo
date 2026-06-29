@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -199,6 +199,46 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(8.99,5.25)} L${P(9.21,4.55)} L${P(8.73,3.81)} L${P(3.32,-0.50)}` +
           ` L${P(3.43,-2.41)} L${P(2.51,-2.34)} L${P(2.47,-1.23)} L${P(1.36,-2.12)}` +
           ` L${P(1.14,-1.93)} L${P(1.03,-8.46)} L${P(0.55,-10.41)} Z`
+        }/>
+      );
+    }
+
+    case 'C172':
+    case 'C182': {
+      // Cessna 172/182 — user-supplied top-down silhouette.
+      // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
+      // Wide straight wing profile, high-wing characteristic shape.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-10.82,-3.99)} L${P(-11.00,-1.64)} L${P(-4.69,-0.75)} L${P(-0.94,-0.71)}` +
+          ` L${P(-0.37,4.17)} L${P(-3.19,4.71)} L${P(-3.41,5.63)} L${P(-3.16,6.28)}` +
+          ` L${P(-0.98,6.60)} L${P(-0.27,5.99)} L${P(-0.05,7.74)} L${P(0.23,5.92)}` +
+          ` L${P(0.98,6.60)} L${P(3.16,6.28)} L${P(3.37,5.81)} L${P(3.19,4.71)}` +
+          ` L${P(0.37,4.17)} L${P(0.98,-0.75)} L${P(4.69,-0.75)} L${P(11.00,-1.68)}` +
+          ` L${P(10.71,-4.03)} L${P(1.12,-4.24)} L${P(0.91,-6.74)} L${P(0.23,-7.38)}` +
+          ` L${P(2.01,-7.49)} L${P(0.02,-7.74)} L${P(-2.05,-7.49)} L${P(-0.23,-7.38)}` +
+          ` L${P(-0.94,-6.67)} L${P(-1.12,-4.24)} Z`
+        }/>
+      );
+    }
+
+    case 'CRJ9': {
+      // CRJ900 regional jet — user-supplied top-down silhouette.
+      // Path transformed from viewBox "0 0 64 64" → PlaneShape coords (±11 tall, ±7.5 wide).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.10,-11.00)} L${P(-0.85,-9.02)} L${P(-0.85,-2.53)} L${P(-7.07,1.23)}` +
+          ` L${P(-7.48,2.32)} L${P(-2.97,0.89)} L${P(-1.06,0.89)} L${P(-0.79,1.64)}` +
+          ` L${P(-0.85,3.96)} L${P(-1.88,4.17)} L${P(-1.61,6.49)} L${P(-0.44,7.04)}` +
+          ` L${P(-0.17,8.47)} L${P(-2.97,10.39)} L${P(-3.11,11.00)} L${P(-0.31,10.18)}` +
+          ` L${P(3.11,11.00)} L${P(2.84,10.25)} L${P(0.17,8.47)} L${P(0.44,6.97)}` +
+          ` L${P(1.54,6.56)} L${P(1.88,5.33)} L${P(1.88,4.17)} L${P(0.92,3.96)}` +
+          ` L${P(0.92,0.96)} L${P(2.90,0.89)} L${P(7.34,2.39)} L${P(7.48,2.19)}` +
+          ` L${P(7.21,1.30)} L${P(0.92,-2.46)} L${P(0.92,-8.54)} L${P(0.58,-10.18)} Z`
         }/>
       );
     }
