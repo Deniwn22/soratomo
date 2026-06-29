@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -174,6 +174,31 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(6.36,6.07)} L${P(7.39,5.50)} L${P(7.96,4.93)} L${P(7.96,3.55)}` +
           ` L${P(2.58,-1.38)} L${P(2.12,-4.70)} L${P(1.09,-5.61)} L${P(0.86,-8.82)}` +
           ` L${P(0.29,-10.54)} Z`
+        }/>
+      );
+    }
+
+    case 'B737':
+    case 'B738':
+    case 'B739':
+    case 'B38M':
+    case 'B39M': {
+      // Boeing 737 family (Classic, NG, MAX) — user-supplied top-down silhouette.
+      // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
+      // fc drives uniform scale so the icon foreshortens at head-on viewing angles.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-11.00)} L${P(-1.07,-8.13)} L${P(-1.14,-1.93)} L${P(-1.36,-2.12)}` +
+          ` L${P(-2.47,-1.20)} L${P(-2.51,-2.34)} L${P(-3.43,-2.41)} L${P(-3.32,-0.50)}` +
+          ` L${P(-8.73,3.81)} L${P(-9.21,4.74)} L${P(-8.99,5.25)} L${P(-3.28,2.56)}` +
+          ` L${P(-1.07,2.41)} L${P(-0.74,7.39)} L${P(-3.24,9.34)} L${P(-3.24,10.12)}` +
+          ` L${P(-0.55,9.49)} L${P(0.04,11.00)} L${P(0.55,9.49)} L${P(3.24,10.12)}` +
+          ` L${P(3.24,9.34)} L${P(0.74,7.39)} L${P(1.11,2.38)} L${P(3.28,2.56)}` +
+          ` L${P(8.99,5.25)} L${P(9.21,4.55)} L${P(8.73,3.81)} L${P(3.32,-0.50)}` +
+          ` L${P(3.43,-2.41)} L${P(2.51,-2.34)} L${P(2.47,-1.23)} L${P(1.36,-2.12)}` +
+          ` L${P(1.14,-1.93)} L${P(1.03,-8.46)} L${P(0.55,-10.41)} Z`
         }/>
       );
     }
