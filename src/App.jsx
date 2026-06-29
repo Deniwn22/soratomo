@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ':1,'CRJ2':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -239,6 +239,27 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(1.54,6.56)} L${P(1.88,5.33)} L${P(1.88,4.17)} L${P(0.92,3.96)}` +
           ` L${P(0.92,0.96)} L${P(2.90,0.89)} L${P(7.34,2.39)} L${P(7.48,2.19)}` +
           ` L${P(7.21,1.30)} L${P(0.92,-2.46)} L${P(0.92,-8.54)} L${P(0.58,-10.18)} Z`
+        }/>
+      );
+    }
+
+    case 'CRJ':
+    case 'CRJ2': {
+      // CRJ-100/200 regional jet — user-supplied top-down silhouette (viewBox 0 0 215 271).
+      // Slightly wider than CRJ9, shorter fuselage. Path centered and scaled to PlaneShape coords.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.04,-11.00)} L${P(-0.71,-9.91)} L${P(-1.05,-8.41)} L${P(-1.13,-3.05)}` +
+          ` L${P(-3.47,-1.30)} L${P(-7.99,0.96)} L${P(-8.66,1.80)} L${P(-8.66,2.47)}` +
+          ` L${P(-3.47,0.63)} L${P(-1.21,0.63)} L${P(-1.05,2.55)} L${P(-2.22,2.80)}` +
+          ` L${P(-2.30,4.14)} L${P(-1.88,5.73)} L${P(-0.54,6.23)} L${P(-0.13,8.32)}` +
+          ` L${P(-2.55,10.00)} L${P(-2.80,11.00)} L${P(-0.29,10.16)} L${P(2.89,11.00)}` +
+          ` L${P(2.80,10.08)} L${P(0.21,8.32)} L${P(0.63,6.32)} L${P(1.97,5.73)}` +
+          ` L${P(2.38,4.22)} L${P(2.30,2.72)} L${P(1.21,2.63)} L${P(1.21,0.71)}` +
+          ` L${P(3.56,0.63)} L${P(8.41,2.22)} L${P(8.66,1.80)} L${P(8.07,0.88)}` +
+          ` L${P(3.47,-1.38)} L${P(1.21,-3.14)} L${P(1.13,-8.57)} L${P(0.79,-10.00)} Z`
         }/>
       );
     }
