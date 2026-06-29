@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -299,6 +299,31 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(10.43,0.03)} L${P(6.12,-2.46)} L${P(6.46,-4.68)} L${P(5.38,-4.68)}` +
           ` L${P(5.25,-2.93)} L${P(3.30,-4.07)} L${P(3.57,-6.36)} L${P(2.62,-6.29)}` +
           ` L${P(2.62,-4.54)} L${P(1.75,-5.01)} L${P(1.21,-8.51)} L${P(0.27,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'B742':
+    case 'B743':
+    case 'B744':
+    case 'B748': {
+      // Boeing 747 family (all variants) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(7.373,3) scale(0.230159) resolved.
+      // Distinctive double-swept wing break; ±9.2 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.09,-11.00)} L${P(-0.92,-8.70)} L${P(-1.01,-4.56)} L${P(-2.95,-2.81)}` +
+          ` L${P(-3.31,-3.45)} L${P(-4.05,-3.45)} L${P(-3.96,-1.89)} L${P(-5.71,-0.23)}` +
+          ` L${P(-6.08,-0.87)} L${P(-6.90,-0.87)} L${P(-6.72,0.60)} L${P(-9.21,2.99)}` +
+          ` L${P(-9.21,4.10)} L${P(-4.97,1.70)} L${P(-1.10,0.14)} L${P(-0.64,7.69)}` +
+          ` L${P(-3.31,10.26)} L${P(-3.41,11.00)} L${P(-0.55,10.17)} L${P(3.41,11.00)}` +
+          ` L${P(3.31,10.26)} L${P(0.64,7.69)} L${P(1.01,0.23)} L${P(3.22,0.87)}` +
+          ` L${P(9.02,4.10)} L${P(9.21,2.99)} L${P(6.72,0.69)} L${P(6.81,-0.87)}` +
+          ` L${P(6.08,-0.87)} L${P(5.71,-0.23)} L${P(3.87,-1.98)} L${P(4.05,-3.45)}` +
+          ` L${P(3.31,-3.45)} L${P(2.95,-2.81)} L${P(1.01,-4.56)} L${P(0.92,-8.70)}` +
+          ` L${P(0.37,-10.63)} Z`
         }/>
       );
     }
