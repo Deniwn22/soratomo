@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ':1,'CRJ2':1,'C17':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -224,9 +224,8 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       );
     }
 
-    case 'CRJ9': {
-      // CRJ900 regional jet — user-supplied top-down silhouette.
-      // Path transformed from viewBox "0 0 64 64" → PlaneShape coords (±11 tall, ±7.5 wide).
+    case 'CRJ7': {
+      // CRJ-700 — silhouette (±7.5 wide, ±11 tall).
       const s = Math.max(0.38, fc);
       const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
       return (
@@ -239,6 +238,24 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(1.54,6.56)} L${P(1.88,5.33)} L${P(1.88,4.17)} L${P(0.92,3.96)}` +
           ` L${P(0.92,0.96)} L${P(2.90,0.89)} L${P(7.34,2.39)} L${P(7.48,2.19)}` +
           ` L${P(7.21,1.30)} L${P(0.92,-2.46)} L${P(0.92,-8.54)} L${P(0.58,-10.18)} Z`
+        }/>
+      );
+    }
+
+    case 'CRJ9': {
+      // CRJ-900 — distinct silhouette (±6.7 wide, ±11 tall — longer/narrower than -700).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.03,-11.00)} L${P(-0.77,-9.10)} L${P(-0.83,-1.44)} L${P(-6.40,1.87)}` +
+          ` L${P(-6.71,2.85)} L${P(-2.60,1.50)} L${P(-0.89,1.50)} L${P(-0.77,4.75)}` +
+          ` L${P(-1.62,4.81)} L${P(-1.69,5.79)} L${P(-1.38,7.02)} L${P(-0.34,7.45)}` +
+          ` L${P(-0.09,8.73)} L${P(-2.67,10.45)} L${P(-2.73,10.94)} L${P(0.28,10.26)}` +
+          ` L${P(2.79,11.00)} L${P(2.73,10.45)} L${P(0.15,8.67)} L${P(0.40,7.38)}` +
+          ` L${P(1.44,6.96)} L${P(1.75,5.48)} L${P(1.62,4.75)} L${P(0.83,4.69)}` +
+          ` L${P(0.83,1.56)} L${P(2.60,1.50)} L${P(6.59,2.85)} L${P(6.71,2.48)}` +
+          ` L${P(6.47,1.87)} L${P(0.83,-1.56)} L${P(0.83,-8.98)} L${P(0.58,-10.20)} Z`
         }/>
       );
     }
