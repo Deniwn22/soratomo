@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A320':1,'A321':1,'P28A':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -203,6 +203,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       );
     }
 
+    case 'C150':
     case 'C172':
     case 'C182': {
       // Cessna 172/182 — user-supplied top-down silhouette.
@@ -324,6 +325,48 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(6.08,-0.87)} L${P(5.71,-0.23)} L${P(3.87,-1.98)} L${P(4.05,-3.45)}` +
           ` L${P(3.31,-3.45)} L${P(2.95,-2.81)} L${P(1.01,-4.56)} L${P(0.92,-8.70)}` +
           ` L${P(0.37,-10.63)} Z`
+        }/>
+      );
+    }
+
+    case 'A320':
+    case 'A321': {
+      // Airbus A320/A321 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(7.2,3) scale(0.4) resolved.
+      // Narrow swept-wing narrowbody; ±10.1 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.17,-11.00)} L${P(-1.03,-9.28)} L${P(-1.20,-3.44)} L${P(-2.75,-2.92)}` +
+          ` L${P(-2.92,-4.47)} L${P(-3.78,-4.47)} L${P(-3.78,-2.23)} L${P(-10.14,1.20)}` +
+          ` L${P(-10.14,2.06)} L${P(-7.05,1.38)} L${P(-5.84,0.69)} L${P(-4.81,0.69)}` +
+          ` L${P(-4.30,0.17)} L${P(-1.38,0.00)} L${P(-0.69,7.91)} L${P(-3.27,9.80)}` +
+          ` L${P(-3.78,10.83)} L${P(-0.52,10.14)} L${P(-0.17,11.00)} L${P(0.17,11.00)}` +
+          ` L${P(0.52,10.14)} L${P(3.78,10.83)} L${P(3.78,10.31)} L${P(0.86,8.08)}` +
+          ` L${P(1.20,0.17)} L${P(4.30,0.17)} L${P(10.14,2.06)} L${P(10.14,1.38)}` +
+          ` L${P(4.13,-1.89)} L${P(3.95,-4.47)} L${P(2.92,-4.30)} L${P(2.75,-2.75)}` +
+          ` L${P(1.20,-3.61)} L${P(1.03,-9.45)} L${P(0.34,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'P28A': {
+      // Piper PA-28 Cherokee — user-supplied top-down silhouette.
+      // Low-wing piston; distinctly wider than tall (±11 wide, ±8.6 tall).
+      // Path from viewBox "0 0 64 64" with translate(3,8.08) scale(0.423358) resolved.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-10.83,-2.75)} L${P(-11.00,-1.20)} L${P(-10.14,-0.52)} L${P(-1.38,0.00)}` +
+          ` L${P(-0.52,6.70)} L${P(-3.78,6.88)} L${P(-3.78,8.59)} L${P(3.78,8.42)}` +
+          ` L${P(3.95,7.22)} L${P(3.61,6.88)} L${P(0.52,6.70)} L${P(1.20,0.34)}` +
+          ` L${P(1.55,-0.17)} L${P(10.66,-0.69)} L${P(11.00,-1.37)} L${P(11.00,-2.23)}` +
+          ` L${P(10.48,-2.92)} L${P(6.02,-3.44)} L${P(2.92,-3.27)} L${P(1.37,-4.13)}` +
+          ` L${P(1.20,-7.56)} L${P(3.09,-7.73)} L${P(3.09,-8.08)} L${P(0.52,-8.08)}` +
+          ` L${P(0.17,-8.59)} L${P(-0.86,-8.08)} L${P(-3.27,-8.08)} L${P(-3.27,-7.73)}` +
+          ` L${P(-1.20,-7.56)} L${P(-1.55,-3.95)} L${P(-2.92,-3.27)} L${P(-5.84,-3.44)} Z`
         }/>
       );
     }
