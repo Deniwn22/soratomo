@@ -4226,9 +4226,14 @@ function FilterPanel({
   altFloor,altCeiling,onFloor,onCeiling,
   search,onSearch,allFlights,pos,onSelect,
   typeFilter,onTypeFilter,
+  icaoFilter,onToggleIcao,catches,
   minSpeedKts,maxSpeedKts,onMinSpd,onMaxSpd,
   onResetAll,onClose,
 }) {
+  const [typeGridOpen, setTypeGridOpen] = React.useState(false);
+  const [caughtOnly, setCaughtOnly] = React.useState(false);
+  // Same grouped list as the Trophy Case — base rarity table + any caught types beyond it.
+  const typeGroups = React.useMemo(()=>buildTrophyGroups(catches||{}), [catches]);
   const results=search.trim().length>=2
     ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
 
@@ -4307,6 +4312,70 @@ function FilterPanel({
             }}>{lbl}</div>
           ))}
         </div>
+
+        {/* ── Specific aircraft type — multi-select from the Trophy Case list ── */}
+        <div onClick={()=>setTypeGridOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',
+          alignItems:'center',cursor:'pointer',padding:'5px 2px',marginBottom:typeGridOpen?6:0}}>
+          <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#7aacc8',letterSpacing:'.1em'}}>
+            SPECIFIC TYPE {icaoFilter.size>0 && <span style={{color:'#4db8ff'}}>· {icaoFilter.size} SELECTED</span>}
+          </span>
+          <span style={{fontSize:10,color:'#4a7898',transform:typeGridOpen?'rotate(90deg)':'none',
+            display:'inline-block',transition:'transform .15s'}}>›</span>
+        </div>
+        {typeGridOpen && (
+          <div style={{marginBottom:8}}>
+            {/* Caught-only / all-types shortcut toggle */}
+            <div style={{display:'flex',gap:5,marginBottom:8}}>
+              {[['ALL TYPES',false],['CAUGHT ONLY',true]].map(([lbl,val])=>(
+                <div key={lbl} onClick={()=>setCaughtOnly(val)} style={{
+                  flex:1,textAlign:'center',padding:'4px 0',cursor:'pointer',borderRadius:5,
+                  background:caughtOnly===val?'rgba(45,255,180,0.14)':'transparent',
+                  border:`1px solid ${caughtOnly===val?'#2dffb4':'rgba(77,184,255,0.18)'}`,
+                  fontSize:8,color:caughtOnly===val?'#2dffb4':'#4a7888',
+                  fontFamily:"'Orbitron',monospace",fontWeight:caughtOnly===val?600:400,
+                }}>{lbl}</div>
+              ))}
+            </div>
+            <div style={{maxHeight:260,overflowY:'auto',paddingRight:2}}>
+              {TROPHY_CATS.map(([catKey,catLabel])=>{
+                let types = typeGroups[catKey]||[];
+                if(caughtOnly) types = types.filter(t=>{
+                  const c=catches?.[t]; return c && (c.spotted>0||c.captured>0);
+                });
+                if(!types.length) return null;
+                return (
+                  <div key={catKey} style={{marginBottom:10}}>
+                    <div style={{fontSize:8,fontFamily:"'Orbitron',monospace",color:'#4a7898',
+                      letterSpacing:'.12em',marginBottom:5}}>{catLabel}</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                      {types.map(type=>{
+                        const c = catches?.[type];
+                        const caught = !!(c && (c.spotted>0||c.captured>0));
+                        const tierKey = c?.best?.tier;
+                        const iconColor = caught ? (TIER_COLOR[tierKey] || '#90c8e8') : '#3a5a72';
+                        const selected = icaoFilter.has(type);
+                        return (
+                          <div key={type} onClick={()=>onToggleIcao(type)} style={{
+                            display:'flex',alignItems:'center',gap:4,padding:'3px 7px',
+                            borderRadius:6,cursor:'pointer',
+                            background:selected?'rgba(77,184,255,0.18)':'rgba(8,20,48,0.6)',
+                            border:`1px solid ${selected?'#4db8ff':'rgba(25,55,95,0.6)'}`}}>
+                            <svg width="16" height="16" viewBox="-12 -12 24 24" style={{flexShrink:0}}>
+                              <PlaneShape cat={catKey} color={iconColor} fc={1} icao={type}/>
+                            </svg>
+                            <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",
+                              color:selected?'#4db8ff':'#7aacc8',letterSpacing:'.03em'}}>{type}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
 
         <Divider/>
 
@@ -4712,6 +4781,21 @@ export default function App() {
   const [proximityNmi]= useState(()=>loadProx()); // setter unused
   const [toasts,      setToasts]      = useState([]);
   const [typeFilter,  setTypeFilter]  = useState('all');
+  // Specific ICAO type multi-select filter (from the Trophy Case list). Empty set = no filter.
+  const [icaoFilter, setIcaoFilter] = useState(()=>{
+    try{ return new Set(JSON.parse(localStorage.getItem('soratomo_icao_filter_v1')||'[]')); }
+    catch{ return new Set(); }
+  });
+  useEffect(()=>{
+    try{ localStorage.setItem('soratomo_icao_filter_v1', JSON.stringify([...icaoFilter])); }catch{}
+  },[icaoFilter]);
+  const toggleIcaoFilter = useCallback(type=>{
+    setIcaoFilter(prev=>{
+      const next = new Set(prev);
+      if(next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  },[]);
   const [minSpeedKts, setMinSpeedKts] = useState(0);
   const [maxSpeedKts, setMaxSpeedKts] = useState(700);
   const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
@@ -5807,6 +5891,7 @@ export default function App() {
     const handleResetAllFilters = () => {
     setAltFloor(0); setAltCeiling(ALT_MAX);
     setTypeFilter('all');
+    setIcaoFilter(new Set());
     setMinSpeedKts(0); setMaxSpeedKts(700);
     setMaxDisplayNmi(500);
   };
@@ -5917,6 +6002,8 @@ export default function App() {
     const cat=getAircraftCat(f.type);
     if(typeFilter==='commercial'&&isMilCat(cat,f.type)) return false;
     if(typeFilter==='military'&&!isMilCat(cat,f.type)) return false;
+    // Specific ICAO type multi-select — empty set means no restriction (show all types)
+    if(icaoFilter.size>0 && !icaoFilter.has((f.type||'').toUpperCase())) return false;
     return true;
   });
   // DR cap as a CONTINUOUS function of altitude — piecewise-linear interpolation.
@@ -6239,7 +6326,7 @@ export default function App() {
     prevMappedRef.current=new Set(flights.map(f=>f.id));
   },[flights]);
 
-  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
+  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
   // line always aligns with the real camera horizon after pitch calibration.
@@ -6972,6 +7059,7 @@ export default function App() {
               search={search} onSearch={setSearch} allFlights={flights} pos={pos}
               onSelect={handleSelectFlight}
               typeFilter={typeFilter} onTypeFilter={setTypeFilter}
+              icaoFilter={icaoFilter} onToggleIcao={toggleIcaoFilter} catches={catches}
               minSpeedKts={minSpeedKts} maxSpeedKts={maxSpeedKts}
               onMinSpd={setMinSpeedKts} onMaxSpd={setMaxSpeedKts}
               onResetAll={handleResetAllFilters}
@@ -7153,6 +7241,19 @@ export default function App() {
             <RingRangeControl value={maxDisplayNmi} min={10} max={DIST_MAX}
               onChange={setMaxDisplayNmi}/>
           </div>
+          {/* Small clear-filters pill — immediately left of the range ring, only when a filter is active */}
+          {isFilterActive && (
+            <button onClick={e=>{e.stopPropagation();handleResetAllFilters();}} style={{
+              position:'absolute',right:90,bottom:44,zIndex:11,
+              background:'rgba(1,8,22,0.78)',border:'0.5px solid rgba(255,100,80,0.35)',
+              borderRadius:14,padding:'4px 9px',cursor:'pointer',
+              display:'flex',alignItems:'center',gap:3,
+              boxShadow:'0 0 8px rgba(0,0,0,0.4)'}}>
+              <span style={{fontSize:9,color:'#ff6450',lineHeight:1}}>✕</span>
+              <span style={{fontSize:8,color:'#c87868',fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.06em'}}>FILTERS</span>
+            </button>
+          )}
         </div>
         <div style={{textAlign:'center',fontSize:9,color:'rgba(77,184,255,.3)',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',marginTop:2}}>
           {tiltMode?'TILT PHONE TO AIM · TAP AIRCRAFT FOR DETAILS':'DRAG TO SCAN · TAP AIRCRAFT FOR DETAILS'}
