@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A320':1,'A321':1,'P28A':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A320':1,'A321':1,'P28A':1,'PA24':1,'E75':1,'E75L':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -351,8 +351,9 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       );
     }
 
+    case 'PA24':
     case 'P28A': {
-      // Piper PA-28 Cherokee — user-supplied top-down silhouette.
+      // Piper PA-24/PA-28 (Comanche/Cherokee) — shared low-wing piston silhouette — user-supplied top-down silhouette.
       // Low-wing piston; distinctly wider than tall (±11 wide, ±8.6 tall).
       // Path from viewBox "0 0 64 64" with translate(3,8.08) scale(0.423358) resolved.
       const s = Math.max(0.38, fc);
@@ -367,6 +368,32 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(1.20,-7.56)} L${P(3.09,-7.73)} L${P(3.09,-8.08)} L${P(0.52,-8.08)}` +
           ` L${P(0.17,-8.59)} L${P(-0.86,-8.08)} L${P(-3.27,-8.08)} L${P(-3.27,-7.73)}` +
           ` L${P(-1.20,-7.56)} L${P(-1.55,-3.95)} L${P(-2.92,-3.27)} L${P(-5.84,-3.44)} Z`
+        }/>
+      );
+    }
+
+    case 'E75':
+    case 'E75L': {
+      // Embraer E175 (ERJ-175) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.499,3) scale(0.134571) resolved.
+      // Under-wing engine pods visible in path geometry; ±10 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.19,-11.00)} L${P(-1.05,-8.51)} L${P(-1.22,-2.57)} L${P(-2.41,-1.92)}` +
+          ` L${P(-2.51,-3.65)} L${P(-3.76,-3.65)} L${P(-3.92,-2.19)} L${P(-3.54,-1.32)}` +
+          ` L${P(-9.43,1.65)} L${P(-10.03,3.59)} L${P(-9.22,2.84)} L${P(-6.78,2.19)}` +
+          ` L${P(-6.51,2.51)} L${P(-6.41,2.08)} L${P(-4.78,1.65)} L${P(-4.41,1.97)}` +
+          ` L${P(-4.35,1.54)} L${P(-2.84,1.32)} L${P(-2.62,1.76)} L${P(-2.57,1.32)}` +
+          ` L${P(-1.11,1.27)} L${P(-0.62,7.76)} L${P(-3.43,9.76)} L${P(-3.49,10.73)}` +
+          ` L${P(-0.57,9.97)} L${P(-0.08,11.00)} L${P(0.41,9.97)} L${P(3.54,10.73)}` +
+          ` L${P(3.43,9.76)} L${P(0.68,7.76)} L${P(1.05,1.32)} L${P(2.57,1.32)}` +
+          ` L${P(2.62,1.70)} L${P(2.84,1.32)} L${P(4.35,1.54)} L${P(4.41,1.92)}` +
+          ` L${P(4.78,1.65)} L${P(6.41,2.08)} L${P(6.51,2.57)} L${P(7.00,2.24)}` +
+          ` L${P(9.22,2.84)} L${P(9.86,3.59)} L${P(10.03,3.32)} L${P(9.43,1.65)}` +
+          ` L${P(3.59,-1.27)} L${P(3.97,-2.57)} L${P(3.76,-3.65)} L${P(2.46,-3.54)}` +
+          ` L${P(2.41,-1.92)} L${P(1.27,-2.51)} L${P(0.95,-9.27)} L${P(0.46,-10.73)} Z`
         }/>
       );
     }
@@ -2096,7 +2123,7 @@ function AircraftInfoButton({ typeCode, style }) {
 
   const base = {
     width:'100%', background:'transparent', borderRadius:8, cursor:'pointer',
-    border:'1px solid rgba(77,184,255,0.22)', color: loading ? '#2a4a58' : '#4a7898',
+    border:'1px solid rgba(77,184,255,0.22)', color: loading ? '#2a4a58' : '#4db8ff',
     fontSize:10, fontFamily:"'Orbitron',monospace", letterSpacing:'.12em',
     display:'flex', alignItems:'center', justifyContent:'center', gap:7,
     padding:'6px 0', transition:'color 0.15s',
@@ -2254,6 +2281,7 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
       </div>
       {/* Action buttons */}
       <div style={{display:'flex',flexDirection:'column',gap:5,marginTop:5}}>
+        <AircraftInfoButton typeCode={f.type} style={{borderRadius:7}}/>
         <button onClick={()=>shareAircraft({
           cs:f.cs,airline:f.airline,type:f.type,catLabel,
           altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
@@ -2266,7 +2294,6 @@ function FlightCard({ f, onClose, loggedCallsigns }) {
           display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
           <ShareIcon/> SHARE
         </button>
-        <AircraftInfoButton typeCode={f.type} style={{borderRadius:7}}/>
       </div>
     </div>
   );
