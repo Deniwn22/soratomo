@@ -103,17 +103,17 @@ const getAircraftCat = (icao, emitter='') => {
   if(/^B74/.test(t)) return 'jumbo';
   if(/^B7[6-9]|^A3[3-5]|^A30/.test(t)) return 'wide';
   // Regional jets — includes Fokker F50/F70/F100 (civil turboprops/jets)
-  if(/^CRJ|^ERJ|^E[127]\d\d|^RJ|^F5[0-9]|^F7[0-9]|^F10/.test(t)) return 'regional';
+  if(/^CRJ|^ERJ|^E[127]\d\d|^E75L|^RJ|^F5[0-9]|^F7[0-9]|^F10|^B712/.test(t)) return 'regional';
   // Bizjets: Gulfstream, Citation, Learjet, Challenger, Falcon, Phenom
-  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C56X|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1/.test(t)) return 'bizjet';
+  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C56X|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1|^H25B|^GLF5/.test(t)) return 'bizjet';
 
   // ── Piston/GA — MUST come before military to avoid C172 → military ──
   // Cessna 1xx/2xx, Piper PA, Cirrus SR, Diamond DA, Mooney, Beech Bonanza, TBM, PC-12
-  if(/^C1[5-9]\d|^C20[5-9]|^C21\d|^PA[234]\d|^P28[A-Z]|^P32[A-Z]|^SR2[02]|^DA[24]\d|^M20|^AA5|^BE3[36]|^BE58|^BE55|^BE76|^TBM|^PC12|^PL4|^RV[6-9]|^RV1[04]|^GLAS|^COL[34]|^LNC/.test(t)) return 'piston';
+  if(/^C1[5-9]\d|^C20[5-9]|^C21\d|^PA[234]\d|^P28[A-Z]|^P32[A-Z]|^SR2[02]|^DA[24]\d|^M20|^AA5|^BE3[36]|^BE58|^BE55|^BE76|^BE20|^TBM|^PC12|^PL4|^RV[6-9]|^RV1[04]|^GLAS|^COL[34]|^LNC|^DHC6/.test(t)) return 'piston';
 
   // ── Helicopters (type-code) — MUST come before military to avoid A109 → military ──
   // Bell, Sikorsky, Robinson, Eurocopter/Airbus-H, AgustaWestland, MD, military rotary
-  if(/^B0[6-9]|^B4[0-4]|^S6[0-9]|^S7[0-9]|^S9[0-9]|^R2[0-9]|^R4[0-9]|^R6[0-9]|^EC[2-7]|^AS3[0-5]|^AS5[0-9]|^AS6[05]|^AW[019]|^H1[02-9]|^H2[0-9]|^MD5|^A10[9]|^A139|^A169|^A189|^CH4[67]|^UH[16]|^UH60|^AH[16]|^AH64|^OH5|^MH6|^HH6|^HH60|^H60|^VH3|^VH6|^B407|^B412|^B429|^B505|^AS6[05]/.test(t)) return 'helicopter';
+  if(/^B0[6-9]|^B4[0-4]|^S6[0-9]|^S7[0-9]|^S9[0-9]|^R2[0-9]|^R4[0-9]|^R6[0-9]|^EC[2-7]|^AS3[0-5]|^AS5[0-9]|^AS6[05]|^AW[019]|^H1[02-9]|^H2[0-46-9]|^MD5|^A10[9]|^A139|^A169|^A189|^CH4[67]|^UH[16]|^UH60|^AH[16]|^AH64|^OH5|^MH6|^HH6|^HH60|^H60|^VH3|^VH6|^B407|^B412|^B212|^B505|^H500|^AS6[05]/.test(t)) return 'helicopter';
 
   // ── Military — specific codes only, no false-positive prefixes ──
   // ^C17[A-Z]?$ : C-17 Globemaster (NOT C172 Cessna)
@@ -6708,7 +6708,7 @@ export default function App() {
               {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
               <button onClick={e=>{e.stopPropagation();
                 if(showLog||showFilters||showDex||showBoard||showTrophy){setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);setShowTrophy(false);}
-                else{setShowDex(true);setShowLog(false);setShowFilters(false);}
+                else{setShowTrophy(true);setShowDex(false);setShowLog(false);setShowFilters(false);}
               }} style={{
                 background:(showLog||showFilters||showDex||showTrophy)?'rgba(77,184,255,0.1)':'transparent',
                 border:`1px solid ${(showLog||showFilters||showDex||showTrophy||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
