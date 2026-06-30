@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A320':1,'A321':1,'P28A':1,'PA24':1,'E75':1,'E75L':1,'PA44':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A320':1,'A321':1,'P28A':1,'PA24':1,'BE36':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -226,6 +226,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       );
     }
 
+    case 'E45X':
     case 'CRJ7': {
       // CRJ-700 — silhouette (±7.5 wide, ±11 tall).
       const s = Math.max(0.38, fc);
@@ -353,6 +354,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     }
 
     case 'PA24':
+    case 'BE36':
     case 'P28A': {
       // Piper PA-24/PA-28 (Comanche/Cherokee) — shared low-wing piston silhouette — user-supplied top-down silhouette.
       // Low-wing piston; distinctly wider than tall (±11 wide, ±8.6 tall).
@@ -430,6 +432,50 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           {/* Right wingtip */}
           <path d={`M${P(9.83,-2.72)} L${P(9.83,-0.67)} L${P(10.00,-0.67)} L${P(10.04,-0.71)} L${P(10.54,-0.71)} L${P(10.58,-0.75)} L${P(10.83,-0.75)} L${P(10.87,-0.79)} L${P(10.92,-0.79)} L${P(10.92,-0.84)} L${P(11.00,-0.96)} L${P(11.00,-2.47)} L${P(10.96,-2.51)} L${P(10.96,-2.59)} L${P(10.92,-2.63)} L${P(10.75,-2.63)} L${P(10.71,-2.68)} L${P(9.95,-2.68)} L${P(9.91,-2.72)} Z`}/>
         </g>
+      );
+    }
+
+    case 'PC12': {
+      // Pilatus PC-12 turboprop — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,6.105) scale(0.117172) resolved.
+      // High-wing turboprop; ±11 wide × ±9.8 tall with distinctive T-tail and prop nose.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.09,-9.84)} L${P(-0.32,-9.28)} L${P(-1.67,-9.24)} L${P(-0.46,-9.05)}` +
+          ` L${P(-1.07,-8.22)} L${P(-0.79,-7.47)} L${P(-1.25,-3.11)} L${P(-10.07,-2.78)}` +
+          ` L${P(-11.00,-1.44)} L${P(-11.00,-0.88)} L${P(-9.93,-1.07)} L${P(-1.39,-0.23)}` +
+          ` L${P(-0.32,7.47)} L${P(-3.25,7.84)} L${P(-3.57,9.14)} L${P(-0.19,9.33)}` +
+          ` L${P(0.00,9.84)} L${P(0.09,9.33)} L${P(3.53,9.05)} L${P(3.20,7.89)}` +
+          ` L${P(0.23,7.47)} L${P(1.30,-0.14)} L${P(9.89,-1.07)} L${P(11.00,-0.88)}` +
+          ` L${P(11.00,-1.44)} L${P(10.07,-2.78)} L${P(1.16,-3.11)} L${P(0.74,-7.38)}` +
+          ` L${P(0.97,-8.17)} L${P(0.46,-8.59)} L${P(0.46,-9.00)} L${P(1.58,-9.19)}` +
+          ` L${P(0.32,-9.24)} Z`
+        }/>
+      );
+    }
+
+    case 'GLEX':
+    case 'GL5T':
+    case 'GL6T':
+    case 'GL7T': {
+      // Bombardier Global Express family (Global Express, Global 5000/6000/7500).
+      // Path from viewBox "0 0 64 64" with translate(6.127,3) scale(0.122622) resolved.
+      // Long swept-wing bizjet; ±10.2 wide, ±11 tall. Distinctive swept leading edge.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.08,-11.00)} L${P(-0.82,-9.26)} L${P(-0.87,-3.42)} L${P(-9.29,3.32)}` +
+          ` L${P(-10.24,5.05)} L${P(-9.24,4.26)} L${P(-3.50,1.47)} L${P(-0.92,1.37)}` +
+          ` L${P(-0.76,3.37)} L${P(-1.97,3.42)} L${P(-1.82,6.53)} L${P(-1.03,6.58)}` +
+          ` L${P(-0.45,7.05)} L${P(-0.34,7.63)} L${P(-3.18,9.95)} L${P(-3.34,11.00)}` +
+          ` L${P(-0.29,9.68)} L${P(3.34,11.00)} L${P(3.13,9.84)} L${P(0.34,7.63)}` +
+          ` L${P(0.55,6.95)} L${P(1.82,6.58)} L${P(1.97,3.42)} L${P(0.76,3.37)}` +
+          ` L${P(0.92,1.37)} L${P(3.61,1.53)} L${P(9.08,4.16)} L${P(10.13,5.00)}` +
+          ` L${P(10.24,4.79)} L${P(9.18,3.21)} L${P(0.87,-3.42)} L${P(0.82,-9.32)} Z`
+        }/>
       );
     }
 
