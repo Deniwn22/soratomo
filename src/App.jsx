@@ -105,7 +105,7 @@ const getAircraftCat = (icao, emitter='') => {
   // Regional jets — includes Fokker F50/F70/F100 (civil turboprops/jets)
   if(/^CRJ|^ERJ|^E[127]\d\d|^E75L|^RJ|^F5[0-9]|^F7[0-9]|^F10|^B712/.test(t)) return 'regional';
   // Bizjets: Gulfstream, Citation, Learjet, Challenger, Falcon, Phenom
-  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C56X|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1|^H25B|^GLF5/.test(t)) return 'bizjet';
+  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C56X|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1|^H25B|^GLF5|^SF50/.test(t)) return 'bizjet';
 
   // ── Piston/GA — MUST come before military to avoid C172 → military ──
   // Cessna 1xx/2xx, Piper PA, Cirrus SR, Diamond DA, Mooney, Beech Bonanza, TBM, PC-12
@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A320':1,'A321':1,'BCS3':1,'P28A':1,'PA24':1,'BE36':1,'SR22':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A320':1,'A321':1,'BCS3':1,'P28A':1,'PA24':1,'BE36':1,'SR22':1,'SF50':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -586,6 +586,24 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(9.56,3.26)} L${P(9.56,2.66)} L${P(3.64,-1.59)} L${P(3.49,-3.72)}` +
           ` L${P(2.73,-3.72)} L${P(2.43,-2.81)} L${P(1.82,-2.81)} L${P(1.06,-3.41)}` +
           ` L${P(0.91,-9.63)} L${P(0.61,-10.54)} Z`
+        }/>
+      );
+    }
+
+    case 'SF50': {
+      // Cirrus SF50 Vision Jet — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Single-engine personal jet with distinctive rear-mounted engine; ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,-0.86)} L${P(-11.00,0.76)} L${P(-8.73,0.57)} L${P(-1.23,0.96)}` +
+          ` L${P(-0.59,5.35)} L${P(-3.65,6.78)} L${P(-3.75,8.26)} L${P(-0.59,7.87)}` +
+          ` L${P(3.75,8.26)} L${P(3.65,6.78)} L${P(0.59,5.35)} L${P(1.28,0.91)}` +
+          ` L${P(8.34,0.57)} L${P(11.00,0.76)} L${P(11.00,-0.86)} L${P(10.31,-1.41)}` +
+          ` L${P(1.63,-2.24)} L${P(1.09,-5.99)} L${P(0.05,-8.26)} L${P(-0.59,-7.67)}` +
+          ` L${P(-1.09,-5.99)} L${P(-1.63,-2.24)} L${P(-10.11,-1.46)} Z`
         }/>
       );
     }
