@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'B772':1,'B77W':1,'A319':1,'A320':1,'A321':1,'BCS3':1,'P28A':1,'PA24':1,'BE36':1,'SR22':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A320':1,'A321':1,'BCS3':1,'P28A':1,'PA24':1,'BE36':1,'SR22':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -563,6 +563,29 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(11.00,1.31)} L${P(1.82,0.34)} L${P(1.60,-0.11)} L${P(1.08,-0.11)}` +
           ` L${P(0.23,-4.56)} L${P(3.42,-4.96)} L${P(3.70,-5.87)} L${P(0.23,-6.04)}` +
           ` L${P(0.40,-6.67)} Z`
+        }/>
+      );
+    }
+
+    case 'B763': {
+      // Boeing 767-300 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.257778) resolved.
+      // ±9.6 wide, ±11 tall — twin-engine widebody, narrower than the 777.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-11.00)} L${P(-0.91,-9.63)} L${P(-1.06,-3.41)} L${P(-1.82,-2.81)}` +
+          ` L${P(-2.43,-2.81)} L${P(-2.73,-3.72)} L${P(-3.49,-3.72)} L${P(-3.64,-1.59)}` +
+          ` L${P(-9.56,2.66)} L${P(-9.56,3.26)} L${P(-7.13,2.35)} L${P(-6.22,2.35)}` +
+          ` L${P(-5.46,1.74)} L${P(-4.40,1.74)} L${P(-3.64,1.14)} L${P(-1.21,0.83)}` +
+          ` L${P(-0.91,7.81)} L${P(-3.64,9.94)} L${P(-3.94,10.85)} L${P(-0.46,10.09)}` +
+          ` L${P(-0.15,11.00)} L${P(0.15,11.00)} L${P(0.46,10.09)} L${P(3.94,10.85)}` +
+          ` L${P(3.79,10.09)} L${P(0.91,7.81)} L${P(1.06,0.99)} L${P(3.64,1.14)}` +
+          ` L${P(4.40,1.74)} L${P(5.46,1.74)} L${P(6.22,2.35)} L${P(7.13,2.35)}` +
+          ` L${P(9.56,3.26)} L${P(9.56,2.66)} L${P(3.64,-1.59)} L${P(3.49,-3.72)}` +
+          ` L${P(2.73,-3.72)} L${P(2.43,-2.81)} L${P(1.82,-2.81)} L${P(1.06,-3.41)}` +
+          ` L${P(0.91,-9.63)} L${P(0.61,-10.54)} Z`
         }/>
       );
     }
