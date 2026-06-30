@@ -3259,23 +3259,39 @@ const TROPHY_CATS = [
 
 const TIER_COLOR = { mythic:'#ef4444', legendary:'#f59e0b', rare:'#fbbf24', uncommon:'#2dffb4', common:'#7a98a8' };
 
-// Build the grouped master list once (module scope — never changes).
-const TROPHY_GROUPS = (() => {
+// Build the grouped master list from GLOBAL_RARITY + any caught types not already in it.
+// This runs per-render (cheap — small sets), so every user's Trophy Case automatically
+// includes any ICAO type they've actually caught, even if it's not in the curated table.
+// New types appear in the correct category section with a score derived from their category.
+const buildTrophyGroups = (catches) => {
   const groups = {};
+  const inTable = new Set();
+  // First: all curated types from GLOBAL_RARITY
   for(const [type] of GLOBAL_RARITY){
     const cat = getAircraftCat(type, '');
     (groups[cat] = groups[cat] || []).push(type);
+    inTable.add(type);
+  }
+  // Then: any caught type NOT already in the table — add to its category
+  for(const type of Object.keys(catches||{})){
+    if(!type || inTable.has(type)) continue;
+    const c = catches[type];
+    if(!c || (c.spotted<=0 && c.captured<=0)) continue; // only caught types
+    const cat = getAircraftCat(type, '');
+    (groups[cat] = groups[cat] || []).push(type);
+    inTable.add(type);
   }
   return groups;
-})();
+};
 
 function TrophyCase({ catches }){
   const CC = '#4db8ff';
-  // Totals for the progress header
-  const allTypes = GLOBAL_RARITY.length;
+  // Build groups dynamically — merges GLOBAL_RARITY with any caught types not in the table
+  const trophyGroups = buildTrophyGroups(catches);
+  const allShown = Object.values(trophyGroups).reduce((s,ts)=>s+ts.length, 0);
   const collected = Object.keys(catches).filter(t=>catches[t] && (catches[t].spotted>0||catches[t].captured>0)).length;
   const photographed = Object.keys(catches).filter(t=>catches[t] && catches[t].captured>0).length;
-  const pct = Math.round((collected/allTypes)*100);
+  const pct = Math.round((collected/allShown)*100);
 
   const fmtFirst = ts => {
     if(!ts) return '—';
@@ -3290,13 +3306,13 @@ function TrophyCase({ catches }){
       <div style={{flexShrink:0,padding:'12px 14px 10px',borderBottom:`1px solid ${CC}1a`}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
           <div style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,color:'#b8e4ff',letterSpacing:'.14em'}}>TROPHY CASE</div>
-          <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",color:CC}}>{collected}/{allTypes} · {pct}%</div>
+          <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",color:CC}}>{collected}/{allShown} · {pct}%</div>
         </div>
         <div style={{height:5,borderRadius:3,background:'rgba(77,184,255,0.12)',overflow:'hidden'}}>
           <div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${CC},#2dffb4)`,borderRadius:3,transition:'width .4s'}}/>
         </div>
         <div style={{display:'flex',gap:16,marginTop:7,fontSize:9,fontFamily:"'Orbitron',monospace",color:'#5a8aa8',letterSpacing:'.08em'}}>
-          <span>✈ {collected} COLLECTED</span>
+          <span>✈ {collected}/{allShown} COLLECTED</span>
           <span>📷 {photographed} PHOTOGRAPHED</span>
         </div>
       </div>
@@ -3304,7 +3320,7 @@ function TrophyCase({ catches }){
       {/* Scrollable grouped grid */}
       <div style={{flex:1,overflowY:'auto',padding:'8px 12px 24px'}}>
         {TROPHY_CATS.map(([catKey,catLabel])=>{
-          const types = TROPHY_GROUPS[catKey] || [];
+          const types = trophyGroups[catKey] || [];
           if(!types.length) return null;
           const got = types.filter(t=>catches[t]&&(catches[t].spotted>0||catches[t].captured>0)).length;
           return (
