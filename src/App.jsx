@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'A319':1,'A320':1,'A321':1,'P28A':1,'PA24':1,'BE36':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B742':1,'B743':1,'B744':1,'B748':1,'B772':1,'B77W':1,'A319':1,'A320':1,'A321':1,'BCS3':1,'P28A':1,'PA24':1,'BE36':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -500,6 +500,48 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(10.87,2.98)} L${P(11.00,1.88)} L${P(4.21,-1.81)} L${P(4.27,-4.08)}` +
           ` L${P(2.98,-4.08)} L${P(2.85,-2.65)} L${P(1.16,-3.43)} L${P(1.04,-8.61)}` +
           ` L${P(0.39,-10.16)} Z`
+        }/>
+      );
+    }
+
+    case 'BCS3': {
+      // Airbus A220-300 (Bombardier CSeries CS300) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // ±9.8 wide, ±11 tall — narrower wing profile than A320 family.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.25,-11.00)} L${P(-0.99,-8.34)} L${P(-1.04,-3.16)} L${P(-2.27,-2.71)}` +
+          ` L${P(-2.42,-4.09)} L${P(-3.60,-4.09)} L${P(-3.70,-2.57)} L${P(-3.35,-1.78)}` +
+          ` L${P(-9.08,1.33)} L${P(-9.77,2.91)} L${P(-8.98,2.32)} L${P(-3.50,0.30)}` +
+          ` L${P(-1.09,0.30)} L${P(-0.74,7.89)} L${P(-3.40,9.67)} L${P(-3.45,10.56)}` +
+          ` L${P(-0.54,9.67)} L${P(0.10,11.00)} L${P(0.54,9.72)} L${P(3.40,10.56)}` +
+          ` L${P(3.26,9.57)} L${P(0.74,7.89)} L${P(1.09,0.30)} L${P(3.50,0.30)}` +
+          ` L${P(8.98,2.32)} L${P(9.62,3.11)} L${P(9.77,2.52)} L${P(8.93,1.28)}` +
+          ` L${P(3.40,-1.78)} L${P(3.60,-4.09)} L${P(2.42,-4.04)} L${P(2.27,-2.66)}` +
+          ` L${P(1.04,-3.16)} L${P(0.89,-9.13)} L${P(0.35,-10.85)} Z`
+        }/>
+      );
+    }
+
+    case 'B772':
+    case 'B77W': {
+      // Boeing 777 family (777-200, 777-300ER) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(9.289,3) scale(0.232932) resolved.
+      // ±9.6 wide, ±11 tall — wide twin-engine widebody profile.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.05,-11.00)} L${P(-0.85,-8.80)} L${P(-0.85,-3.10)} L${P(-2.15,-2.40)}` +
+          ` L${P(-2.35,-3.50)} L${P(-3.35,-3.50)} L${P(-3.25,-1.40)} L${P(-9.05,2.40)}` +
+          ` L${P(-9.55,3.20)} L${P(-3.35,1.00)} L${P(-0.95,1.00)} L${P(-0.65,8.30)}` +
+          ` L${P(-3.15,10.40)} L${P(-3.15,11.00)} L${P(-0.65,10.10)} L${P(-0.05,10.40)}` +
+          ` L${P(0.75,10.10)} L${P(3.25,11.00)} L${P(3.25,10.40)} L${P(0.65,8.30)}` +
+          ` L${P(0.95,1.10)} L${P(3.45,1.00)} L${P(5.75,2.00)} L${P(9.35,3.10)}` +
+          ` L${P(9.55,2.90)} L${P(3.35,-1.40)} L${P(3.45,-3.50)} L${P(2.45,-3.50)}` +
+          ` L${P(2.25,-2.40)} L${P(0.95,-3.10)} L${P(0.85,-9.30)} Z`
         }/>
       );
     }
