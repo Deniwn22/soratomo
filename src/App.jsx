@@ -4230,8 +4230,8 @@ function FilterPanel({
   minSpeedKts,maxSpeedKts,onMinSpd,onMaxSpd,
   onResetAll,onClose,
 }) {
-  const [typeGridOpen, setTypeGridOpen] = React.useState(false);
-  const [caughtOnly, setCaughtOnly] = React.useState(false);
+  const [typeGridOpen, setTypeGridOpen] = React.useState(true); // open by default — this IS the filter mechanism
+  const [typeViewMode, setTypeViewMode] = React.useState('all'); // 'all' | 'caught' | 'uncaught'
   // Same grouped list as the Trophy Case — base rarity table + any caught types beyond it.
   const typeGroups = React.useMemo(()=>buildTrophyGroups(catches||{}), [catches]);
   const results=search.trim().length>=2
@@ -4315,32 +4315,36 @@ function FilterPanel({
 
         {/* ── Specific aircraft type — multi-select from the Trophy Case list ── */}
         <div onClick={()=>setTypeGridOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',
-          alignItems:'center',cursor:'pointer',padding:'5px 2px',marginBottom:typeGridOpen?6:0}}>
-          <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#7aacc8',letterSpacing:'.1em'}}>
+          alignItems:'center',cursor:'pointer',padding:'6px 8px',marginBottom:typeGridOpen?6:0,
+          background:'rgba(77,184,255,0.08)',borderRadius:6,border:'1px solid rgba(77,184,255,0.18)'}}>
+          <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#9ad0f0',letterSpacing:'.1em',fontWeight:600}}>
             SPECIFIC TYPE {icaoFilter.size>0 && <span style={{color:'#4db8ff'}}>· {icaoFilter.size} SELECTED</span>}
           </span>
-          <span style={{fontSize:10,color:'#4a7898',transform:typeGridOpen?'rotate(90deg)':'none',
+          <span style={{fontSize:12,color:'#4db8ff',transform:typeGridOpen?'rotate(90deg)':'none',
             display:'inline-block',transition:'transform .15s'}}>›</span>
         </div>
         {typeGridOpen && (
           <div style={{marginBottom:8}}>
             {/* Caught-only / all-types shortcut toggle */}
             <div style={{display:'flex',gap:5,marginBottom:8}}>
-              {[['ALL TYPES',false],['CAUGHT ONLY',true]].map(([lbl,val])=>(
-                <div key={lbl} onClick={()=>setCaughtOnly(val)} style={{
+              {[['ALL TYPES','all'],['CAUGHT ONLY','caught'],['NOT CAUGHT','uncaught']].map(([lbl,val])=>(
+                <div key={lbl} onClick={()=>setTypeViewMode(val)} style={{
                   flex:1,textAlign:'center',padding:'4px 0',cursor:'pointer',borderRadius:5,
-                  background:caughtOnly===val?'rgba(45,255,180,0.14)':'transparent',
-                  border:`1px solid ${caughtOnly===val?'#2dffb4':'rgba(77,184,255,0.18)'}`,
-                  fontSize:8,color:caughtOnly===val?'#2dffb4':'#4a7888',
-                  fontFamily:"'Orbitron',monospace",fontWeight:caughtOnly===val?600:400,
+                  background:typeViewMode===val?'rgba(45,255,180,0.14)':'transparent',
+                  border:`1px solid ${typeViewMode===val?'#2dffb4':'rgba(77,184,255,0.18)'}`,
+                  fontSize:8,color:typeViewMode===val?'#2dffb4':'#4a7888',
+                  fontFamily:"'Orbitron',monospace",fontWeight:typeViewMode===val?600:400,
                 }}>{lbl}</div>
               ))}
             </div>
             <div style={{maxHeight:260,overflowY:'auto',paddingRight:2}}>
               {TROPHY_CATS.map(([catKey,catLabel])=>{
                 let types = typeGroups[catKey]||[];
-                if(caughtOnly) types = types.filter(t=>{
+                if(typeViewMode==='caught') types = types.filter(t=>{
                   const c=catches?.[t]; return c && (c.spotted>0||c.captured>0);
+                });
+                else if(typeViewMode==='uncaught') types = types.filter(t=>{
+                  const c=catches?.[t]; return !(c && (c.spotted>0||c.captured>0));
                 });
                 if(!types.length) return null;
                 return (
@@ -5893,7 +5897,9 @@ export default function App() {
     setTypeFilter('all');
     setIcaoFilter(new Set());
     setMinSpeedKts(0); setMaxSpeedKts(700);
-    setMaxDisplayNmi(500);
+    // NOTE: deliberately does NOT touch maxDisplayNmi — range is controlled by the
+    // on-screen ring control, not anything in the filter tab, so clearing filters
+    // must never change it.
   };
 
   useEffect(()=>{const t=setTimeout(()=>setShowHint(false),5000);return()=>clearTimeout(t);},[]);
@@ -6326,7 +6332,7 @@ export default function App() {
     prevMappedRef.current=new Set(flights.map(f=>f.id));
   },[flights]);
 
-  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||minSpeedKts>0||maxSpeedKts<700||maxDisplayNmi<400;
+  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||minSpeedKts>0||maxSpeedKts<700;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
   // line always aligns with the real camera horizon after pitch calibration.
