@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'P210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'A306':1,'DA40':1,'B752':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'P210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'A306':1,'DA40':1,'B752':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A19N':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -334,6 +334,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     }
 
     case 'A20N':
+    case 'A19N':
     case 'A21N':
     case 'A320':
     case 'A321': {
@@ -651,7 +652,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       // Long offset main rotor blades; originally ±11 wide, ±8.5 tall (rotated 90° from
       // the vertical nose-up convention). Coordinates rotated 90° here: (x,y) → (y,-x).
       const s = Math.max(0.38, fc);
-      const P = (x,y) => `${(y*s).toFixed(2)},${(-x*s).toFixed(2)}`;
+      const P = (x,y) => `${(-y*s).toFixed(2)},${(x*s).toFixed(2)}`;
       return (
         <path fill={color} opacity="0.96" d={
           `M${P(-11.00,5.17)} L${P(-10.68,5.65)} L${P(-10.01,5.45)} L${P(-4.48,1.59)}` +
