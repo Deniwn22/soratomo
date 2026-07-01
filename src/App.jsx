@@ -120,10 +120,10 @@ const getAircraftCat = (icao, emitter='') => {
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
-  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
+  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
   // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
-  if(/^E2[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
+  if(/^E2[A-Z]?$|^P8[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
   // Vintage / warbird military: T-33, T-28, T-6, L-29/39 jet trainers, P-51, MiG, Su
   if(/^T33|^T28|^T6[A-Z]?$|^L29|^L39|^P51|^P40|^MG[0-9]|^SU2[57]|^SU3[0457]|^SU57|^F4U|^F6F|^P38|^P47|^YAK|^OV10|^T37|^B17|^B25|^B29|^PBY|^A1[A-Z]?$|^OV1/.test(t)) return 'military';
 
@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'E2':1,'HDJT':1,'P28A':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -664,7 +664,8 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
     case 'C25':
     case 'C25A':
-    case 'C56X': {
+    case 'C56X':
+    case 'C68A': {
       // Cessna Citation CJ series (C25/C25A) — user-supplied top-down silhouette.
       // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.080556) resolved.
       // Compact swept-wing bizjet; ±11 wide, ±10.6 tall.
@@ -766,6 +767,79 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(-3.70,6.64)} L${P(-4.05,7.21)} L${P(-3.93,8.29)} L${P(3.65,8.29)}` +
           ` L${P(3.76,7.49)} L${P(3.36,6.70)} L${P(0.51,6.35)} L${P(0.74,4.87)}` +
           ` L${P(2.62,3.62)} L${P(3.36,1.62)} L${P(10.72,1.00)} Z`
+        }/>
+      );
+    }
+
+    case 'A339': {
+      // Airbus A330-900neo — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Twin-engine widebody; long swept wing with complex flap-track geometry; ±11 wide, ±10.5 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.15,-10.53)} L${P(-0.54,-9.79)} L${P(-0.89,-8.11)} L${P(-0.89,-3.38)}` +
+          ` L${P(-2.42,-2.39)} L${P(-2.71,-2.98)} L${P(-3.75,-2.98)} L${P(-3.80,-1.55)}` +
+          ` L${P(-9.91,1.85)} L${P(-11.00,2.93)} L${P(-10.95,3.33)} L${P(-10.21,2.74)}` +
+          ` L${P(-6.46,1.46)} L${P(-5.57,1.50)} L${P(-5.48,1.16)} L${P(-3.95,0.62)}` +
+          ` L${P(-3.50,0.81)} L${P(-3.16,0.32)} L${P(-2.37,0.27)} L${P(-2.22,0.57)}` +
+          ` L${P(-2.12,0.22)} L${P(-0.89,0.17)} L${P(-0.59,7.72)} L${P(-3.60,9.50)}` +
+          ` L${P(-3.65,10.33)} L${P(-0.49,9.64)} L${P(0.00,10.53)} L${P(0.35,9.64)}` +
+          ` L${P(3.70,10.28)} L${P(3.55,9.40)} L${P(0.64,7.72)} L${P(0.99,0.17)}` +
+          ` L${P(2.12,0.22)} L${P(2.27,0.67)} L${P(2.42,0.32)} L${P(3.21,0.37)}` +
+          ` L${P(3.60,0.96)} L${P(3.95,0.62)} L${P(4.49,1.21)} L${P(4.93,0.96)}` +
+          ` L${P(5.52,1.46)} L${P(6.51,1.46)} L${P(7.99,2.24)} L${P(10.21,2.79)}` +
+          ` L${P(11.00,3.53)} L${P(11.00,2.93)} L${P(9.91,1.90)} L${P(3.95,-1.46)}` +
+          ` L${P(3.80,-2.98)} L${P(2.76,-2.98)} L${P(2.71,-2.39)} L${P(2.42,-2.34)}` +
+          ` L${P(0.94,-3.23)} L${P(0.69,-9.79)} Z`
+        }/>
+      );
+    }
+
+    case 'GLF4': {
+      // Gulfstream G-IV (GLF4) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.421,3) scale(0.297436) resolved.
+      // Large cabin bizjet; highly swept wing; ±9.9 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.87,-8.57)} L${P(-0.98,-4.17)} L${P(-9.21,0.81)}` +
+          ` L${P(-9.90,2.55)} L${P(-2.37,0.93)} L${P(-2.14,4.40)} L${P(-1.56,4.40)}` +
+          ` L${P(-0.75,4.98)} L${P(-0.52,7.76)} L${P(-3.30,9.73)} L${P(-3.42,11.00)}` +
+          ` L${P(-0.64,9.84)} L${P(0.75,9.84)} L${P(3.65,11.00)} L${P(3.42,9.49)}` +
+          ` L${P(0.75,7.76)} L${P(0.98,4.98)} L${P(1.68,4.40)} L${P(2.37,4.40)}` +
+          ` L${P(2.49,1.04)} L${P(3.30,0.93)} L${P(9.90,2.55)} L${P(9.90,1.04)}` +
+          ` L${P(1.10,-4.17)} L${P(0.98,-9.03)} L${P(0.29,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'P8': {
+      // Boeing P-8 Poseidon — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3.826,3) scale(0.103203) resolved.
+      // Maritime patrol aircraft based on 737 airframe; complex wing detail; ±10.6 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.99,-8.24)} L${P(-1.04,-3.00)} L${P(-2.09,-2.19)}` +
+          ` L${P(-2.21,-3.45)} L${P(-3.19,-3.53)} L${P(-3.27,-1.30)} L${P(-4.53,-0.73)}` +
+          ` L${P(-4.69,-1.66)} L${P(-4.73,-0.57)} L${P(-5.38,-0.16)} L${P(-5.74,-1.01)}` +
+          ` L${P(-5.87,0.08)} L${P(-9.32,1.83)} L${P(-10.57,3.69)} L${P(-8.95,2.72)}` +
+          ` L${P(-5.42,1.66)} L${P(-5.05,1.95)} L${P(-4.97,1.54)} L${P(-3.92,1.22)}` +
+          ` L${P(-3.55,1.58)} L${P(-3.27,1.01)} L${P(-2.46,0.93)} L${P(-2.29,1.30)}` +
+          ` L${P(-2.25,0.93)} L${P(-1.04,0.93)} L${P(-0.63,8.16)} L${P(-3.80,10.43)}` +
+          ` L${P(-4.00,11.00)} L${P(-0.35,9.99)} L${P(-0.06,10.84)} L${P(0.35,9.99)}` +
+          ` L${P(4.00,11.00)} L${P(3.80,10.43)} L${P(0.63,8.16)} L${P(0.99,0.97)}` +
+          ` L${P(2.25,0.93)} L${P(2.37,1.30)} L${P(2.46,0.93)} L${P(3.51,1.14)}` +
+          ` L${P(3.55,1.58)} L${P(3.67,1.22)} L${P(4.97,1.54)} L${P(5.05,1.95)}` +
+          ` L${P(5.42,1.66)} L${P(9.32,2.84)} L${P(10.53,3.69)} L${P(10.57,3.45)}` +
+          ` L${P(9.32,1.83)} L${P(5.87,0.08)} L${P(5.74,-1.01)} L${P(5.38,-0.16)}` +
+          ` L${P(4.73,-0.57)} L${P(4.69,-1.66)} L${P(4.53,-0.73)} L${P(3.27,-1.30)}` +
+          ` L${P(3.19,-3.53)} L${P(2.21,-3.45)} L${P(2.09,-2.19)} L${P(1.04,-3.00)}` +
+          ` L${P(0.99,-8.24)} L${P(0.39,-10.55)} Z`
         }/>
       );
     }
