@@ -120,7 +120,7 @@ const getAircraftCat = (icao, emitter='') => {
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
-  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
+  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^V22|^MV22|^CV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
   // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
   if(/^E2[A-Z]?$|^P8[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'P210':1,'C210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'A306':1,'DA40':1,'B752':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'C5':1,'C5A':1,'C5M':1,'A388':1,'F15':1,'F15E':1,'F15C':1,'F16':1,'F35':1,'F35A':1,'F35B':1,'F35C':1,'B2':1,'B52':1,'B1':1,'B1A':1,'B1B':1,'F18':1,'EA18':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A19N':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E170':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'P210':1,'C210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'A306':1,'DA40':1,'B752':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'C5':1,'C5A':1,'C5M':1,'A388':1,'F15':1,'F15E':1,'F15C':1,'F16':1,'F35':1,'F35A':1,'F35B':1,'F35C':1,'B2':1,'B52':1,'B1':1,'B1A':1,'B1B':1,'F18':1,'EA18':1,'V22':1,'CV22':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A19N':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E170':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -1231,6 +1231,31 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(2.37,7.29)} L${P(1.82,5.50)} L${P(7.87,5.16)} L${P(7.87,1.65)}` +
           ` L${P(7.67,2.54)} L${P(7.32,2.61)} L${P(2.23,0.00)} L${P(1.82,-2.82)}` +
           ` L${P(0.65,-5.50)} L${P(0.58,-8.94)} Z`
+        }/>
+      );
+    }
+
+    case 'V22':
+    case 'CV22': {
+      // V-22 / CV-22 Osprey tiltrotor — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,13.394) scale(0.256637) resolved.
+      // Twin wingtip-mounted rotor nacelles; ±11 wide, ±7.5 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,-2.08)} L${P(-10.69,-1.45)} L${P(-6.02,-1.45)} L${P(-3.74,2.39)}` +
+          ` L${P(-3.22,2.28)} L${P(-3.22,1.87)} L${P(-4.25,-0.42)} L${P(-1.97,-0.21)}` +
+          ` L${P(-1.66,1.76)} L${P(-0.93,3.53)} L${P(-0.83,5.19)} L${P(-1.04,5.71)}` +
+          ` L${P(-2.08,5.50)} L${P(-1.97,7.47)} L${P(2.18,7.47)} L${P(2.18,5.50)}` +
+          ` L${P(0.93,5.60)} L${P(1.04,3.53)} L${P(2.08,0.62)} L${P(2.08,-0.31)}` +
+          ` L${P(4.36,-0.42)} L${P(3.32,1.87)} L${P(3.32,2.28)} L${P(3.84,2.39)}` +
+          ` L${P(6.12,-1.45)} L${P(11.00,-1.56)} L${P(11.00,-2.08)} L${P(6.85,-2.18)}` +
+          ` L${P(6.54,-3.11)} L${P(5.92,-3.22)} L${P(4.05,-6.33)} L${P(3.63,-6.33)}` +
+          ` L${P(3.53,-5.81)} L${P(5.08,-2.80)} L${P(1.66,-2.39)} L${P(1.14,-3.22)}` +
+          ` L${P(1.04,-6.02)} L${P(0.21,-7.47)} L${P(-0.42,-7.47)} L${P(-1.04,-5.29)}` +
+          ` L${P(-1.04,-3.22)} L${P(-1.56,-2.39)} L${P(-4.98,-2.80)} L${P(-3.32,-6.02)}` +
+          ` L${P(-3.94,-6.33)} L${P(-5.81,-3.22)} L${P(-6.43,-3.11)} L${P(-6.75,-2.18)} Z`
         }/>
       );
     }
