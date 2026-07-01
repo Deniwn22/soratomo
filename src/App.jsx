@@ -120,10 +120,10 @@ const getAircraftCat = (icao, emitter='') => {
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
-  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
+  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^P8[A-Z]?$|^V22|^MV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
   // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
-  if(/^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
+  if(/^E2[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
   // Vintage / warbird military: T-33, T-28, T-6, L-29/39 jet trainers, P-51, MiG, Su
   if(/^T33|^T28|^T6[A-Z]?$|^L29|^L39|^P51|^P40|^MG[0-9]|^SU2[57]|^SU3[0457]|^SU57|^F4U|^F6F|^P38|^P47|^YAK|^OV10|^T37|^B17|^B25|^B29|^PBY|^A1[A-Z]?$|^OV1/.test(t)) return 'military';
 
@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'P28A':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'C17':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'E2':1,'HDJT':1,'P28A':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -206,7 +206,8 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     case 'C150':
     case 'C152':
     case 'C172':
-    case 'C182': {
+    case 'C182':
+    case 'C82T': {
       // Cessna 172/182 — user-supplied top-down silhouette.
       // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
       // Wide straight wing profile, high-wing characteristic shape.
@@ -332,6 +333,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     }
 
     case 'A20N':
+    case 'A21N':
     case 'A320':
     case 'A321': {
       // Airbus A320/A321 — user-supplied top-down silhouette.
@@ -700,6 +702,70 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(1.53,3.01)} L${P(1.43,3.40)} L${P(1.09,3.45)} L${P(1.04,2.27)}` +
           ` L${P(4.14,2.22)} L${P(8.58,2.96)} L${P(8.58,2.32)} L${P(1.04,-1.58)}` +
           ` L${P(0.99,-9.08)} L${P(0.25,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'BE9T': {
+      // Beechcraft King Air 90 (BE9T) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Twin-turboprop; engine nacelles on wings visible in geometry. ±11 wide, ±7.7 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-7.72)} L${P(-0.69,-6.93)} L${P(-1.23,-3.63)} L${P(-2.27,-3.58)}` +
+          ` L${P(-2.02,-5.50)} L${P(-2.86,-6.93)} L${P(-3.55,-5.40)} L${P(-3.35,-3.82)}` +
+          ` L${P(-4.04,-3.28)} L${P(-10.61,-2.84)} L${P(-11.00,-2.64)} L${P(-11.00,-1.21)}` +
+          ` L${P(-10.56,-1.50)} L${P(-4.29,-0.37)} L${P(-1.18,-0.32)} L${P(-0.74,4.07)}` +
+          ` L${P(-3.90,4.71)} L${P(-3.90,6.19)} L${P(-0.39,6.44)} L${P(0.05,7.72)}` +
+          ` L${P(0.39,6.44)} L${P(3.90,6.19)} L${P(3.90,4.71)} L${P(0.74,4.07)}` +
+          ` L${P(1.18,-0.32)} L${P(3.90,-0.32)} L${P(10.56,-1.50)} L${P(11.00,-1.21)}` +
+          ` L${P(11.00,-2.69)} L${P(4.19,-3.18)} L${P(3.35,-3.82)} L${P(3.55,-5.45)}` +
+          ` L${P(2.86,-6.93)} L${P(2.02,-5.45)} L${P(2.27,-3.58)} L${P(1.23,-3.63)}` +
+          ` L${P(0.69,-6.93)} Z`
+        }/>
+      );
+    }
+
+    case 'HDJT': {
+      // HondaJet HA-420 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,8.971) scale(0.170588) resolved.
+      // Distinctive over-wing engine mounts visible as nacelle bumps; ±10.8 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.10,-11.00)} L${P(-1.03,-8.74)} L${P(-1.44,-1.75)} L${P(-10.18,-0.41)}` +
+          ` L${P(-10.79,1.44)} L${P(-9.15,1.03)} L${P(-3.39,1.54)} L${P(-2.88,4.63)}` +
+          ` L${P(-2.16,4.11)} L${P(-2.06,1.75)} L${P(-1.44,1.64)} L${P(-1.13,4.93)}` +
+          ` L${P(-0.10,8.33)} L${P(-3.70,9.87)} L${P(-3.80,11.00)} L${P(-0.82,10.90)}` +
+          ` L${P(-0.51,10.38)} L${P(0.62,10.49)} L${P(0.82,10.90)} L${P(3.91,11.00)}` +
+          ` L${P(3.80,9.87)} L${P(0.21,8.33)} L${P(1.23,4.83)} L${P(1.44,1.75)}` +
+          ` L${P(2.06,1.75)} L${P(2.26,4.11)} L${P(2.88,4.63)} L${P(3.39,1.54)}` +
+          ` L${P(9.25,1.03)} L${P(10.79,1.34)} L${P(10.28,-0.41)} L${P(1.54,-1.64)}` +
+          ` L${P(1.13,-8.74)} L${P(0.31,-10.79)} Z`
+        }/>
+      );
+    }
+
+    case 'E2': {
+      // E-2 Hawkeye — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(10.25,3) scale(0.112403) resolved.
+      // Carrier-borne AEW aircraft; distinctive rotodome disc and twin-turboprop profile.
+      // ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(11.00,-0.20)} L${P(3.53,-1.45)} L${P(3.08,-3.85)} L${P(2.45,-1.62)}` +
+          ` L${P(0.97,-1.85)} L${P(0.91,-6.64)} L${P(0.63,-7.78)} L${P(0.00,-8.29)}` +
+          ` L${P(-0.51,-7.61)} L${P(-0.91,-5.78)} L${P(-0.97,-1.91)} L${P(-2.45,-1.68)}` +
+          ` L${P(-3.02,-3.90)} L${P(-3.59,-1.51)} L${P(-11.00,-0.48)} L${P(-11.00,0.71)}` +
+          ` L${P(-3.53,1.45)} L${P(-2.79,3.62)} L${P(-0.97,4.87)} L${P(-0.80,6.41)}` +
+          ` L${P(-3.70,6.64)} L${P(-4.05,7.21)} L${P(-3.93,8.29)} L${P(3.65,8.29)}` +
+          ` L${P(3.76,7.49)} L${P(3.36,6.70)} L${P(0.51,6.35)} L${P(0.74,4.87)}` +
+          ` L${P(2.62,3.62)} L${P(3.36,1.62)} L${P(10.72,1.00)} Z`
         }/>
       );
     }

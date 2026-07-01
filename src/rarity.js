@@ -62,6 +62,9 @@ export const GLOBAL_RARITY = [
   // Additional regional / turboprop / piston
   ['E75L',22],['B712',58],['DHC6',48],['BE20',24],['PA24',16],
   ['SF50',44],
+  ['BE9T',30],
+  ['HDJT',52],
+  ['C82T',12],
   ['B25',98],['B29',99],['PBY',98],['A1',94],['DC6',92],['DC4',92],['CONI',99],
 ];
 
