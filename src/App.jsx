@@ -4527,7 +4527,7 @@ function RingRangeControl({ value, min=10, max, onChange }) {
         {value>=max?'FULL':'NMI'}
       </text>
       {/* Label below dead-zone gap */}
-      <text x={cx} y={S-3} textAnchor="middle"
+      <text x={cx} y={S+3} textAnchor="middle"
         fontSize="6.5" fill="rgba(77,184,255,0.28)" fontFamily="Orbitron,monospace" letterSpacing=".1em">
         RANGE
       </text>
@@ -7441,7 +7441,7 @@ export default function App() {
 
       {/* North indicator — scan mode only, fixed true-north arrow */}
       {!tiltMode&&!cameraMode&&(
-        <div style={{position:'absolute',right:12,bottom:140,zIndex:10,pointerEvents:'none'}}>
+        <div style={{position:'absolute',right:12,bottom:'calc(140px + env(safe-area-inset-bottom,0px))',zIndex:10,pointerEvents:'none'}}>
           <div style={{width:38,height:38,borderRadius:'50%',
             background:'rgba(1,8,20,0.78)',
             border:'1px solid rgba(77,184,255,0.22)',
