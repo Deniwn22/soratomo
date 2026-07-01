@@ -6716,9 +6716,6 @@ export default function App() {
         background:cameraMode?'transparent':'linear-gradient(175deg,#010a18 0%,#020e24 55%,#031330 100%)',
         overflow:'hidden',cursor:(tiltMode||cameraMode)?'default':'grab',
         userSelect:'none',fontFamily:"'Exo 2',sans-serif",touchAction:'none',
-        paddingTop:'env(safe-area-inset-top,0px)',
-        paddingLeft:'env(safe-area-inset-left,0px)',
-        paddingRight:'env(safe-area-inset-right,0px)',
         zoom:density==='normal'?1.15:1}}>
       <style>{STYLES}</style>
 
@@ -7143,7 +7140,10 @@ export default function App() {
       )}
 
       {/* ── TOP HUD ── */}
-      <div style={{position:'absolute',top:0,left:0,right:0,zIndex:10,
+      {/* top uses env(safe-area-inset-top) directly — absolutely-positioned children ignore
+          a parent's padding (they align to the outer edge of the padding box per CSS spec),
+          so the safe-area offset must be applied here, not on the fixed root container. */}
+      <div style={{position:'absolute',top:'env(safe-area-inset-top,0px)',left:0,right:0,zIndex:10,
         background:'linear-gradient(180deg,rgba(1,7,18,.93) 0%,transparent 100%)',
         padding:'12px 16px 28px'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
