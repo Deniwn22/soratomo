@@ -4770,6 +4770,7 @@ function Disclaimer({ onAccept }) {
   return (
     <div style={{
       position:'fixed',inset:0,zIndex:999,
+      paddingTop:'env(safe-area-inset-top,0px)',
       background:'rgba(1,6,18,0.98)',
       display:'flex',flexDirection:'column',
       fontFamily:"'Exo 2',sans-serif",
@@ -4837,7 +4838,7 @@ function Disclaimer({ onAccept }) {
 
       {/* Accept button — pinned to bottom, always visible on any screen size */}
       <div style={{
-        padding:'12px 20px 28px',
+        padding:'12px 20px calc(16px + env(safe-area-inset-bottom,0px))',
         background:'linear-gradient(0deg,rgba(1,6,18,1) 70%,rgba(1,6,18,0) 100%)',
         flexShrink:0,
       }}>
@@ -7512,7 +7513,7 @@ export default function App() {
         ))}
       </div>
 
-      <div style={{position:'absolute',left:10,bottom:110,zIndex:10,
+      <div style={{position:'absolute',left:10,bottom:'calc(130px + env(safe-area-inset-bottom,0px))',zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
         border:'0.5px solid rgba(77,184,255,.12)'}}>
         {[
