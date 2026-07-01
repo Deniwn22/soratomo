@@ -152,7 +152,7 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
   // icao-specific shapes take priority; falls through to category shape for everything else.
   // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
-  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'BE23':1,'C17':1,'C130':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'P210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
   switch(ICAO_SHAPES[icao] ? icao : cat){
 
     case 'F22': {
@@ -207,7 +207,8 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     case 'C152':
     case 'C172':
     case 'C182':
-    case 'C82T': {
+    case 'C82T':
+    case 'P210': {
       // Cessna 172/182 — user-supplied top-down silhouette.
       // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
       // Wide straight wing profile, high-wing characteristic shape.
@@ -666,6 +667,8 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
 
     case 'C25':
     case 'C25A':
+    case 'C525':
+    case 'C550':
     case 'C56X':
     case 'C68A': {
       // Cessna Citation CJ series (C25/C25A) — user-supplied top-down silhouette.
@@ -915,6 +918,30 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
           ` L${P(11.00,-3.35)} L${P(10.46,-3.80)} L${P(1.43,-3.80)} L${P(1.07,-7.38)}` +
           ` L${P(0.54,-7.56)} L${P(0.18,-8.27)} L${P(-0.09,-8.27)} L${P(-0.54,-7.56)}` +
           ` L${P(-0.98,-7.47)} L${P(-1.43,-3.80)} L${P(-10.28,-3.80)} L${P(-10.55,-3.98)} Z`
+        }/>
+      );
+    }
+
+    case 'BE58': {
+      // Beechcraft Baron 58 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,10.04) scale(0.064588) resolved.
+      // Twin-engine piston; both nacelles and prop disc geometry visible; ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.26,-8.27)} L${P(-0.89,-6.66)} L${P(-1.33,-3.83)} L${P(-2.37,-3.50)}` +
+          ` L${P(-2.50,-5.82)} L${P(-3.04,-6.25)} L${P(-2.17,-6.38)} L${P(-3.06,-6.41)}` +
+          ` L${P(-3.50,-6.99)} L${P(-3.78,-6.41)} L${P(-4.95,-6.38)} L${P(-3.78,-6.25)}` +
+          ` L${P(-4.29,-5.87)} L${P(-4.34,-3.32)} L${P(-10.64,-2.94)} L${P(-10.97,-2.71)}` +
+          ` L${P(-11.00,-1.20)} L${P(-1.23,0.41)} L${P(-0.54,5.03)} L${P(-4.44,5.64)}` +
+          ` L${P(-4.65,6.84)} L${P(-4.26,7.27)} L${P(-0.18,7.30)} L${P(0.03,8.27)}` +
+          ` L${P(0.18,7.30)} L${P(4.21,7.27)} L${P(4.62,6.87)} L${P(4.44,5.64)}` +
+          ` L${P(0.51,5.03)} L${P(1.20,0.41)} L${P(11.00,-1.28)} L${P(10.97,-2.60)}` +
+          ` L${P(10.64,-2.94)} L${P(4.42,-3.29)} L${P(4.29,-5.82)} L${P(3.73,-6.25)}` +
+          ` L${P(4.62,-6.38)} L${P(3.73,-6.41)} L${P(3.34,-6.99)} L${P(3.01,-6.41)}` +
+          ` L${P(1.86,-6.38)} L${P(3.01,-6.25)} L${P(2.48,-5.79)} L${P(2.48,-3.45)}` +
+          ` L${P(1.25,-3.85)} L${P(0.59,-7.66)} L${P(0.23,-8.27)} Z`
         }/>
       );
     }
