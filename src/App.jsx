@@ -625,8 +625,9 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       // Eurocopter EC135/EC145 — user-supplied top-down silhouette.
       // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.048333) resolved.
       // Twin-engine helicopter with Fenestron tail rotor; ±8.2 wide, ±11 tall.
+      // Note: y is negated below to correct nose-down orientation (matches SR20/SR22 fix).
       const s = Math.max(0.38, fc);
-      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      const P = (x,y) => `${(x*s).toFixed(2)},${(-y*s).toFixed(2)}`;
       return (
         <path fill={color} opacity="0.96" d={
           `M${P(1.02,-11.00)} L${P(0.94,-9.74)} L${P(0.13,-9.66)} L${P(0.07,-7.09)}` +
@@ -647,9 +648,10 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
     case 'H60': {
       // H-60 Black Hawk — user-supplied top-down silhouette.
       // Path from viewBox "0 0 64 64" with translate(3,9.896) scale(0.088415) resolved.
-      // Long offset main rotor blades; ±11 wide, ±8.5 tall.
+      // Long offset main rotor blades; originally ±11 wide, ±8.5 tall (rotated 90° from
+      // the vertical nose-up convention). Coordinates rotated 90° here: (x,y) → (y,-x).
       const s = Math.max(0.38, fc);
-      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      const P = (x,y) => `${(y*s).toFixed(2)},${(-x*s).toFixed(2)}`;
       return (
         <path fill={color} opacity="0.96" d={
           `M${P(-11.00,5.17)} L${P(-10.68,5.65)} L${P(-10.01,5.45)} L${P(-4.48,1.59)}` +
