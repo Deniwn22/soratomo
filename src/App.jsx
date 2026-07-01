@@ -7513,7 +7513,7 @@ export default function App() {
         ))}
       </div>
 
-      <div style={{position:'absolute',left:10,bottom:'calc(130px + env(safe-area-inset-bottom,0px))',zIndex:10,
+      <div style={{position:'absolute',left:10,bottom:'calc(118px + env(safe-area-inset-bottom,0px))',zIndex:10,
         background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
         border:'0.5px solid rgba(77,184,255,.12)'}}>
         {[
@@ -7566,7 +7566,7 @@ export default function App() {
             ))}
           </div>
           {/* Range ring — bottom right, replaces AIM ELEV text */}
-          <div style={{position:'absolute',right:8,bottom:28,zIndex:11,
+          <div style={{position:'absolute',right:8,bottom:'calc(28px + env(safe-area-inset-bottom,0px))',zIndex:11,
             background:'rgba(1,8,22,0.78)',borderRadius:'50%',
             border:'0.5px solid rgba(77,184,255,0.12)',
             boxShadow:'0 0 10px rgba(0,0,0,0.5)'}}>
@@ -7576,7 +7576,7 @@ export default function App() {
           {/* Small clear-filters pill — immediately left of the range ring, only when a filter is active */}
           {isFilterActive && (
             <button onClick={e=>{e.stopPropagation();handleResetAllFilters();}} style={{
-              position:'absolute',right:90,bottom:44,zIndex:11,
+              position:'absolute',right:90,bottom:'calc(44px + env(safe-area-inset-bottom,0px))',zIndex:11,
               background:'rgba(1,8,22,0.78)',border:'0.5px solid rgba(255,100,80,0.35)',
               borderRadius:14,padding:'4px 9px',cursor:'pointer',
               display:'flex',alignItems:'center',gap:3,
