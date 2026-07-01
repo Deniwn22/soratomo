@@ -559,8 +559,11 @@ const PlaneShape = ({cat, color, fc, icao=''}) => {
       // Cirrus SR20/SR22 — user-supplied top-down silhouette.
       // Path from viewBox "0 0 64 64" with translate(3,12.573) scale(0.140777) resolved.
       // Low-wing piston with distinctive tapered wingtips; ±11 wide, ±7.4 tall.
+      // Note: y is negated below — the source SVG's nose/tail orientation resolved backward
+      // (nose pointing down instead of up like every other silhouette), so the shape is
+      // vertically flipped here to correct it.
       const s = Math.max(0.38, fc);
-      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      const P = (x,y) => `${(x*s).toFixed(2)},${(-y*s).toFixed(2)}`;
       return (
         <path fill={color} opacity="0.96" d={
           `M${P(-0.06,-7.41)} L${P(-0.11,-6.73)} L${P(-0.40,-6.67)} L${P(-0.23,-6.04)}` +
@@ -4543,11 +4546,11 @@ function FilterPanel({
   search,onSearch,allFlights,pos,onSelect,
   typeFilter,onTypeFilter,
   icaoFilter,onToggleIcao,catches,
+  typeViewMode,onTypeViewMode,
   minSpeedKts,maxSpeedKts,onMinSpd,onMaxSpd,
   onResetAll,onClose,
 }) {
   const [typeGridOpen, setTypeGridOpen] = React.useState(true); // open by default — this IS the filter mechanism
-  const [typeViewMode, setTypeViewMode] = React.useState('all'); // 'all' | 'caught' | 'uncaught'
   // Same grouped list as the Trophy Case — base rarity table + any caught types beyond it.
   const typeGroups = React.useMemo(()=>buildTrophyGroups(catches||{}), [catches]);
   const results=search.trim().length>=2
@@ -4644,7 +4647,7 @@ function FilterPanel({
             {/* Caught-only / all-types shortcut toggle */}
             <div style={{display:'flex',gap:5,marginBottom:8}}>
               {[['ALL TYPES','all'],['CAUGHT ONLY','caught'],['NOT CAUGHT','uncaught']].map(([lbl,val])=>(
-                <div key={lbl} onClick={()=>setTypeViewMode(val)} style={{
+                <div key={lbl} onClick={()=>onTypeViewMode(val)} style={{
                   flex:1,textAlign:'center',padding:'4px 0',cursor:'pointer',borderRadius:5,
                   background:typeViewMode===val?'rgba(45,255,180,0.14)':'transparent',
                   border:`1px solid ${typeViewMode===val?'#2dffb4':'rgba(77,184,255,0.18)'}`,
@@ -5118,6 +5121,8 @@ export default function App() {
       return next;
     });
   },[]);
+  // Caught/Not Caught quick-filter — actually restricts visibleFlights (not just the picker list).
+  const [typeViewMode, setTypeViewMode] = useState('all'); // 'all' | 'caught' | 'uncaught'
   const [minSpeedKts, setMinSpeedKts] = useState(0);
   const [maxSpeedKts, setMaxSpeedKts] = useState(700);
   const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
@@ -6214,6 +6219,7 @@ export default function App() {
     setAltFloor(0); setAltCeiling(ALT_MAX);
     setTypeFilter('all');
     setIcaoFilter(new Set());
+    setTypeViewMode('all');
     setMinSpeedKts(0); setMaxSpeedKts(700);
     // NOTE: deliberately does NOT touch maxDisplayNmi — range is controlled by the
     // on-screen ring control, not anything in the filter tab, so clearing filters
@@ -6328,6 +6334,13 @@ export default function App() {
     if(typeFilter==='military'&&!isMilCat(cat,f.type)) return false;
     // Specific ICAO type multi-select — empty set means no restriction (show all types)
     if(icaoFilter.size>0 && !icaoFilter.has((f.type||'').toUpperCase())) return false;
+    // Caught/Not-Caught quick filter
+    if(typeViewMode!=='all'){
+      const c = catches[(f.type||'').toUpperCase()];
+      const isCaught = !!(c && (c.spotted>0||c.captured>0));
+      if(typeViewMode==='caught' && !isCaught) return false;
+      if(typeViewMode==='uncaught' && isCaught) return false;
+    }
     return true;
   });
   // DR cap as a CONTINUOUS function of altitude — piecewise-linear interpolation.
@@ -6650,7 +6663,7 @@ export default function App() {
     prevMappedRef.current=new Set(flights.map(f=>f.id));
   },[flights]);
 
-  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||minSpeedKts>0||maxSpeedKts<700;
+  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||typeViewMode!=='all'||minSpeedKts>0||maxSpeedKts<700;
   // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
   // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
   // line always aligns with the real camera horizon after pitch calibration.
@@ -7388,6 +7401,7 @@ export default function App() {
               onSelect={handleSelectFlight}
               typeFilter={typeFilter} onTypeFilter={setTypeFilter}
               icaoFilter={icaoFilter} onToggleIcao={toggleIcaoFilter} catches={catches}
+              typeViewMode={typeViewMode} onTypeViewMode={setTypeViewMode}
               minSpeedKts={minSpeedKts} maxSpeedKts={maxSpeedKts}
               onMinSpd={setMinSpeedKts} onMaxSpd={setMaxSpeedKts}
               onResetAll={handleResetAllFilters}
