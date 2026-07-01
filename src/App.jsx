@@ -6837,7 +6837,7 @@ export default function App() {
       )}
       {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
       {!showFilters && !showHelp && bestTargets.length>0 && (
-        <div style={{position:'absolute',top:78,left:0,right:0,zIndex:40,
+        <div style={{position:'absolute',top:'calc(78px + env(safe-area-inset-top,0px))',left:0,right:0,zIndex:40,
           pointerEvents:'none',padding:'0 14px'}}>
           {targetsOpen ? (
             <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
@@ -7540,11 +7540,15 @@ export default function App() {
       )}
 
       {/* ── BOTTOM HUD ── */}
+      {/* bottom padding reserves the home-indicator safe area explicitly (rather than a flat
+          8px) so the swipe-up gesture zone is respected on notched iPhones; the extra vertical
+          rhythm above is spread across the readout row so the block doesn't feel cramped with
+          a dead gap below it. */}
       <div style={{position:'absolute',bottom:0,left:0,right:0,zIndex:10,
         background:'linear-gradient(0deg,rgba(1,7,18,.97) 0%,transparent 100%)',
-        padding:'18px 16px 8px'}}>
+        padding:'18px 16px calc(10px + env(safe-area-inset-bottom,0px))'}}>
         <CompassStrip heading={viewHdg}/>
-        <div style={{display:'flex',justifyContent:'space-between',padding:'8px 6px 4px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',padding:'12px 6px 6px'}}>
           <div style={{display:'flex',gap:24,alignItems:'center'}}>
             {[
               ['HEADING',(Math.round(heading)%360).toString().padStart(3,'0')+'\u00b0'],
