@@ -3403,6 +3403,7 @@ function HelpPanel({ onClose }) {
 
   return (
     <div onClick={onClose} style={{position:'absolute',inset:0,zIndex:62,
+      paddingTop:'env(safe-area-inset-top,0px)',
       background:'rgba(1,6,18,0.98)',display:'flex',flexDirection:'column',
       animation:'slideUp 0.28s ease'}}>
       <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',height:'100%'}}>
@@ -4277,6 +4278,7 @@ function Logbook({ entries, pos, onClose, onClear }) {
   return (
     <div onClick={e=>e.stopPropagation()} style={{
       position:'absolute',inset:0,zIndex:60,
+      paddingTop:'env(safe-area-inset-top,0px)',
       background:'rgba(1,6,18,0.98)',
       display:'flex',flexDirection:'column',
       animation:'slideUp 0.3s ease',
@@ -4910,6 +4912,7 @@ function Gallery({ photos, onClose, onDelete, onClear, selected, onSelect }) {
   return (
     <div onClick={e=>e.stopPropagation()} style={{
       position:'absolute',inset:0,zIndex:60,
+      paddingTop:'env(safe-area-inset-top,0px)',
       background:'rgba(1,6,18,0.98)',
       display:'flex',flexDirection:'column',
       animation:'slideUp 0.3s ease',
@@ -7345,6 +7348,7 @@ export default function App() {
       {(showLog||showFilters||showDex||showBoard||showTrophy)&&(
         <div onClick={e=>e.stopPropagation()} style={{
           position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
+          paddingTop:'env(safe-area-inset-top,0px)',
           background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
           {/* Tab bar */}
           <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
