@@ -6716,6 +6716,9 @@ export default function App() {
         background:cameraMode?'transparent':'linear-gradient(175deg,#010a18 0%,#020e24 55%,#031330 100%)',
         overflow:'hidden',cursor:(tiltMode||cameraMode)?'default':'grab',
         userSelect:'none',fontFamily:"'Exo 2',sans-serif",touchAction:'none',
+        paddingTop:'env(safe-area-inset-top,0px)',
+        paddingLeft:'env(safe-area-inset-left,0px)',
+        paddingRight:'env(safe-area-inset-right,0px)',
         zoom:density==='normal'?1.15:1}}>
       <style>{STYLES}</style>
 
