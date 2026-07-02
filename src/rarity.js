@@ -1,110 +1,7985 @@
-/**
- * SoraTomo — Rarity Engine
- * Extracted from App.jsx for code-splitting and independent testing.
- *
- * computeRarity(icaoType, cat, priorCount) → { score, key, label, color }
- */
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import geomagnetism from "geomagnetism";
+import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
+import { computeRarity, GLOBAL_RARITY } from './rarity.js';
+import { loadGalleryIDB, saveGalleryIDB, deletePhotoIDB, clearGalleryIDB } from './idb.js';
 
-export const GLOBAL_RARITY = [
-  // Ultra-common narrowbodies
-  ['A320',6],['A319',8],['A321',8],['A20N',7],['A21N',8],
-  ['B737',6],['B738',5],['B739',7],['B38M',8],['B39M',9],['E75',12],['E70',14],
-  ['CRJ',13],['CRJ9',13],['CRJ7',14],['CRJ2',18],['E190',12],['E195',14],['E145',20],
-  // Narrowbody — aging / increasingly rare types
-  ['B752',28],['B753',34],['B722',80],['MD80',42],['MD88',44],['MD90',48],
-  ['A318',30],['A306',60],['A310',58],['MD11',66],['BCS1',16],['BCS3',16],
-  // Turboprop regionals (real ICAO codes)
-  ['DH8A',24],['DH8B',24],['DH8C',26],['DH8D',22],['AT72',24],['AT75',26],['AT76',26],
-  ['AT43',30],['AT45',30],['SF34',40],['SW4',28],['J328',44],['BE99',34],['E545',20],['E550',22],
-  // Widebodies
-  ['B772',52],['B77W',52],['B788',52],['B789',52],['B78X',54],
-  ['A332',50],['A333',50],['A339',56],['A359',56],['A35K',60],['B763',48],['B764',54],
-  // Jumbos / superjumbos
-  ['B748',78],['B744',70],['B742',88],['B743',88],['A388',80],
-  // GA / bizjets — C17x entries MUST appear before ['C17',...] (C-17 Globemaster)
-  // so that longest-prefix match selects the correct Cessna score.
-  ['C150',10],['C152',10],['C170',10],['C172',10],['C175',10],
-  ['C177',10],['C178',10],['C180',12],['C182',10],['C185',12],
-  ['C206',14],['C207',14],['C208',18],
-  ['PA18',12],['PA28',10],['PA32',14],['PA44',16],
-  ['P28A',10],['P28B',10],['P28R',12],['P28T',13],['P32R',14],['P32T',15],['P46T',16],
-  ['BE36',12],['BE35',13],['BE33',13],['BE58',14],['BE55',14],['BE76',15],['BE99',34],
-  ['M20',12],['AA5',12],['RV6',16],['RV7',16],['RV8',16],['RV9',16],['RV10',18],['RV14',18],
-  ['SR20',22],['SR22',24],['DA40',30],['DA42',32],
-  ['C25',14],['C56X',16],['GLF',20],['GLEX',22],['CL60',18],['LJ',18],['PC12',16],
-  // Helicopters
-  ['R44',30],['R66',34],['R22',28],['B06',32],['B407',36],['B412',42],['B429',40],['B505',34],
-  ['EC',38],['H125',34],['H130',36],['H135',40],['H145',44],['H155',48],['H160',54],['H175',58],
-  ['AW1',44],['AW09',40],['AW39',56],['AW69',60],['AW89',64],['A139',56],['A169',52],['A189',60],
-  ['S76',46],['S92',62],['UH',60],['H60',62],['UH60',62],['AH64',55],['CH47',60],['HH60',70],['VH3',96],['VH60',96],
-  ['AS50',34],['AS55',38],['AS65',42],['MD5',40],
-  // Military
-  ['F16',72],['F15',74],['F18',74],['F22',92],['F35',88],['A10',86],
-  ['C130',64],['C17',74],['KC',70],['C5',90],['E3',86],['P8',72],['V22',84],
-  ['B52',95],['B1',94],['B2',99],
-  // Modern military fighters/attack/recon/drones
-  ['F4',90],['F5',82],['A4',88],['EA18',86],['AV8',90],['T38',80],['T45',78],
-  ['RQ4',92],['MQ9',88],['RQ1',86],['MQ1',86],['U2',96],
-  // Military transports / VIP / patrol / AEW (Andrews AFB & carrier traffic)
-  ['C40',58],['C32',74],['C37',60],['C12',46],['C20',58],['C21',54],
-  ['C2',80],['E2',82],['E6',88],['E8',90],['P3',78],['C27',72],['C146',68],
-  ['RC',92],['WC',92],['OC',90],['KC10',74],['KC46',72],['VC',96],
-  // Heritage / ultra-rare warbirds & vintage jets
-  ['AN12',92],['AN124',97],['AN225',100],['A124',97],['IL76',90],
-  ['DC3',96],['B17',99],['SR7',100],
-  ['T33',96],['T28',92],['T6',90],['P51',99],['P40',99],['SPIT',100],['BF109',100],['ME16',100],
-  ['L29',88],['L39',86],['MG2',94],['MG3',94],['SU27',94],['SU30',94],['SU34',94],['SU57',96],
-  ['F4U',99],['F6F',99],['P38',99],['P47',98],['YAK',88],['OV10',90],['T37',84],
-  // Additional helicopters
-  ['EC35',36],['EC45',42],['B212',38],['H500',32],
-  // Additional bizjets
-  ['H25B',46],['F900',38],['GLF5',56],['C700',44],['G280',50],['E55P',24],['C550',26],['C750',40],
-  // Additional regional / turboprop / piston
-  ['E75L',22],['B712',58],['DHC6',48],['BE20',24],['PA24',16],
-  ['SF50',44],
-  ['BE9T',30],
-  ['HDJT',52],
-  ['C82T',12],
-  ['GLF4',48],
-  ['AJET',58],
-  ['CV22',84],
-  ['BE23',20],
-  ['B25',98],['B29',99],['PBY',98],['A1',94],['DC6',92],['DC4',92],['CONI',99],
+const D2R = Math.PI / 180;
+const haversine = (la1,lo1,la2,lo2) => {
+  const R=6371000,dL=(la2-la1)*D2R,dO=(lo2-lo1)*D2R;
+  const a=Math.sin(dL/2)**2+Math.cos(la1*D2R)*Math.cos(la2*D2R)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+};
+const getBearing = (la1,lo1,la2,lo2) => {
+  const dO=(lo2-lo1)*D2R;
+  const y=Math.sin(dO)*Math.cos(la2*D2R);
+  const x=Math.cos(la1*D2R)*Math.sin(la2*D2R)-Math.sin(la1*D2R)*Math.cos(la2*D2R)*Math.cos(dO);
+  return (Math.atan2(y,x)/D2R+360)%360;
+};
+// Observer altitude (m) — updated from GPS fixes. 0 = sea level (ground default).
+// In flight this is CRITICAL: at FL350 a co-altitude aircraft 10 nm away is at ~0°
+// elevation, but sea-level math would draw it 30° up in the sky.
+let OBS_ALT_M = 0;
+// Effective Earth radius (7/6 · R) — standard atmospheric refraction correction
+const R_EFF = 7432833;
+// Elevation angle of a target: relative altitude minus Earth-curvature drop (d²/2R).
+// Curvature matters even on the ground: cruise traffic at 30 nm sits ~0.2° lower
+// than flat-earth math suggests.
+const getElev  = (distM,altM) => Math.atan2(altM - OBS_ALT_M - distM*distM/(2*R_EFF), distM)/D2R;
+// True-horizon dip below 0° elevation at altitude: √(2h/R_eff). ~3.2° at FL350, ~0 on ground.
+const getHorizonDipDeg = () => Math.sqrt(2*Math.max(OBS_ALT_M,0)/R_EFF)/D2R;
+
+// ── Solar position — true azimuth & elevation of the sun for a given location/time ──
+// Used as an in-flight heading anchor: the sun's true azimuth is computable exactly,
+// so tapping the sun gives a magnetometer-free absolute heading reference. Standard
+// low-precision solar position algorithm (NOAA), accurate to ~0.1° — far better than
+// a fuselage-distorted magnetometer.
+const getSunPosition = (lat, lon, when=new Date()) => {
+  const rad = Math.PI/180, deg = 180/Math.PI;
+  // Days since J2000.0
+  const jd = (when.getTime()/86400000) + 2440587.5;
+  const n  = jd - 2451545.0;
+  // Mean longitude & mean anomaly of the sun (degrees)
+  const L = (280.460 + 0.9856474*n) % 360;
+  const g = ((357.528 + 0.9856003*n) % 360) * rad;
+  // Ecliptic longitude
+  const lambda = (L + 1.915*Math.sin(g) + 0.020*Math.sin(2*g)) * rad;
+  // Obliquity of the ecliptic
+  const eps = (23.439 - 0.0000004*n) * rad;
+  // Right ascension & declination
+  const ra  = Math.atan2(Math.cos(eps)*Math.sin(lambda), Math.cos(lambda));
+  const dec = Math.asin(Math.sin(eps)*Math.sin(lambda));
+  // Greenwich mean sidereal time → local sidereal time → hour angle
+  const gmst = (18.697374558 + 24.06570982441908*n) % 24;
+  const lst  = ((gmst*15 + lon) % 360) * rad;
+  const ha   = lst - ra;
+  const latR = lat * rad;
+  // Elevation & azimuth (azimuth measured clockwise from true north)
+  const elev = Math.asin(Math.sin(latR)*Math.sin(dec) + Math.cos(latR)*Math.cos(dec)*Math.cos(ha));
+  let az = Math.atan2(Math.sin(ha), Math.cos(ha)*Math.sin(latR) - Math.tan(dec)*Math.cos(latR));
+  az = (az*deg + 180) % 360; // convert: 0°=N, clockwise
+  return { azimuth: (az+360)%360, elevation: elev*deg };
+};
+const mToFt    = m  => Math.round(m*3.28084).toLocaleString();
+const msToKts  = ms => Math.round(ms*1.944);
+const distNmi  = m  => (m/1852).toFixed(1);
+// Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
+// Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
+const SHOW_SENSOR_DIAG = false;
+const altColor = altM => {
+  const ft=altM*3.28084;
+  if(ft>45000) return '#e879f9'; // lavender:       extreme altitude
+  if(ft>38000) return '#a855f7'; // purple:         very high cruise FL380-450
+  if(ft>32000) return '#e8f4ff'; // ghost white:    upper cruise FL320-380
+  if(ft>25000) return '#b8e4ff'; // ice blue:       cruise FL250-320
+  if(ft>18000) return '#4db8ff'; // sky blue:       mid FL180-250
+  if(ft>10000) return '#1d6fa4'; // steel blue:     low-mid 10k-18k ft
+  return '#3b7cf2';              // royal blue:     low altitude <10k ft
+};
+const ALT_MAX   = 45000;      // ft — altitude slider ceiling
+const HFOV      = 85;          // degrees — default horizontal AR FOV
+const VFOV      = 55;          // degrees — default vertical AR FOV
+const M_PER_NMI = 1852;        // metres per nautical mile (exact)
+const CAM_MAX_DIST_M = 30*1852;// 30 nmi — hide aircraft beyond this in camera mode
+const LOG_PROX_NMI   = 25;     // nmi — logbook proximity logging cap
+const DR_MAX_AGE_S   = 30;     // seconds — dead-reckoning projection limit
+
+const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
+  let hDiff=((bear-dHdg+540)%360)-180;
+  if(Math.abs(hDiff)>hfov/2) return {on:false};
+  const vDiff=elev-dPitch;
+  if(Math.abs(vDiff)>vfov/2) return {on:false};
+  return {x:50+(hDiff/(hfov/2))*50, y:50-(vDiff/(vfov/2))*50, on:true};
+};
+
+const getAircraftCat = (icao, emitter='') => {
+  // ADS-B emitter category A7 = rotorcraft — checked first, most reliable
+  if(emitter==='A7') return 'helicopter';
+  if(!icao) return 'narrow';
+  const t=icao.toUpperCase().replace(/[^A-Z0-9]/g,'');
+
+  // ── Fixed-wing size checks ──────────────────────────────────────
+  if(/^A38/.test(t)) return 'super';
+  if(/^B74/.test(t)) return 'jumbo';
+  if(/^B7[6-9]|^A3[3-5]|^A30/.test(t)) return 'wide';
+  // Regional jets — includes Fokker F50/F70/F100 (civil turboprops/jets)
+  if(/^CRJ|^ERJ|^E[127]\d\d|^E75L|^RJ|^F5[0-9]|^F7[0-9]|^F10|^B712/.test(t)) return 'regional';
+  // Bizjets: Gulfstream, Citation, Learjet, Challenger, Falcon, Phenom
+  if(/GLF|^G[2-8]\d\d|^GLEX|^GL[5-7]T|^C[5-7]\d\d|^C56X|^C25[A-Z]|^C68[A-Z]|^LJ|^CL30|^CL35|^CL6|^BE4|^FA[125]0|^FA7|^FA8|^F90[0-9]|^F2TH|^F2000|^PC24|^E50P|^E55P|^PRM1|^H25B|^GLF5|^SF50/.test(t)) return 'bizjet';
+
+  // ── Piston/GA — MUST come before military to avoid C172 → military ──
+  // Cessna 1xx/2xx, Piper PA, Cirrus SR, Diamond DA, Mooney, Beech Bonanza, TBM, PC-12
+  if(/^C1[5-9]\d|^C20[5-9]|^C21\d|^PA[234]\d|^P28[A-Z]|^P32[A-Z]|^SR2[02]|^DA[24]\d|^M20|^AA5|^BE3[36]|^BE58|^BE55|^BE76|^BE20|^TBM|^PC12|^PL4|^RV[6-9]|^RV1[04]|^GLAS|^COL[34]|^LNC|^DHC6/.test(t)) return 'piston';
+
+  // ── Helicopters (type-code) — MUST come before military to avoid A109 → military ──
+  // Bell, Sikorsky, Robinson, Eurocopter/Airbus-H, AgustaWestland, MD, military rotary
+  if(/^B0[6-9]|^B4[0-4]|^S6[0-9]|^S7[0-9]|^S9[0-9]|^R2[0-9]|^R4[0-9]|^R6[0-9]|^EC[2-7]|^AS3[0-5]|^AS5[0-9]|^AS6[05]|^AW[019]|^H1[02-9]|^H2[0-46-9]|^MD5|^A10[9]|^A139|^A169|^A189|^CH4[67]|^UH[16]|^UH60|^AH[16]|^AH64|^OH5|^MH6|^HH6|^HH60|^H60|^VH3|^VH6|^B407|^B412|^B212|^B505|^H500|^AS6[05]/.test(t)) return 'helicopter';
+
+  // ── Military — specific codes only, no false-positive prefixes ──
+  // ^C17[A-Z]?$ : C-17 Globemaster (NOT C172 Cessna)
+  // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
+  // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
+  // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
+  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^KC[0-9]|^E3[A-Z]?$|^V22|^MV22|^CV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^KC1[0-9]|^C146/.test(t)) return 'milTransport';
+  // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
+  // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
+  if(/^AJET|^E2[A-Z]?$|^P8[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
+  // Vintage / warbird military: T-33, T-28, T-6, L-29/39 jet trainers, P-51, MiG, Su
+  if(/^T33|^T28|^T6[A-Z]?$|^L29|^L39|^P51|^P40|^MG[0-9]|^SU2[57]|^SU3[0457]|^SU57|^F4U|^F6F|^P38|^P47|^YAK|^OV10|^T37|^B17|^B25|^B29|^PBY|^A1[A-Z]?$|^OV1/.test(t)) return 'military';
+
+  return 'narrow';
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// RARITY ENGINE
+// A catch's rarity blends GLOBAL scarcity (how uncommon the type is in the skies
+// worldwide — the dominant term) with PERSONAL novelty (how new it is to this
+// user's logbook). Score 0-100 maps to five tiers. Leans global per design so a
+// veteran spotter and a beginner agree an An-124 is a trophy.
+//
+// GLOBAL_RARITY: 0 (ultra-common) … 100 (almost never seen). Keyed by an ICAO
+// type prefix; longest-prefix match wins. Tuned for a US/DCA-typical sky where
+// A320/B738 are wallpaper and anything military/heritage/Antonov is an event.
+// GLOBAL_RARITY, CAT_RARITY, globalRarity, computeRarity → imported from ./rarity.js
+
+// ── F-22 Raptor icon — derived from uploaded PNG silhouette ──────────────
+// Uses SVG mask: the uploaded image (white silhouette on transparent bg)
+// reveals the `color` fill only where the aircraft shape is.
+// Scales cleanly at any icon size; takes the rarity tier color automatically.
+
+const PlaneShape = ({cat, color, fc, icao=''}) => {
+  const f = Math.max(0.38, fc); // floor raised: wings always legible (was 0.08 → near-invisible head-on)
+
+  // icao-specific shapes take priority; falls through to category shape for everything else.
+  // ONLY switch on icao when there's a dedicated shape for that code — otherwise use cat.
+  const ICAO_SHAPES = {'F22':1,'B737':1,'B738':1,'B739':1,'B38M':1,'B39M':1,'C150':1,'C152':1,'C172':1,'C182':1,'C82T':1,'C82R':1,'P210':1,'C210':1,'A339':1,'CRJ9':1,'CRJ7':1,'CRJ':1,'CRJ2':1,'A333':1,'A306':1,'A35K':1,'DA40':1,'AJET':1,'B752':1,'BE23':1,'BE58':1,'C17':1,'C130':1,'C5':1,'C5A':1,'C5M':1,'A388':1,'F15':1,'F15E':1,'F15C':1,'F16':1,'F35':1,'F35A':1,'F35B':1,'F35C':1,'B2':1,'B52':1,'B1':1,'B1A':1,'B1B':1,'F18':1,'EA18':1,'V22':1,'CV22':1,'B712':1,'B742':1,'B743':1,'B744':1,'B748':1,'B763':1,'B772':1,'B77W':1,'A319':1,'A19N':1,'A20N':1,'A21N':1,'A320':1,'A321':1,'BCS3':1,'C25':1,'C25A':1,'C56X':1,'C68A':1,'C525':1,'C550':1,'GLF4':1,'F900':1,'P8':1,'E2':1,'HDJT':1,'P28A':1,'P28R':1,'PA24':1,'PA32':1,'AC11':1,'BE36':1,'BE9T':1,'SR20':1,'SR22':1,'S22T':1,'SF50':1,'EC35':1,'EC45':1,'H60':1,'E75':1,'E75L':1,'E75S':1,'E170':1,'E45X':1,'PA44':1,'PC12':1,'GLEX':1,'GL5T':1,'GL6T':1,'GL7T':1};
+  switch(ICAO_SHAPES[icao] ? icao : cat){
+
+    case 'F22': {
+      // F-22 Raptor — user-supplied silhouette, traced from reference (SVG viewBox 0 0 200 200).
+      // Path transformed to PlaneShape coords (±12, nose at min-y). Scale driven by fc so
+      // the icon shrinks at head-on viewing angles like other categories.
+      const s = Math.max(0.38, fc);
+      // Scale the path: nominal is s=1 → fits ±11. Apply s as a uniform scale factor.
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.86,-8.82)} L${P(-1.09,-5.73)} L${P(-2.12,-4.70)}` +
+          ` L${P(-2.58,-1.38)} L${P(-7.96,3.55)} L${P(-7.96,4.93)} L${P(-7.05,5.84)}` +
+          ` L${P(-3.61,7.10)} L${P(-3.61,7.33)} L${P(-5.21,8.94)} L${P(-5.21,10.43)}` +
+          ` L${P(-3.27,11.00)} L${P(-1.55,9.40)} L${P(-1.32,8.25)} L${P(-0.74,8.48)}` +
+          ` L${P(-0.29,8.14)} L${P(-0.17,9.40)} L${P(0.06,9.51)} L${P(0.29,8.14)}` +
+          ` L${P(0.74,8.48)} L${P(1.32,8.25)} L${P(1.55,9.28)} L${P(3.27,11.00)}` +
+          ` L${P(5.21,10.43)} L${P(5.21,8.94)} L${P(3.61,7.56)} L${P(3.38,7.10)}` +
+          ` L${P(6.36,6.07)} L${P(7.39,5.50)} L${P(7.96,4.93)} L${P(7.96,3.55)}` +
+          ` L${P(2.58,-1.38)} L${P(2.12,-4.70)} L${P(1.09,-5.61)} L${P(0.86,-8.82)}` +
+          ` L${P(0.29,-10.54)} Z`
+        }/>
+      );
+    }
+
+    case 'B737':
+    case 'B738':
+    case 'B739':
+    case 'B38M':
+    case 'B39M': {
+      // Boeing 737 family (Classic, NG, MAX) — user-supplied top-down silhouette.
+      // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
+      // fc drives uniform scale so the icon foreshortens at head-on viewing angles.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-11.00)} L${P(-1.07,-8.13)} L${P(-1.14,-1.93)} L${P(-1.36,-2.12)}` +
+          ` L${P(-2.47,-1.20)} L${P(-2.51,-2.34)} L${P(-3.43,-2.41)} L${P(-3.32,-0.50)}` +
+          ` L${P(-8.73,3.81)} L${P(-9.21,4.74)} L${P(-8.99,5.25)} L${P(-3.28,2.56)}` +
+          ` L${P(-1.07,2.41)} L${P(-0.74,7.39)} L${P(-3.24,9.34)} L${P(-3.24,10.12)}` +
+          ` L${P(-0.55,9.49)} L${P(0.04,11.00)} L${P(0.55,9.49)} L${P(3.24,10.12)}` +
+          ` L${P(3.24,9.34)} L${P(0.74,7.39)} L${P(1.11,2.38)} L${P(3.28,2.56)}` +
+          ` L${P(8.99,5.25)} L${P(9.21,4.55)} L${P(8.73,3.81)} L${P(3.32,-0.50)}` +
+          ` L${P(3.43,-2.41)} L${P(2.51,-2.34)} L${P(2.47,-1.23)} L${P(1.36,-2.12)}` +
+          ` L${P(1.14,-1.93)} L${P(1.03,-8.46)} L${P(0.55,-10.41)} Z`
+        }/>
+      );
+    }
+
+    case 'C150':
+    case 'C152':
+    case 'C172':
+    case 'C182':
+    case 'C82T':
+    case 'C82R':
+    case 'P210':
+    case 'C210': {
+      // Cessna 172/182 — user-supplied top-down silhouette.
+      // Path transformed from viewBox "0 0 64 64" (nested translate+scale) → PlaneShape coords.
+      // Wide straight wing profile, high-wing characteristic shape.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-10.82,-3.99)} L${P(-11.00,-1.64)} L${P(-4.69,-0.75)} L${P(-0.94,-0.71)}` +
+          ` L${P(-0.37,4.17)} L${P(-3.19,4.71)} L${P(-3.41,5.63)} L${P(-3.16,6.28)}` +
+          ` L${P(-0.98,6.60)} L${P(-0.27,5.99)} L${P(-0.05,7.74)} L${P(0.23,5.92)}` +
+          ` L${P(0.98,6.60)} L${P(3.16,6.28)} L${P(3.37,5.81)} L${P(3.19,4.71)}` +
+          ` L${P(0.37,4.17)} L${P(0.98,-0.75)} L${P(4.69,-0.75)} L${P(11.00,-1.68)}` +
+          ` L${P(10.71,-4.03)} L${P(1.12,-4.24)} L${P(0.91,-6.74)} L${P(0.23,-7.38)}` +
+          ` L${P(2.01,-7.49)} L${P(0.02,-7.74)} L${P(-2.05,-7.49)} L${P(-0.23,-7.38)}` +
+          ` L${P(-0.94,-6.67)} L${P(-1.12,-4.24)} Z`
+        }/>
+      );
+    }
+
+    case 'E45X':
+    case 'CRJ7': {
+      // CRJ-700 — silhouette (±7.5 wide, ±11 tall).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.10,-11.00)} L${P(-0.85,-9.02)} L${P(-0.85,-2.53)} L${P(-7.07,1.23)}` +
+          ` L${P(-7.48,2.32)} L${P(-2.97,0.89)} L${P(-1.06,0.89)} L${P(-0.79,1.64)}` +
+          ` L${P(-0.85,3.96)} L${P(-1.88,4.17)} L${P(-1.61,6.49)} L${P(-0.44,7.04)}` +
+          ` L${P(-0.17,8.47)} L${P(-2.97,10.39)} L${P(-3.11,11.00)} L${P(-0.31,10.18)}` +
+          ` L${P(3.11,11.00)} L${P(2.84,10.25)} L${P(0.17,8.47)} L${P(0.44,6.97)}` +
+          ` L${P(1.54,6.56)} L${P(1.88,5.33)} L${P(1.88,4.17)} L${P(0.92,3.96)}` +
+          ` L${P(0.92,0.96)} L${P(2.90,0.89)} L${P(7.34,2.39)} L${P(7.48,2.19)}` +
+          ` L${P(7.21,1.30)} L${P(0.92,-2.46)} L${P(0.92,-8.54)} L${P(0.58,-10.18)} Z`
+        }/>
+      );
+    }
+
+    case 'CRJ9': {
+      // CRJ-900 — distinct silhouette (±6.7 wide, ±11 tall — longer/narrower than -700).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.03,-11.00)} L${P(-0.77,-9.10)} L${P(-0.83,-1.44)} L${P(-6.40,1.87)}` +
+          ` L${P(-6.71,2.85)} L${P(-2.60,1.50)} L${P(-0.89,1.50)} L${P(-0.77,4.75)}` +
+          ` L${P(-1.62,4.81)} L${P(-1.69,5.79)} L${P(-1.38,7.02)} L${P(-0.34,7.45)}` +
+          ` L${P(-0.09,8.73)} L${P(-2.67,10.45)} L${P(-2.73,10.94)} L${P(0.28,10.26)}` +
+          ` L${P(2.79,11.00)} L${P(2.73,10.45)} L${P(0.15,8.67)} L${P(0.40,7.38)}` +
+          ` L${P(1.44,6.96)} L${P(1.75,5.48)} L${P(1.62,4.75)} L${P(0.83,4.69)}` +
+          ` L${P(0.83,1.56)} L${P(2.60,1.50)} L${P(6.59,2.85)} L${P(6.71,2.48)}` +
+          ` L${P(6.47,1.87)} L${P(0.83,-1.56)} L${P(0.83,-8.98)} L${P(0.58,-10.20)} Z`
+        }/>
+      );
+    }
+
+    case 'CRJ':
+    case 'CRJ2': {
+      // CRJ-100/200 regional jet — user-supplied top-down silhouette (viewBox 0 0 215 271).
+      // Slightly wider than CRJ9, shorter fuselage. Path centered and scaled to PlaneShape coords.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.04,-11.00)} L${P(-0.71,-9.91)} L${P(-1.05,-8.41)} L${P(-1.13,-3.05)}` +
+          ` L${P(-3.47,-1.30)} L${P(-7.99,0.96)} L${P(-8.66,1.80)} L${P(-8.66,2.47)}` +
+          ` L${P(-3.47,0.63)} L${P(-1.21,0.63)} L${P(-1.05,2.55)} L${P(-2.22,2.80)}` +
+          ` L${P(-2.30,4.14)} L${P(-1.88,5.73)} L${P(-0.54,6.23)} L${P(-0.13,8.32)}` +
+          ` L${P(-2.55,10.00)} L${P(-2.80,11.00)} L${P(-0.29,10.16)} L${P(2.89,11.00)}` +
+          ` L${P(2.80,10.08)} L${P(0.21,8.32)} L${P(0.63,6.32)} L${P(1.97,5.73)}` +
+          ` L${P(2.38,4.22)} L${P(2.30,2.72)} L${P(1.21,2.63)} L${P(1.21,0.71)}` +
+          ` L${P(3.56,0.63)} L${P(8.41,2.22)} L${P(8.66,1.80)} L${P(8.07,0.88)}` +
+          ` L${P(3.47,-1.38)} L${P(1.21,-3.14)} L${P(1.13,-8.57)} L${P(0.79,-10.00)} Z`
+        }/>
+      );
+    }
+
+    case 'C17': {
+      // C-17 Globemaster III — user-supplied top-down silhouette (widebody-airliner-silhouette-64.svg).
+      // High-wing military transport; broad wing profile. Path from viewBox "0 0 64 64" with
+      // translate(3.7073,3) scale(0.176829) resolved → PlaneShape coords (±10.7 wide, ±11 tall).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.20,-11.00)} L${P(-1.28,-7.91)} L${P(-1.68,-4.94)} L${P(-2.56,-4.47)}` +
+          ` L${P(-2.49,-6.22)} L${P(-3.50,-6.36)} L${P(-3.23,-4.07)} L${P(-5.11,-2.93)}` +
+          ` L${P(-5.31,-4.68)} L${P(-6.39,-4.68)} L${P(-5.99,-2.46)} L${P(-10.36,0.03)}` +
+          ` L${P(-10.70,1.24)} L${P(-1.75,-0.71)} L${P(-1.35,0.64)} L${P(-1.28,5.01)}` +
+          ` L${P(-0.54,7.97)} L${P(-3.97,10.13)} L${P(-4.04,11.00)} L${P(-0.34,10.13)}` +
+          ` L${P(0.00,10.60)} L${P(0.40,10.13)} L${P(4.10,11.00)} L${P(4.04,10.13)}` +
+          ` L${P(0.61,7.97)} L${P(1.35,5.08)} L${P(1.75,-0.57)} L${P(10.70,1.24)}` +
+          ` L${P(10.43,0.03)} L${P(6.12,-2.46)} L${P(6.46,-4.68)} L${P(5.38,-4.68)}` +
+          ` L${P(5.25,-2.93)} L${P(3.30,-4.07)} L${P(3.57,-6.36)} L${P(2.62,-6.29)}` +
+          ` L${P(2.62,-4.54)} L${P(1.75,-5.01)} L${P(1.21,-8.51)} L${P(0.27,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'B742':
+    case 'B743':
+    case 'B744':
+    case 'B748': {
+      // Boeing 747 family (all variants) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(7.373,3) scale(0.230159) resolved.
+      // Distinctive double-swept wing break; ±9.2 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.09,-11.00)} L${P(-0.92,-8.70)} L${P(-1.01,-4.56)} L${P(-2.95,-2.81)}` +
+          ` L${P(-3.31,-3.45)} L${P(-4.05,-3.45)} L${P(-3.96,-1.89)} L${P(-5.71,-0.23)}` +
+          ` L${P(-6.08,-0.87)} L${P(-6.90,-0.87)} L${P(-6.72,0.60)} L${P(-9.21,2.99)}` +
+          ` L${P(-9.21,4.10)} L${P(-4.97,1.70)} L${P(-1.10,0.14)} L${P(-0.64,7.69)}` +
+          ` L${P(-3.31,10.26)} L${P(-3.41,11.00)} L${P(-0.55,10.17)} L${P(3.41,11.00)}` +
+          ` L${P(3.31,10.26)} L${P(0.64,7.69)} L${P(1.01,0.23)} L${P(3.22,0.87)}` +
+          ` L${P(9.02,4.10)} L${P(9.21,2.99)} L${P(6.72,0.69)} L${P(6.81,-0.87)}` +
+          ` L${P(6.08,-0.87)} L${P(5.71,-0.23)} L${P(3.87,-1.98)} L${P(4.05,-3.45)}` +
+          ` L${P(3.31,-3.45)} L${P(2.95,-2.81)} L${P(1.01,-4.56)} L${P(0.92,-8.70)}` +
+          ` L${P(0.37,-10.63)} Z`
+        }/>
+      );
+    }
+
+    case 'A20N':
+    case 'A19N':
+    case 'A21N':
+    case 'A320':
+    case 'A321': {
+      // Airbus A320/A321 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(7.2,3) scale(0.4) resolved.
+      // Narrow swept-wing narrowbody; ±10.1 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.17,-11.00)} L${P(-1.03,-9.28)} L${P(-1.20,-3.44)} L${P(-2.75,-2.92)}` +
+          ` L${P(-2.92,-4.47)} L${P(-3.78,-4.47)} L${P(-3.78,-2.23)} L${P(-10.14,1.20)}` +
+          ` L${P(-10.14,2.06)} L${P(-7.05,1.38)} L${P(-5.84,0.69)} L${P(-4.81,0.69)}` +
+          ` L${P(-4.30,0.17)} L${P(-1.38,0.00)} L${P(-0.69,7.91)} L${P(-3.27,9.80)}` +
+          ` L${P(-3.78,10.83)} L${P(-0.52,10.14)} L${P(-0.17,11.00)} L${P(0.17,11.00)}` +
+          ` L${P(0.52,10.14)} L${P(3.78,10.83)} L${P(3.78,10.31)} L${P(0.86,8.08)}` +
+          ` L${P(1.20,0.17)} L${P(4.30,0.17)} L${P(10.14,2.06)} L${P(10.14,1.38)}` +
+          ` L${P(4.13,-1.89)} L${P(3.95,-4.47)} L${P(2.92,-4.30)} L${P(2.75,-2.75)}` +
+          ` L${P(1.20,-3.61)} L${P(1.03,-9.45)} L${P(0.34,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'AC11':
+    case 'P28R':
+    case 'PA24':
+    case 'PA32':
+    case 'BE36':
+    case 'P28A': {
+      // Piper PA-24/PA-28 (Comanche/Cherokee) — shared low-wing piston silhouette — user-supplied top-down silhouette.
+      // Low-wing piston; distinctly wider than tall (±11 wide, ±8.6 tall).
+      // Path from viewBox "0 0 64 64" with translate(3,8.08) scale(0.423358) resolved.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-10.83,-2.75)} L${P(-11.00,-1.20)} L${P(-10.14,-0.52)} L${P(-1.38,0.00)}` +
+          ` L${P(-0.52,6.70)} L${P(-3.78,6.88)} L${P(-3.78,8.59)} L${P(3.78,8.42)}` +
+          ` L${P(3.95,7.22)} L${P(3.61,6.88)} L${P(0.52,6.70)} L${P(1.20,0.34)}` +
+          ` L${P(1.55,-0.17)} L${P(10.66,-0.69)} L${P(11.00,-1.37)} L${P(11.00,-2.23)}` +
+          ` L${P(10.48,-2.92)} L${P(6.02,-3.44)} L${P(2.92,-3.27)} L${P(1.37,-4.13)}` +
+          ` L${P(1.20,-7.56)} L${P(3.09,-7.73)} L${P(3.09,-8.08)} L${P(0.52,-8.08)}` +
+          ` L${P(0.17,-8.59)} L${P(-0.86,-8.08)} L${P(-3.27,-8.08)} L${P(-3.27,-7.73)}` +
+          ` L${P(-1.20,-7.56)} L${P(-1.55,-3.95)} L${P(-2.92,-3.27)} L${P(-5.84,-3.44)} Z`
+        }/>
+      );
+    }
+
+    case 'E75':
+    case 'E75L':
+    case 'E75S':
+    case 'E170': {
+      // Embraer E175 (ERJ-175) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.499,3) scale(0.134571) resolved.
+      // Under-wing engine pods visible in path geometry; ±10 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.19,-11.00)} L${P(-1.05,-8.51)} L${P(-1.22,-2.57)} L${P(-2.41,-1.92)}` +
+          ` L${P(-2.51,-3.65)} L${P(-3.76,-3.65)} L${P(-3.92,-2.19)} L${P(-3.54,-1.32)}` +
+          ` L${P(-9.43,1.65)} L${P(-10.03,3.59)} L${P(-9.22,2.84)} L${P(-6.78,2.19)}` +
+          ` L${P(-6.51,2.51)} L${P(-6.41,2.08)} L${P(-4.78,1.65)} L${P(-4.41,1.97)}` +
+          ` L${P(-4.35,1.54)} L${P(-2.84,1.32)} L${P(-2.62,1.76)} L${P(-2.57,1.32)}` +
+          ` L${P(-1.11,1.27)} L${P(-0.62,7.76)} L${P(-3.43,9.76)} L${P(-3.49,10.73)}` +
+          ` L${P(-0.57,9.97)} L${P(-0.08,11.00)} L${P(0.41,9.97)} L${P(3.54,10.73)}` +
+          ` L${P(3.43,9.76)} L${P(0.68,7.76)} L${P(1.05,1.32)} L${P(2.57,1.32)}` +
+          ` L${P(2.62,1.70)} L${P(2.84,1.32)} L${P(4.35,1.54)} L${P(4.41,1.92)}` +
+          ` L${P(4.78,1.65)} L${P(6.41,2.08)} L${P(6.51,2.57)} L${P(7.00,2.24)}` +
+          ` L${P(9.22,2.84)} L${P(9.86,3.59)} L${P(10.03,3.32)} L${P(9.43,1.65)}` +
+          ` L${P(3.59,-1.27)} L${P(3.97,-2.57)} L${P(3.76,-3.65)} L${P(2.46,-3.54)}` +
+          ` L${P(2.41,-1.92)} L${P(1.27,-2.51)} L${P(0.95,-9.27)} L${P(0.46,-10.73)} Z`
+        }/>
+      );
+    }
+
+    case 'PA44': {
+      // Piper PA-44 Seminole — user-supplied top-down silhouette (multi-path twin-engine).
+      // 11 separate paths: fuselage, main wings, engine nacelles, engine pods, props, tail.
+      // Global bounds: ±11 wide × ±7.3 tall. All paths share the same s-scale factor.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <g fill={color} opacity="0.96">
+          {/* Fuselage + tail */}
+          <path d={`M${P(-0.08,-7.32)} L${P(-0.75,-5.98)} L${P(-1.05,-3.05)} L${P(-0.88,-3.05)} L${P(-0.71,-2.72)} L${P(-0.75,-2.13)} L${P(-1.05,-1.92)} L${P(-0.71,-1.42)} L${P(-0.75,-0.84)} L${P(-1.00,-0.71)} L${P(-0.71,0.08)} L${P(-1.00,0.42)} L${P(-0.67,4.02)} L${P(-0.29,6.11)} L${P(-2.30,6.15)} L${P(-2.30,6.90)} L${P(-0.08,6.90)} L${P(-0.04,7.07)} L${P(-2.30,7.11)} L${P(-2.30,7.32)} L${P(2.30,7.32)} L${P(2.30,7.11)} L${P(0.04,7.07)} L${P(0.08,6.90)} L${P(2.30,6.90)} L${P(2.30,6.19)} L${P(0.13,6.19)} L${P(0.29,6.06)} L${P(0.84,2.30)} L${P(1.00,0.13)} L${P(0.75,0.21)} L${P(0.71,-0.25)} L${P(1.00,-0.42)} L${P(1.00,-0.71)} L${P(0.71,-0.92)} L${P(0.71,-1.46)} L${P(1.05,-1.92)} L${P(0.71,-2.17)} L${P(0.71,-2.80)} L${P(1.05,-3.10)} L${P(0.75,-5.94)} L${P(0.21,-7.15)} Z`}/>
+          {/* Left wing */}
+          <path d={`M${P(-4.68,-3.05)} L${P(-4.85,-3.05)} L${P(-4.89,-3.01)} L${P(-5.56,-3.01)} L${P(-5.60,-2.97)} L${P(-6.32,-2.97)} L${P(-6.36,-2.93)} L${P(-6.82,-2.93)} L${P(-6.86,-2.89)} L${P(-7.44,-2.89)} L${P(-7.49,-2.84)} L${P(-9.54,-2.76)} L${P(-9.66,-2.72)} L${P(-9.66,-1.25)} L${P(-9.62,-1.21)} L${P(-9.29,-1.21)} L${P(-9.24,-1.17)} L${P(-7.49,-1.09)} L${P(-7.44,-1.05)} L${P(-5.77,-0.96)} L${P(-5.73,-0.92)} L${P(-5.14,-0.92)} L${P(-5.02,-0.88)} L${P(-4.98,-0.75)} L${P(-4.68,-0.75)} Z`}/>
+          {/* Right wing */}
+          <path d={`M${P(4.68,-3.05)} L${P(4.68,-0.75)} L${P(4.98,-0.75)} L${P(5.02,-0.88)} L${P(5.19,-0.92)} L${P(5.73,-0.92)} L${P(5.77,-0.96)} L${P(6.36,-0.96)} L${P(6.40,-1.00)} L${P(6.86,-1.00)} L${P(6.90,-1.05)} L${P(7.44,-1.05)} L${P(7.49,-1.09)} L${P(8.03,-1.09)} L${P(8.07,-1.13)} L${P(8.66,-1.13)} L${P(8.70,-1.17)} L${P(9.62,-1.21)} L${P(9.62,-2.72)} L${P(9.54,-2.76)} L${P(7.44,-2.84)} L${P(7.40,-2.89)} L${P(7.03,-2.89)} L${P(6.98,-2.93)} L${P(6.36,-2.93)} L${P(6.32,-2.97)} L${P(5.69,-2.97)} L${P(5.65,-3.01)} Z`}/>
+          {/* Left engine nacelle */}
+          <path d={`M${P(-4.48,-3.10)} L${P(-4.48,-0.38)} L${P(-4.43,-0.33)} L${P(-4.39,-0.13)} L${P(-4.22,0.21)} L${P(-4.10,0.33)} L${P(-4.10,0.38)} L${P(-4.02,0.46)} L${P(-3.85,0.54)} L${P(-3.68,0.54)} L${P(-3.60,0.50)} L${P(-3.35,0.25)} L${P(-3.30,0.13)} L${P(-3.22,0.04)} L${P(-3.22,-0.04)} L${P(-3.14,-0.17)} L${P(-3.14,-0.25)} L${P(-3.05,-0.42)} L${P(-3.05,-3.10)} Z`}/>
+          {/* Right engine nacelle */}
+          <path d={`M${P(3.05,-3.10)} L${P(3.05,-0.42)} L${P(3.10,-0.38)} L${P(3.18,-0.04)} L${P(3.30,0.21)} L${P(3.43,0.33)} L${P(3.43,0.38)} L${P(3.68,0.54)} L${P(3.85,0.54)} L${P(4.02,0.42)} L${P(4.06,0.42)} L${P(4.06,0.38)} L${P(4.27,0.13)} L${P(4.35,-0.04)} L${P(4.35,-0.13)} L${P(4.43,-0.25)} L${P(4.43,-0.38)} L${P(4.48,-0.42)} L${P(4.48,-3.10)} Z`}/>
+          {/* Right inner cowl */}
+          <path d={`M${P(1.21,-3.68)} L${P(1.21,-3.14)} L${P(1.25,-3.10)} L${P(1.25,-1.97)} L${P(1.21,-1.92)} L${P(1.21,-0.75)} L${P(2.84,-0.75)} L${P(2.84,-3.01)} L${P(2.55,-3.01)} L${P(2.30,-3.14)} L${P(2.22,-3.22)} L${P(1.30,-3.68)} Z`}/>
+          {/* Left inner cowl */}
+          <path d={`M${P(-1.21,-3.68)} L${P(-1.34,-3.68)} L${P(-1.76,-3.47)} L${P(-1.84,-3.39)} L${P(-2.59,-3.01)} L${P(-2.84,-3.01)} L${P(-2.84,-0.75)} L${P(-1.21,-0.75)} L${P(-1.21,-1.67)} L${P(-1.25,-1.71)} L${P(-1.25,-3.26)} L${P(-1.21,-3.30)} Z`}/>
+          {/* Left prop disc */}
+          <path d={`M${P(-5.60,-4.98)} L${P(-5.60,-4.85)} L${P(-5.19,-4.85)} L${P(-5.14,-4.81)} L${P(-4.18,-4.81)} L${P(-4.14,-4.77)} L${P(-4.14,-4.68)} L${P(-4.27,-4.56)} L${P(-4.48,-4.48)} L${P(-4.48,-3.26)} L${P(-3.05,-3.26)} L${P(-3.05,-4.43)} L${P(-3.35,-4.60)} L${P(-3.43,-4.68)} L${P(-3.43,-4.77)} L${P(-3.39,-4.81)} L${P(-2.38,-4.81)} L${P(-2.34,-4.85)} L${P(-1.97,-4.85)} L${P(-1.92,-4.89)} L${P(-1.92,-4.98)} L${P(-3.01,-4.98)} L${P(-3.05,-5.02)} L${P(-3.56,-5.02)} L${P(-3.72,-5.23)} L${P(-3.81,-5.23)} L${P(-3.97,-5.02)} Z`}/>
+          {/* Right prop disc */}
+          <path d={`M${P(1.92,-4.98)} L${P(1.92,-4.85)} L${P(2.34,-4.85)} L${P(2.38,-4.81)} L${P(3.35,-4.81)} L${P(3.39,-4.77)} L${P(3.39,-4.68)} L${P(3.05,-4.43)} L${P(3.05,-3.26)} L${P(4.48,-3.26)} L${P(4.48,-4.43)} L${P(4.14,-4.64)} L${P(4.10,-4.77)} L${P(4.14,-4.81)} L${P(5.14,-4.81)} L${P(5.19,-4.85)} L${P(5.60,-4.85)} L${P(5.60,-4.98)} L${P(4.52,-4.98)} L${P(4.48,-5.02)} L${P(3.97,-5.02)} L${P(3.81,-5.23)} L${P(3.72,-5.23)} L${P(3.56,-5.02)} L${P(3.05,-5.02)} L${P(3.01,-4.98)} Z`}/>
+          {/* Left wingtip */}
+          <path d={`M${P(-9.83,-2.72)} L${P(-10.04,-2.72)} L${P(-10.08,-2.68)} L${P(-10.71,-2.68)} L${P(-10.75,-2.63)} L${P(-10.92,-2.63)} L${P(-10.96,-2.59)} L${P(-10.96,-2.55)} L${P(-11.00,-2.51)} L${P(-11.00,-0.92)} L${P(-10.92,-0.79)} L${P(-10.87,-0.79)} L${P(-10.83,-0.75)} L${P(-10.58,-0.75)} L${P(-10.54,-0.71)} L${P(-10.04,-0.71)} L${P(-10.00,-0.67)} L${P(-9.83,-0.67)} Z`}/>
+          {/* Right wingtip */}
+          <path d={`M${P(9.83,-2.72)} L${P(9.83,-0.67)} L${P(10.00,-0.67)} L${P(10.04,-0.71)} L${P(10.54,-0.71)} L${P(10.58,-0.75)} L${P(10.83,-0.75)} L${P(10.87,-0.79)} L${P(10.92,-0.79)} L${P(10.92,-0.84)} L${P(11.00,-0.96)} L${P(11.00,-2.47)} L${P(10.96,-2.51)} L${P(10.96,-2.59)} L${P(10.92,-2.63)} L${P(10.75,-2.63)} L${P(10.71,-2.68)} L${P(9.95,-2.68)} L${P(9.91,-2.72)} Z`}/>
+        </g>
+      );
+    }
+
+    case 'PC12': {
+      // Pilatus PC-12 turboprop — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,6.105) scale(0.117172) resolved.
+      // High-wing turboprop; ±11 wide × ±9.8 tall with distinctive T-tail and prop nose.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.09,-9.84)} L${P(-0.32,-9.28)} L${P(-1.67,-9.24)} L${P(-0.46,-9.05)}` +
+          ` L${P(-1.07,-8.22)} L${P(-0.79,-7.47)} L${P(-1.25,-3.11)} L${P(-10.07,-2.78)}` +
+          ` L${P(-11.00,-1.44)} L${P(-11.00,-0.88)} L${P(-9.93,-1.07)} L${P(-1.39,-0.23)}` +
+          ` L${P(-0.32,7.47)} L${P(-3.25,7.84)} L${P(-3.57,9.14)} L${P(-0.19,9.33)}` +
+          ` L${P(0.00,9.84)} L${P(0.09,9.33)} L${P(3.53,9.05)} L${P(3.20,7.89)}` +
+          ` L${P(0.23,7.47)} L${P(1.30,-0.14)} L${P(9.89,-1.07)} L${P(11.00,-0.88)}` +
+          ` L${P(11.00,-1.44)} L${P(10.07,-2.78)} L${P(1.16,-3.11)} L${P(0.74,-7.38)}` +
+          ` L${P(0.97,-8.17)} L${P(0.46,-8.59)} L${P(0.46,-9.00)} L${P(1.58,-9.19)}` +
+          ` L${P(0.32,-9.24)} Z`
+        }/>
+      );
+    }
+
+    case 'GLEX':
+    case 'GL5T':
+    case 'GL6T':
+    case 'GL7T': {
+      // Bombardier Global Express family (Global Express, Global 5000/6000/7500).
+      // Path from viewBox "0 0 64 64" with translate(6.127,3) scale(0.122622) resolved.
+      // Long swept-wing bizjet; ±10.2 wide, ±11 tall. Distinctive swept leading edge.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.08,-11.00)} L${P(-0.82,-9.26)} L${P(-0.87,-3.42)} L${P(-9.29,3.32)}` +
+          ` L${P(-10.24,5.05)} L${P(-9.24,4.26)} L${P(-3.50,1.47)} L${P(-0.92,1.37)}` +
+          ` L${P(-0.76,3.37)} L${P(-1.97,3.42)} L${P(-1.82,6.53)} L${P(-1.03,6.58)}` +
+          ` L${P(-0.45,7.05)} L${P(-0.34,7.63)} L${P(-3.18,9.95)} L${P(-3.34,11.00)}` +
+          ` L${P(-0.29,9.68)} L${P(3.34,11.00)} L${P(3.13,9.84)} L${P(0.34,7.63)}` +
+          ` L${P(0.55,6.95)} L${P(1.82,6.58)} L${P(1.97,3.42)} L${P(0.76,3.37)}` +
+          ` L${P(0.92,1.37)} L${P(3.61,1.53)} L${P(9.08,4.16)} L${P(10.13,5.00)}` +
+          ` L${P(10.24,4.79)} L${P(9.18,3.21)} L${P(0.87,-3.42)} L${P(0.82,-9.32)} Z`
+        }/>
+      );
+    }
+
+    case 'A319': {
+      // Airbus A319 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,15.727) scale(0.097152) resolved.
+      // Shorter fuselage than A320/A321; ±11 wide, ±10.4 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.19,-10.42)} L${P(-1.16,-8.22)} L${P(-1.23,-3.43)} L${P(-2.85,-2.65)}` +
+          ` L${P(-2.91,-4.01)} L${P(-4.27,-4.08)} L${P(-4.08,-1.94)} L${P(-10.74,1.62)}` +
+          ` L${P(-11.00,2.98)} L${P(-10.55,2.26)} L${P(-7.76,1.42)} L${P(-7.31,1.68)}` +
+          ` L${P(-7.12,1.23)} L${P(-5.63,0.78)} L${P(-5.05,1.16)} L${P(-4.98,0.65)}` +
+          ` L${P(-3.24,0.32)} L${P(-2.98,0.78)} L${P(-2.85,0.32)} L${P(-1.36,0.32)}` +
+          ` L${P(-0.84,7.25)} L${P(-3.95,9.58)} L${P(-3.56,9.90)} L${P(-0.52,9.25)}` +
+          ` L${P(0.06,10.42)} L${P(0.52,9.25)} L${P(3.88,9.84)} L${P(3.69,9.12)}` +
+          ` L${P(0.78,7.25)} L${P(1.29,0.32)} L${P(2.85,0.32)} L${P(2.98,0.78)}` +
+          ` L${P(3.24,0.32)} L${P(4.92,0.58)} L${P(5.05,1.10)} L${P(5.63,0.78)}` +
+          ` L${P(7.12,1.23)} L${P(7.31,1.75)} L${P(7.76,1.42)} L${P(10.55,2.26)}` +
+          ` L${P(10.87,2.98)} L${P(11.00,1.88)} L${P(4.21,-1.81)} L${P(4.27,-4.08)}` +
+          ` L${P(2.98,-4.08)} L${P(2.85,-2.65)} L${P(1.16,-3.43)} L${P(1.04,-8.61)}` +
+          ` L${P(0.39,-10.16)} Z`
+        }/>
+      );
+    }
+
+    case 'BCS3': {
+      // Airbus A220-300 (Bombardier CSeries CS300) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // ±9.8 wide, ±11 tall — narrower wing profile than A320 family.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.25,-11.00)} L${P(-0.99,-8.34)} L${P(-1.04,-3.16)} L${P(-2.27,-2.71)}` +
+          ` L${P(-2.42,-4.09)} L${P(-3.60,-4.09)} L${P(-3.70,-2.57)} L${P(-3.35,-1.78)}` +
+          ` L${P(-9.08,1.33)} L${P(-9.77,2.91)} L${P(-8.98,2.32)} L${P(-3.50,0.30)}` +
+          ` L${P(-1.09,0.30)} L${P(-0.74,7.89)} L${P(-3.40,9.67)} L${P(-3.45,10.56)}` +
+          ` L${P(-0.54,9.67)} L${P(0.10,11.00)} L${P(0.54,9.72)} L${P(3.40,10.56)}` +
+          ` L${P(3.26,9.57)} L${P(0.74,7.89)} L${P(1.09,0.30)} L${P(3.50,0.30)}` +
+          ` L${P(8.98,2.32)} L${P(9.62,3.11)} L${P(9.77,2.52)} L${P(8.93,1.28)}` +
+          ` L${P(3.40,-1.78)} L${P(3.60,-4.09)} L${P(2.42,-4.04)} L${P(2.27,-2.66)}` +
+          ` L${P(1.04,-3.16)} L${P(0.89,-9.13)} L${P(0.35,-10.85)} Z`
+        }/>
+      );
+    }
+
+    case 'B772':
+    case 'B77W': {
+      // Boeing 777 family (777-200, 777-300ER) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(9.289,3) scale(0.232932) resolved.
+      // ±9.6 wide, ±11 tall — wide twin-engine widebody profile.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.05,-11.00)} L${P(-0.85,-8.80)} L${P(-0.85,-3.10)} L${P(-2.15,-2.40)}` +
+          ` L${P(-2.35,-3.50)} L${P(-3.35,-3.50)} L${P(-3.25,-1.40)} L${P(-9.05,2.40)}` +
+          ` L${P(-9.55,3.20)} L${P(-3.35,1.00)} L${P(-0.95,1.00)} L${P(-0.65,8.30)}` +
+          ` L${P(-3.15,10.40)} L${P(-3.15,11.00)} L${P(-0.65,10.10)} L${P(-0.05,10.40)}` +
+          ` L${P(0.75,10.10)} L${P(3.25,11.00)} L${P(3.25,10.40)} L${P(0.65,8.30)}` +
+          ` L${P(0.95,1.10)} L${P(3.45,1.00)} L${P(5.75,2.00)} L${P(9.35,3.10)}` +
+          ` L${P(9.55,2.90)} L${P(3.35,-1.40)} L${P(3.45,-3.50)} L${P(2.45,-3.50)}` +
+          ` L${P(2.25,-2.40)} L${P(0.95,-3.10)} L${P(0.85,-9.30)} Z`
+        }/>
+      );
+    }
+
+    case 'SR20':
+    case 'SR22':
+    case 'S22T': {
+      // Cirrus SR20/SR22 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,12.573) scale(0.140777) resolved.
+      // Low-wing piston with distinctive tapered wingtips; ±11 wide, ±7.4 tall.
+      // Note: y is negated below — the source SVG's nose/tail orientation resolved backward
+      // (nose pointing down instead of up like every other silhouette), so the shape is
+      // vertically flipped here to correct it.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(-y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-7.41)} L${P(-0.11,-6.73)} L${P(-0.40,-6.67)} L${P(-0.23,-6.04)}` +
+          ` L${P(-3.70,-5.81)} L${P(-3.36,-4.96)} L${P(-0.23,-4.56)} L${P(-1.08,-0.11)}` +
+          ` L${P(-1.60,-0.11)} L${P(-1.82,0.34)} L${P(-10.89,1.20)} L${P(-11.00,1.48)}` +
+          ` L${P(-10.37,2.74)} L${P(-1.25,2.96)} L${P(-0.85,6.61)} L${P(-1.77,6.78)}` +
+          ` L${P(-0.28,6.84)} L${P(0.06,7.41)} L${P(0.28,6.84)} L${P(1.82,6.78)}` +
+          ` L${P(0.85,6.55)} L${P(1.31,2.96)} L${P(10.37,2.74)} L${P(10.89,2.11)}` +
+          ` L${P(11.00,1.31)} L${P(1.82,0.34)} L${P(1.60,-0.11)} L${P(1.08,-0.11)}` +
+          ` L${P(0.23,-4.56)} L${P(3.42,-4.96)} L${P(3.70,-5.87)} L${P(0.23,-6.04)}` +
+          ` L${P(0.40,-6.67)} Z`
+        }/>
+      );
+    }
+
+    case 'B763': {
+      // Boeing 767-300 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.257778) resolved.
+      // ±9.6 wide, ±11 tall — twin-engine widebody, narrower than the 777.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-11.00)} L${P(-0.91,-9.63)} L${P(-1.06,-3.41)} L${P(-1.82,-2.81)}` +
+          ` L${P(-2.43,-2.81)} L${P(-2.73,-3.72)} L${P(-3.49,-3.72)} L${P(-3.64,-1.59)}` +
+          ` L${P(-9.56,2.66)} L${P(-9.56,3.26)} L${P(-7.13,2.35)} L${P(-6.22,2.35)}` +
+          ` L${P(-5.46,1.74)} L${P(-4.40,1.74)} L${P(-3.64,1.14)} L${P(-1.21,0.83)}` +
+          ` L${P(-0.91,7.81)} L${P(-3.64,9.94)} L${P(-3.94,10.85)} L${P(-0.46,10.09)}` +
+          ` L${P(-0.15,11.00)} L${P(0.15,11.00)} L${P(0.46,10.09)} L${P(3.94,10.85)}` +
+          ` L${P(3.79,10.09)} L${P(0.91,7.81)} L${P(1.06,0.99)} L${P(3.64,1.14)}` +
+          ` L${P(4.40,1.74)} L${P(5.46,1.74)} L${P(6.22,2.35)} L${P(7.13,2.35)}` +
+          ` L${P(9.56,3.26)} L${P(9.56,2.66)} L${P(3.64,-1.59)} L${P(3.49,-3.72)}` +
+          ` L${P(2.73,-3.72)} L${P(2.43,-2.81)} L${P(1.82,-2.81)} L${P(1.06,-3.41)}` +
+          ` L${P(0.91,-9.63)} L${P(0.61,-10.54)} Z`
+        }/>
+      );
+    }
+
+    case 'SF50': {
+      // Cirrus SF50 Vision Jet — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Single-engine personal jet with distinctive rear-mounted engine; ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,-0.86)} L${P(-11.00,0.76)} L${P(-8.73,0.57)} L${P(-1.23,0.96)}` +
+          ` L${P(-0.59,5.35)} L${P(-3.65,6.78)} L${P(-3.75,8.26)} L${P(-0.59,7.87)}` +
+          ` L${P(3.75,8.26)} L${P(3.65,6.78)} L${P(0.59,5.35)} L${P(1.28,0.91)}` +
+          ` L${P(8.34,0.57)} L${P(11.00,0.76)} L${P(11.00,-0.86)} L${P(10.31,-1.41)}` +
+          ` L${P(1.63,-2.24)} L${P(1.09,-5.99)} L${P(0.05,-8.26)} L${P(-0.59,-7.67)}` +
+          ` L${P(-1.09,-5.99)} L${P(-1.63,-2.24)} L${P(-10.11,-1.46)} Z`
+        }/>
+      );
+    }
+
+    case 'EC35':
+    case 'EC45': {
+      // Eurocopter EC135/EC145 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.048333) resolved.
+      // Twin-engine helicopter with Fenestron tail rotor; ±8.2 wide, ±11 tall.
+      // Note: y is negated below to correct nose-down orientation (matches SR20/SR22 fix).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(-y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(1.02,-11.00)} L${P(0.94,-9.74)} L${P(0.13,-9.66)} L${P(0.07,-7.09)}` +
+          ` L${P(-2.15,-7.31)} L${P(-2.42,-9.37)} L${P(-2.34,-6.34)} L${P(0.07,-6.28)}` +
+          ` L${P(-0.07,-2.41)} L${P(-1.08,-1.36)} L${P(-1.25,0.41)} L${P(-7.05,-4.96)}` +
+          ` L${P(-7.06,-4.35)} L${P(-1.47,1.30)} L${P(-1.70,3.96)} L${P(-8.17,10.59)}` +
+          ` L${P(-7.47,10.65)} L${P(-1.74,4.99)} L${P(-1.74,6.18)} L${P(-0.63,8.75)}` +
+          ` L${P(0.26,9.11)} L${P(1.23,8.57)} L${P(2.40,5.50)} L${P(8.17,11.00)}` +
+          ` L${P(8.11,10.11)} L${P(2.40,4.59)} L${P(2.24,1.46)} L${P(7.96,-4.57)}` +
+          ` L${P(6.97,-4.55)} L${P(2.40,0.23)} L${P(1.95,0.31)} L${P(1.47,-0.60)}` +
+          ` L${P(1.56,-1.28)} L${P(0.59,-2.43)} L${P(0.53,-6.26)} L${P(2.91,-6.30)}` +
+          ` L${P(3.04,-9.33)} L${P(2.77,-7.27)} L${P(0.53,-7.09)} L${P(0.40,-9.46)}` +
+          ` L${P(0.92,-9.52)} L${P(0.96,-8.38)} Z`
+        }/>
+      );
+    }
+
+    case 'H60': {
+      // H-60 Black Hawk — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,9.896) scale(0.088415) resolved.
+      // Long offset main rotor blades; originally ±11 wide, ±8.5 tall (rotated 90° from
+      // the vertical nose-up convention). Coordinates rotated 90° here: (x,y) → (y,-x).
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(-y*s).toFixed(2)},${(x*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,5.17)} L${P(-10.68,5.65)} L${P(-10.01,5.45)} L${P(-4.48,1.59)}` +
+          ` L${P(-3.68,1.59)} L${P(-3.36,1.27)} L${P(-2.05,1.43)} L${P(2.29,8.47)}` +
+          ` L${P(2.76,8.20)} L${P(2.65,7.52)} L${P(-1.21,1.43)} L${P(0.78,1.55)}` +
+          ` L${P(0.90,0.88)} L${P(1.37,0.52)} L${P(6.70,-0.08)} L${P(6.78,2.07)}` +
+          ` L${P(7.46,2.07)} L${P(7.90,-0.12)} L${P(9.01,0.16)} L${P(9.73,-0.28)}` +
+          ` L${P(9.17,-0.64)} L${P(11.00,-0.60)} L${P(9.09,-0.92)} L${P(7.86,-0.76)}` +
+          ` L${P(7.50,-2.51)} L${P(6.78,-2.51)} L${P(6.66,-0.44)} L${P(1.49,-0.60)}` +
+          ` L${P(0.74,-1.11)} L${P(0.70,-1.79)} L${P(5.07,-4.61)} L${P(5.91,-4.85)}` +
+          ` L${P(5.63,-5.41)} L${P(4.71,-5.13)} L${P(-1.09,-1.35)} L${P(-3.28,-1.15)}` +
+          ` L${P(-3.20,-1.51)} L${P(-7.42,-7.60)} L${P(-7.74,-8.47)} L${P(-8.25,-8.16)}` +
+          ` L${P(-8.06,-7.40)} L${P(-3.96,-1.39)} L${P(-7.02,-0.68)} L${P(-7.54,0.00)}` +
+          ` L${P(-7.38,0.72)} L${P(-5.47,1.55)} Z`
+        }/>
+      );
+    }
+
+    case 'C25':
+    case 'C25A':
+    case 'C525':
+    case 'C550':
+    case 'C56X':
+    case 'C68A': {
+      // Cessna Citation CJ series (C25/C25A) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.080556) resolved.
+      // Compact swept-wing bizjet; ±11 wide, ±10.6 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.20,-10.56)} L${P(-0.87,-9.70)} L${P(-1.18,-8.14)} L${P(-1.30,-1.99)}` +
+          ` L${P(-11.00,-1.22)} L${P(-10.91,-0.09)} L${P(-2.68,1.29)} L${P(-2.34,4.13)}` +
+          ` L${P(-1.70,4.13)} L${P(-1.67,5.05)} L${P(-0.81,5.51)} L${P(-0.41,7.68)}` +
+          ` L${P(-4.76,9.73)} L${P(-4.79,10.56)} L${P(-0.35,9.76)} L${P(-0.08,10.07)}` +
+          ` L${P(0.35,9.76)} L${P(4.79,10.56)} L${P(4.76,9.73)} L${P(0.41,7.68)}` +
+          ` L${P(0.81,5.51)} L${P(1.67,5.05)} L${P(1.70,4.13)} L${P(2.34,4.13)}` +
+          ` L${P(2.68,1.32)} L${P(10.91,-0.09)} L${P(11.00,-1.22)} L${P(1.30,-1.99)}` +
+          ` L${P(1.06,-9.03)} L${P(0.57,-10.31)} Z`
+        }/>
+      );
+    }
+
+    case 'B712': {
+      // Boeing 717-200 (B712) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // T-tail rear-engine regional jet; ±8.6 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.30,-11.00)} L${P(-1.04,-8.68)} L${P(-1.04,-1.58)} L${P(-8.58,2.32)}` +
+          ` L${P(-8.58,2.96)} L${P(-4.14,2.22)} L${P(-1.09,2.22)} L${P(-1.09,3.45)}` +
+          ` L${P(-1.58,3.01)} L${P(-2.22,3.01)} L${P(-2.42,5.18)} L${P(-2.12,6.36)}` +
+          ` L${P(-1.33,6.46)} L${P(-0.84,6.96)} L${P(-0.49,8.68)} L${P(-1.09,8.83)}` +
+          ` L${P(-1.18,9.22)} L${P(-2.96,10.31)} L${P(-2.86,11.00)} L${P(-0.30,10.51)}` +
+          ` L${P(2.86,11.00)} L${P(2.86,10.41)} L${P(0.49,8.68)} L${P(0.84,7.05)}` +
+          ` L${P(1.33,6.46)} L${P(2.12,6.36)} L${P(2.42,5.18)} L${P(2.27,3.11)}` +
+          ` L${P(1.53,3.01)} L${P(1.43,3.40)} L${P(1.09,3.45)} L${P(1.04,2.27)}` +
+          ` L${P(4.14,2.22)} L${P(8.58,2.96)} L${P(8.58,2.32)} L${P(1.04,-1.58)}` +
+          ` L${P(0.99,-9.08)} L${P(0.25,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'BE9T': {
+      // Beechcraft King Air 90 (BE9T) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Twin-turboprop; engine nacelles on wings visible in geometry. ±11 wide, ±7.7 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.15,-7.72)} L${P(-0.69,-6.93)} L${P(-1.23,-3.63)} L${P(-2.27,-3.58)}` +
+          ` L${P(-2.02,-5.50)} L${P(-2.86,-6.93)} L${P(-3.55,-5.40)} L${P(-3.35,-3.82)}` +
+          ` L${P(-4.04,-3.28)} L${P(-10.61,-2.84)} L${P(-11.00,-2.64)} L${P(-11.00,-1.21)}` +
+          ` L${P(-10.56,-1.50)} L${P(-4.29,-0.37)} L${P(-1.18,-0.32)} L${P(-0.74,4.07)}` +
+          ` L${P(-3.90,4.71)} L${P(-3.90,6.19)} L${P(-0.39,6.44)} L${P(0.05,7.72)}` +
+          ` L${P(0.39,6.44)} L${P(3.90,6.19)} L${P(3.90,4.71)} L${P(0.74,4.07)}` +
+          ` L${P(1.18,-0.32)} L${P(3.90,-0.32)} L${P(10.56,-1.50)} L${P(11.00,-1.21)}` +
+          ` L${P(11.00,-2.69)} L${P(4.19,-3.18)} L${P(3.35,-3.82)} L${P(3.55,-5.45)}` +
+          ` L${P(2.86,-6.93)} L${P(2.02,-5.45)} L${P(2.27,-3.58)} L${P(1.23,-3.63)}` +
+          ` L${P(0.69,-6.93)} Z`
+        }/>
+      );
+    }
+
+    case 'HDJT': {
+      // HondaJet HA-420 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,8.971) scale(0.170588) resolved.
+      // Distinctive over-wing engine mounts visible as nacelle bumps; ±10.8 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.10,-11.00)} L${P(-1.03,-8.74)} L${P(-1.44,-1.75)} L${P(-10.18,-0.41)}` +
+          ` L${P(-10.79,1.44)} L${P(-9.15,1.03)} L${P(-3.39,1.54)} L${P(-2.88,4.63)}` +
+          ` L${P(-2.16,4.11)} L${P(-2.06,1.75)} L${P(-1.44,1.64)} L${P(-1.13,4.93)}` +
+          ` L${P(-0.10,8.33)} L${P(-3.70,9.87)} L${P(-3.80,11.00)} L${P(-0.82,10.90)}` +
+          ` L${P(-0.51,10.38)} L${P(0.62,10.49)} L${P(0.82,10.90)} L${P(3.91,11.00)}` +
+          ` L${P(3.80,9.87)} L${P(0.21,8.33)} L${P(1.23,4.83)} L${P(1.44,1.75)}` +
+          ` L${P(2.06,1.75)} L${P(2.26,4.11)} L${P(2.88,4.63)} L${P(3.39,1.54)}` +
+          ` L${P(9.25,1.03)} L${P(10.79,1.34)} L${P(10.28,-0.41)} L${P(1.54,-1.64)}` +
+          ` L${P(1.13,-8.74)} L${P(0.31,-10.79)} Z`
+        }/>
+      );
+    }
+
+    case 'E2': {
+      // E-2 Hawkeye — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(10.25,3) scale(0.112403) resolved.
+      // Carrier-borne AEW aircraft; distinctive rotodome disc and twin-turboprop profile.
+      // ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(11.00,-0.20)} L${P(3.53,-1.45)} L${P(3.08,-3.85)} L${P(2.45,-1.62)}` +
+          ` L${P(0.97,-1.85)} L${P(0.91,-6.64)} L${P(0.63,-7.78)} L${P(0.00,-8.29)}` +
+          ` L${P(-0.51,-7.61)} L${P(-0.91,-5.78)} L${P(-0.97,-1.91)} L${P(-2.45,-1.68)}` +
+          ` L${P(-3.02,-3.90)} L${P(-3.59,-1.51)} L${P(-11.00,-0.48)} L${P(-11.00,0.71)}` +
+          ` L${P(-3.53,1.45)} L${P(-2.79,3.62)} L${P(-0.97,4.87)} L${P(-0.80,6.41)}` +
+          ` L${P(-3.70,6.64)} L${P(-4.05,7.21)} L${P(-3.93,8.29)} L${P(3.65,8.29)}` +
+          ` L${P(3.76,7.49)} L${P(3.36,6.70)} L${P(0.51,6.35)} L${P(0.74,4.87)}` +
+          ` L${P(2.62,3.62)} L${P(3.36,1.62)} L${P(10.72,1.00)} Z`
+        }/>
+      );
+    }
+
+    case 'A339': {
+      // Airbus A330-900neo — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Twin-engine widebody; long swept wing with complex flap-track geometry; ±11 wide, ±10.5 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.15,-10.53)} L${P(-0.54,-9.79)} L${P(-0.89,-8.11)} L${P(-0.89,-3.38)}` +
+          ` L${P(-2.42,-2.39)} L${P(-2.71,-2.98)} L${P(-3.75,-2.98)} L${P(-3.80,-1.55)}` +
+          ` L${P(-9.91,1.85)} L${P(-11.00,2.93)} L${P(-10.95,3.33)} L${P(-10.21,2.74)}` +
+          ` L${P(-6.46,1.46)} L${P(-5.57,1.50)} L${P(-5.48,1.16)} L${P(-3.95,0.62)}` +
+          ` L${P(-3.50,0.81)} L${P(-3.16,0.32)} L${P(-2.37,0.27)} L${P(-2.22,0.57)}` +
+          ` L${P(-2.12,0.22)} L${P(-0.89,0.17)} L${P(-0.59,7.72)} L${P(-3.60,9.50)}` +
+          ` L${P(-3.65,10.33)} L${P(-0.49,9.64)} L${P(0.00,10.53)} L${P(0.35,9.64)}` +
+          ` L${P(3.70,10.28)} L${P(3.55,9.40)} L${P(0.64,7.72)} L${P(0.99,0.17)}` +
+          ` L${P(2.12,0.22)} L${P(2.27,0.67)} L${P(2.42,0.32)} L${P(3.21,0.37)}` +
+          ` L${P(3.60,0.96)} L${P(3.95,0.62)} L${P(4.49,1.21)} L${P(4.93,0.96)}` +
+          ` L${P(5.52,1.46)} L${P(6.51,1.46)} L${P(7.99,2.24)} L${P(10.21,2.79)}` +
+          ` L${P(11.00,3.53)} L${P(11.00,2.93)} L${P(9.91,1.90)} L${P(3.95,-1.46)}` +
+          ` L${P(3.80,-2.98)} L${P(2.76,-2.98)} L${P(2.71,-2.39)} L${P(2.42,-2.34)}` +
+          ` L${P(0.94,-3.23)} L${P(0.69,-9.79)} Z`
+        }/>
+      );
+    }
+
+    case 'GLF4': {
+      // Gulfstream G-IV (GLF4) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.421,3) scale(0.297436) resolved.
+      // Large cabin bizjet; highly swept wing; ±9.9 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.87,-8.57)} L${P(-0.98,-4.17)} L${P(-9.21,0.81)}` +
+          ` L${P(-9.90,2.55)} L${P(-2.37,0.93)} L${P(-2.14,4.40)} L${P(-1.56,4.40)}` +
+          ` L${P(-0.75,4.98)} L${P(-0.52,7.76)} L${P(-3.30,9.73)} L${P(-3.42,11.00)}` +
+          ` L${P(-0.64,9.84)} L${P(0.75,9.84)} L${P(3.65,11.00)} L${P(3.42,9.49)}` +
+          ` L${P(0.75,7.76)} L${P(0.98,4.98)} L${P(1.68,4.40)} L${P(2.37,4.40)}` +
+          ` L${P(2.49,1.04)} L${P(3.30,0.93)} L${P(9.90,2.55)} L${P(9.90,1.04)}` +
+          ` L${P(1.10,-4.17)} L${P(0.98,-9.03)} L${P(0.29,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'P8': {
+      // Boeing P-8 Poseidon — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3.826,3) scale(0.103203) resolved.
+      // Maritime patrol aircraft based on 737 airframe; complex wing detail; ±10.6 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.99,-8.24)} L${P(-1.04,-3.00)} L${P(-2.09,-2.19)}` +
+          ` L${P(-2.21,-3.45)} L${P(-3.19,-3.53)} L${P(-3.27,-1.30)} L${P(-4.53,-0.73)}` +
+          ` L${P(-4.69,-1.66)} L${P(-4.73,-0.57)} L${P(-5.38,-0.16)} L${P(-5.74,-1.01)}` +
+          ` L${P(-5.87,0.08)} L${P(-9.32,1.83)} L${P(-10.57,3.69)} L${P(-8.95,2.72)}` +
+          ` L${P(-5.42,1.66)} L${P(-5.05,1.95)} L${P(-4.97,1.54)} L${P(-3.92,1.22)}` +
+          ` L${P(-3.55,1.58)} L${P(-3.27,1.01)} L${P(-2.46,0.93)} L${P(-2.29,1.30)}` +
+          ` L${P(-2.25,0.93)} L${P(-1.04,0.93)} L${P(-0.63,8.16)} L${P(-3.80,10.43)}` +
+          ` L${P(-4.00,11.00)} L${P(-0.35,9.99)} L${P(-0.06,10.84)} L${P(0.35,9.99)}` +
+          ` L${P(4.00,11.00)} L${P(3.80,10.43)} L${P(0.63,8.16)} L${P(0.99,0.97)}` +
+          ` L${P(2.25,0.93)} L${P(2.37,1.30)} L${P(2.46,0.93)} L${P(3.51,1.14)}` +
+          ` L${P(3.55,1.58)} L${P(3.67,1.22)} L${P(4.97,1.54)} L${P(5.05,1.95)}` +
+          ` L${P(5.42,1.66)} L${P(9.32,2.84)} L${P(10.53,3.69)} L${P(10.57,3.45)}` +
+          ` L${P(9.32,1.83)} L${P(5.87,0.08)} L${P(5.74,-1.01)} L${P(5.38,-0.16)}` +
+          ` L${P(4.73,-0.57)} L${P(4.69,-1.66)} L${P(4.53,-0.73)} L${P(3.27,-1.30)}` +
+          ` L${P(3.19,-3.53)} L${P(2.21,-3.45)} L${P(2.09,-2.19)} L${P(1.04,-3.00)}` +
+          ` L${P(0.99,-8.24)} L${P(0.39,-10.55)} Z`
+        }/>
+      );
+    }
+
+    case 'C130': {
+      // Lockheed C-130 Hercules — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,8.395) scale(0.168605) resolved.
+      // Four-engine turboprop transport; all four nacelles visible in path; ±11 wide, ±8.2 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.16,-8.19)} L${P(-0.39,-7.96)} L${P(-1.09,-6.09)} L${P(-1.33,-1.72)}` +
+          ` L${P(-2.57,-1.64)} L${P(-2.65,-2.81)} L${P(-1.87,-3.04)} L${P(-3.04,-3.35)}` +
+          ` L${P(-3.74,-3.04)} L${P(-3.20,-2.81)} L${P(-3.28,-1.64)} L${P(-5.54,-1.56)}` +
+          ` L${P(-5.62,-2.50)} L${P(-4.99,-2.89)} L${P(-6.09,-3.28)} L${P(-6.24,-2.89)}` +
+          ` L${P(-6.79,-2.89)} L${P(-6.16,-2.65)} L${P(-6.32,-1.48)} L${P(-11.00,-1.17)}` +
+          ` L${P(-11.00,-0.39)} L${P(-10.61,0.08)} L${P(-1.09,0.86)} L${P(-0.78,5.30)}` +
+          ` L${P(-3.98,6.01)} L${P(-4.13,6.87)} L${P(-0.55,7.49)} L${P(-0.08,8.19)}` +
+          ` L${P(0.55,7.49)} L${P(3.90,7.10)} L${P(4.13,6.55)} L${P(3.90,6.09)}` +
+          ` L${P(0.70,5.30)} L${P(1.01,0.86)} L${P(10.22,0.16)} L${P(10.84,-0.08)}` +
+          ` L${P(11.00,-0.78)} L${P(10.84,-1.33)} L${P(6.24,-1.48)} L${P(6.16,-2.65)}` +
+          ` L${P(6.79,-2.89)} L${P(6.16,-2.89)} L${P(6.01,-3.28)} L${P(4.99,-2.89)}` +
+          ` L${P(5.62,-2.65)} L${P(5.54,-1.56)} L${P(3.20,-1.64)} L${P(3.12,-2.81)}` +
+          ` L${P(3.74,-2.96)} L${P(3.04,-3.35)} L${P(2.03,-3.04)} L${P(2.57,-2.81)}` +
+          ` L${P(2.57,-1.72)} L${P(1.48,-1.64)} L${P(1.09,-3.35)} L${P(1.09,-5.93)} Z`
+        }/>
+      );
+    }
+
+    case 'A333': {
+      // Airbus A330-300 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3.343,3) scale(0.137116) resolved.
+      // Twin-engine widebody; detailed flap-track fairing geometry; ±11 wide, ±10.7 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.00,-10.70)} L${P(-0.93,-8.40)} L${P(-1.20,-3.53)} L${P(-2.74,-2.60)}` +
+          ` L${P(-2.79,-4.02)} L${P(-3.78,-4.08)} L${P(-3.78,-1.83)} L${P(-6.90,0.19)}` +
+          ` L${P(-7.39,0.19)} L${P(-7.55,0.63)} L${P(-10.45,2.44)} L${P(-11.00,3.64)}` +
+          ` L${P(-6.79,1.78)} L${P(-6.29,2.11)} L${P(-6.29,1.72)} L${P(-5.58,1.40)}` +
+          ` L${P(-5.09,1.72)} L${P(-4.93,1.18)} L${P(-4.27,0.96)} L${P(-3.83,1.34)}` +
+          ` L${P(-3.72,0.79)} L${P(-2.96,0.52)} L${P(-2.57,1.01)} L${P(-2.46,0.52)}` +
+          ` L${P(-1.15,0.41)} L${P(-0.55,7.96)} L${P(-3.23,9.77)} L${P(-3.50,10.70)}` +
+          ` L${P(-0.49,9.71)} L${P(-0.05,10.48)} L${P(0.44,10.26)} L${P(0.22,9.77)}` +
+          ` L${P(3.56,10.70)} L${P(3.17,9.71)} L${P(0.55,7.96)} L${P(1.15,0.41)}` +
+          ` L${P(2.46,0.52)} L${P(2.57,1.01)} L${P(2.74,0.57)} L${P(3.78,0.85)}` +
+          ` L${P(3.83,1.34)} L${P(4.27,0.96)} L${P(4.93,1.18)} L${P(5.09,1.72)}` +
+          ` L${P(5.58,1.40)} L${P(6.24,1.61)} L${P(6.35,2.11)} L${P(6.95,1.83)}` +
+          ` L${P(11.00,3.48)} L${P(10.45,2.44)} L${P(7.55,0.63)} L${P(7.39,0.19)}` +
+          ` L${P(7.06,0.30)} L${P(3.78,-1.83)} L${P(3.78,-4.08)} L${P(2.85,-4.02)}` +
+          ` L${P(2.74,-2.65)} L${P(1.26,-3.48)} L${P(0.88,-8.73)} Z`
+        }/>
+      );
+    }
+
+    case 'BE23': {
+      // Beechcraft BE23 Musketeer — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,10.111) scale(0.222222) resolved.
+      // Low-wing piston trainer; ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-10.91,-3.62)} L${P(-11.00,-0.67)} L${P(-1.43,-0.67)} L${P(-1.25,-0.49)}` +
+          ` L${P(-0.45,6.04)} L${P(-3.58,6.13)} L${P(-3.76,7.91)} L${P(-0.18,7.91)}` +
+          ` L${P(-0.09,8.27)} L${P(0.18,7.91)} L${P(3.76,7.91)} L${P(3.76,6.22)}` +
+          ` L${P(0.36,6.04)} L${P(1.16,0.22)} L${P(1.34,-0.13)} L${P(1.79,0.04)}` +
+          ` L${P(1.79,-0.40)} L${P(1.52,-0.40)} L${P(1.43,-0.67)} L${P(11.00,-0.76)}` +
+          ` L${P(11.00,-3.35)} L${P(10.46,-3.80)} L${P(1.43,-3.80)} L${P(1.07,-7.38)}` +
+          ` L${P(0.54,-7.56)} L${P(0.18,-8.27)} L${P(-0.09,-8.27)} L${P(-0.54,-7.56)}` +
+          ` L${P(-0.98,-7.47)} L${P(-1.43,-3.80)} L${P(-10.28,-3.80)} L${P(-10.55,-3.98)} Z`
+        }/>
+      );
+    }
+
+    case 'BE58': {
+      // Beechcraft Baron 58 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,10.04) scale(0.064588) resolved.
+      // Twin-engine piston; both nacelles and prop disc geometry visible; ±11 wide, ±8.3 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.26,-8.27)} L${P(-0.89,-6.66)} L${P(-1.33,-3.83)} L${P(-2.37,-3.50)}` +
+          ` L${P(-2.50,-5.82)} L${P(-3.04,-6.25)} L${P(-2.17,-6.38)} L${P(-3.06,-6.41)}` +
+          ` L${P(-3.50,-6.99)} L${P(-3.78,-6.41)} L${P(-4.95,-6.38)} L${P(-3.78,-6.25)}` +
+          ` L${P(-4.29,-5.87)} L${P(-4.34,-3.32)} L${P(-10.64,-2.94)} L${P(-10.97,-2.71)}` +
+          ` L${P(-11.00,-1.20)} L${P(-1.23,0.41)} L${P(-0.54,5.03)} L${P(-4.44,5.64)}` +
+          ` L${P(-4.65,6.84)} L${P(-4.26,7.27)} L${P(-0.18,7.30)} L${P(0.03,8.27)}` +
+          ` L${P(0.18,7.30)} L${P(4.21,7.27)} L${P(4.62,6.87)} L${P(4.44,5.64)}` +
+          ` L${P(0.51,5.03)} L${P(1.20,0.41)} L${P(11.00,-1.28)} L${P(10.97,-2.60)}` +
+          ` L${P(10.64,-2.94)} L${P(4.42,-3.29)} L${P(4.29,-5.82)} L${P(3.73,-6.25)}` +
+          ` L${P(4.62,-6.38)} L${P(3.73,-6.41)} L${P(3.34,-6.99)} L${P(3.01,-6.41)}` +
+          ` L${P(1.86,-6.38)} L${P(3.01,-6.25)} L${P(2.48,-5.79)} L${P(2.48,-3.45)}` +
+          ` L${P(1.25,-3.85)} L${P(0.59,-7.66)} L${P(0.23,-8.27)} Z`
+        }/>
+      );
+    }
+
+    case 'B752': {
+      // Boeing 757-200 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Narrow twin-engine body with swept wings; ±9.2 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.08,-11.00)} L${P(-0.51,-10.63)} L${P(-0.78,-9.39)} L${P(-0.88,-2.65)}` +
+          ` L${P(-2.01,-1.79)} L${P(-2.44,-1.79)} L${P(-2.54,-2.92)} L${P(-3.56,-2.92)}` +
+          ` L${P(-3.51,-0.94)} L${P(-8.70,2.01)} L${P(-9.18,3.02)} L${P(-6.08,2.17)}` +
+          ` L${P(-5.70,2.44)} L${P(-5.54,2.06)} L${P(-4.15,1.95)} L${P(-3.67,1.53)}` +
+          ` L${P(-2.65,1.53)} L${P(-2.60,1.79)} L${P(-1.04,1.58)} L${P(-0.83,2.01)}` +
+          ` L${P(-0.78,8.00)} L${P(-3.24,9.66)} L${P(-3.51,10.52)} L${P(-3.29,10.68)}` +
+          ` L${P(-0.40,9.98)} L${P(0.13,11.00)} L${P(0.51,9.98)} L${P(3.61,10.57)}` +
+          ` L${P(3.35,9.55)} L${P(0.83,7.90)} L${P(1.20,1.58)} L${P(2.65,1.47)}` +
+          ` L${P(2.86,1.74)} L${P(2.92,1.53)} L${P(4.15,1.63)} L${P(4.31,2.01)}` +
+          ` L${P(4.84,1.74)} L${P(5.86,2.27)} L${P(9.18,2.76)} L${P(8.91,2.01)}` +
+          ` L${P(3.77,-0.99)} L${P(3.88,-2.92)} L${P(2.76,-2.97)} L${P(2.65,-1.69)}` +
+          ` L${P(1.10,-2.65)} L${P(0.94,-9.39)} L${P(0.45,-10.84)} Z`
+        }/>
+      );
+    }
+
+    case 'A306': {
+      // Airbus A300-600 (A306) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(8.019,3) scale(0.278846) resolved.
+      // Twin-engine widebody; ±9.1 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.12,-11.00)} L${P(-0.59,-10.05)} L${P(-0.95,-8.75)} L${P(-1.06,-3.55)}` +
+          ` L${P(-2.01,-2.84)} L${P(-2.60,-2.84)} L${P(-2.84,-4.61)} L${P(-3.78,-4.49)}` +
+          ` L${P(-3.55,-2.01)} L${P(-9.11,1.30)} L${P(-8.99,2.37)} L${P(-3.78,0.35)}` +
+          ` L${P(-1.30,0.35)} L${P(-1.06,0.59)} L${P(-0.71,8.28)} L${P(-3.19,10.17)}` +
+          ` L${P(-3.19,11.00)} L${P(-0.95,10.17)} L${P(-0.24,10.17)} L${P(-0.12,11.00)}` +
+          ` L${P(0.35,10.17)} L${P(3.19,11.00)} L${P(3.19,10.17)} L${P(0.71,8.28)}` +
+          ` L${P(1.18,0.35)} L${P(3.67,0.35)} L${P(7.22,1.66)} L${P(7.45,2.01)}` +
+          ` L${P(9.11,2.37)} L${P(8.99,1.18)} L${P(3.55,-2.13)} L${P(3.78,-4.49)}` +
+          ` L${P(2.84,-4.49)} L${P(2.60,-2.84)} L${P(2.01,-2.84)} L${P(1.18,-3.43)}` +
+          ` L${P(1.06,-8.28)} Z`
+        }/>
+      );
+    }
+
+    case 'DA40': {
+      // Diamond DA40 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Low-wing piston with distinctive T-tail; ±11 wide, ±7 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,-1.53)} L${P(-11.00,-0.54)} L${P(-2.57,-0.05)} L${P(-1.09,0.35)}` +
+          ` L${P(-0.49,2.57)} L${P(-0.20,5.43)} L${P(-3.06,5.92)} L${P(-3.35,6.81)}` +
+          ` L${P(-3.01,6.96)} L${P(3.35,6.81)} L${P(3.06,5.92)} L${P(0.20,5.43)}` +
+          ` L${P(0.59,2.02)} L${P(1.23,0.20)} L${P(11.00,-0.54)} L${P(11.00,-1.53)}` +
+          ` L${P(10.26,-2.22)} L${P(2.61,-2.66)} L${P(1.58,-2.96)} L${P(1.23,-3.35)}` +
+          ` L${P(0.84,-6.36)} L${P(0.39,-6.36)} L${P(0.10,-6.96)} L${P(-0.39,-6.36)}` +
+          ` L${P(-0.84,-6.36)} L${P(-1.23,-3.35)} L${P(-1.58,-2.96)} L${P(-2.61,-2.66)}` +
+          ` L${P(-10.31,-2.22)} Z`
+        }/>
+      );
+    }
+
+    case 'C5':
+    case 'C5A':
+    case 'C5M': {
+      // Lockheed C-5 Galaxy — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.011,3) scale(0.122881) resolved.
+      // Heavy strategic airlifter; high wing, T-tail; ±9.9 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.19,-11.00)} L${P(-0.89,-9.27)} L${P(-0.89,-4.55)} L${P(-2.90,-3.43)}` +
+          ` L${P(-3.13,-3.48)} L${P(-3.22,-4.23)} L${P(-3.88,-4.23)} L${P(-3.92,-2.92)}` +
+          ` L${P(-4.86,-2.41)} L${P(-5.23,-3.20)} L${P(-5.89,-3.15)} L${P(-5.89,-1.89)}` +
+          ` L${P(-9.11,-0.16)} L${P(-9.86,0.72)} L${P(-9.86,1.52)} L${P(-1.31,-0.82)}` +
+          ` L${P(-0.42,8.71)} L${P(-2.57,10.02)} L${P(-3.13,10.72)} L${P(-0.28,10.49)}` +
+          ` L${P(-0.09,11.00)} L${P(0.19,11.00)} L${P(0.37,10.49)} L${P(3.22,10.72)}` +
+          ` L${P(2.66,10.02)} L${P(0.51,8.71)} L${P(1.35,-0.77)} L${P(9.86,1.52)}` +
+          ` L${P(9.86,0.72)} L${P(9.20,-0.16)} L${P(6.03,-1.85)} L${P(5.98,-3.15)}` +
+          ` L${P(5.32,-3.20)} L${P(4.95,-2.41)} L${P(4.02,-2.92)} L${P(3.97,-4.23)}` +
+          ` L${P(3.32,-4.23)} L${P(3.22,-3.48)} L${P(2.99,-3.43)} L${P(0.98,-4.55)}` +
+          ` L${P(0.93,-9.55)} L${P(0.28,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'A388': {
+      // Airbus A380-800 (A388) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,5.064) scale(0.206406) resolved.
+      // Full double-deck superjumbo; four wing-mounted engines visible in geometry.
+      // ±11 wide, ±10.1 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.08,-10.11)} L${P(-0.89,-8.09)} L${P(-1.13,-4.21)} L${P(-3.48,-2.26)}` +
+          ` L${P(-3.88,-2.35)} L${P(-3.96,-3.15)} L${P(-4.69,-3.15)} L${P(-4.69,-1.29)}` +
+          ` L${P(-6.39,0.00)} L${P(-6.79,-0.08)} L${P(-6.88,-1.05)} L${P(-7.52,-1.05)}` +
+          ` L${P(-7.52,0.81)} L${P(-10.84,3.40)} L${P(-11.00,4.37)} L${P(-7.85,3.07)}` +
+          ` L${P(-7.12,3.32)} L${P(-7.12,2.91)} L${P(-6.15,2.59)} L${P(-5.99,2.99)}` +
+          ` L${P(-5.99,2.43)} L${P(-5.01,2.18)} L${P(-4.85,2.59)} L${P(-4.61,1.86)}` +
+          ` L${P(-3.64,1.86)} L${P(-3.56,1.46)} L${P(-2.51,1.62)} L${P(-2.18,1.13)}` +
+          ` L${P(-1.21,1.05)} L${P(-0.73,6.79)} L${P(-3.80,9.22)} L${P(-4.13,10.11)}` +
+          ` L${P(-0.65,8.82)} L${P(-0.16,8.90)} L${P(0.00,9.95)} L${P(0.24,8.90)}` +
+          ` L${P(0.73,8.82)} L${P(4.21,10.11)} L${P(4.13,9.38)} L${P(0.81,6.71)}` +
+          ` L${P(1.29,1.05)} L${P(2.43,1.21)} L${P(2.59,1.62)} L${P(3.56,1.46)}` +
+          ` L${P(3.72,1.78)} L${P(4.69,1.86)} L${P(4.93,2.51)} L${P(5.10,2.18)}` +
+          ` L${P(5.90,2.35)} L${P(6.07,3.07)} L${P(6.63,2.59)} L${P(7.20,2.91)}` +
+          ` L${P(7.20,3.32)} L${P(7.85,3.07)} L${P(10.84,4.37)} L${P(11.00,3.48)}` +
+          ` L${P(7.60,0.81)} L${P(7.60,-1.05)} L${P(6.96,-1.05)} L${P(6.88,-0.16)}` +
+          ` L${P(6.39,-0.08)} L${P(4.77,-1.38)} L${P(4.77,-3.15)} L${P(4.13,-3.15)}` +
+          ` L${P(4.04,-2.26)} L${P(3.64,-2.18)} L${P(1.21,-4.29)} L${P(0.89,-8.65)}` +
+          ` L${P(0.40,-9.95)} Z`
+        }/>
+      );
+    }
+
+    case 'F15':
+    case 'F15E':
+    case 'F15C': {
+      // F-15 Eagle (all variants) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(11.948,3) scale(0.15978) resolved.
+      // Twin-tail fighter with distinctive tail-mounted horizontal stabilizers; ±7.2 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.06,-11.00)} L${P(-0.26,-10.55)} L${P(-0.58,-8.99)} L${P(-0.65,-4.72)}` +
+          ` L${P(-1.62,-4.53)} L${P(-1.62,-3.17)} L${P(-2.14,-1.81)} L${P(-2.20,-0.19)}` +
+          ` L${P(-7.18,4.92)} L${P(-6.41,6.60)} L${P(-4.72,6.15)} L${P(-2.26,6.21)}` +
+          ` L${P(-2.26,7.57)} L${P(-2.72,8.09)} L${P(-3.11,7.96)} L${P(-4.79,9.96)}` +
+          ` L${P(-4.27,11.00)} L${P(-1.88,10.48)} L${P(-1.55,9.64)} L${P(-1.10,9.45)}` +
+          ` L${P(1.36,9.45)} L${P(1.88,10.48)} L${P(4.27,11.00)} L${P(4.79,9.90)}` +
+          ` L${P(3.11,7.96)} L${P(2.72,8.02)} L${P(2.20,7.44)} L${P(2.26,6.21)}` +
+          ` L${P(4.72,6.15)} L${P(6.34,6.60)} L${P(7.18,4.98)} L${P(2.20,-0.19)}` +
+          ` L${P(2.20,-1.42)} L${P(1.62,-3.24)} L${P(1.55,-4.59)} L${P(0.65,-4.72)}` +
+          ` L${P(0.58,-8.93)} Z`
+        }/>
+      );
+    }
+
+    case 'F16': {
+      // F-16 Fighting Falcon — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Single-tail, blended wing-body fighter; ±7.4 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.06,-11.00)} L${P(-0.72,-8.19)} L${P(-1.26,-3.71)} L${P(-2.03,-0.60)}` +
+          ` L${P(-5.20,2.09)} L${P(-5.86,2.27)} L${P(-5.86,2.63)} L${P(-6.46,3.11)}` +
+          ` L${P(-6.76,3.05)} L${P(-6.76,1.49)} L${P(-7.11,0.06)} L${P(-7.41,5.50)}` +
+          ` L${P(-6.82,5.50)} L${P(-6.70,5.02)} L${P(-1.61,5.02)} L${P(-1.55,6.82)}` +
+          ` L${P(-4.07,8.97)} L${P(-4.07,9.98)} L${P(-3.71,10.40)} L${P(-1.61,10.40)}` +
+          ` L${P(-1.49,10.10)} L${P(-0.66,9.86)} L${P(-0.48,10.22)} L${P(-0.06,10.28)}` +
+          ` L${P(-0.12,11.00)} L${P(0.12,11.00)} L${P(0.06,10.28)} L${P(0.48,10.22)}` +
+          ` L${P(0.66,9.86)} L${P(1.49,10.10)} L${P(1.61,10.40)} L${P(3.71,10.40)}` +
+          ` L${P(4.07,9.98)} L${P(4.07,8.97)} L${P(1.55,6.76)} L${P(1.49,5.14)}` +
+          ` L${P(6.70,5.02)} L${P(6.82,5.50)} L${P(7.41,5.50)} L${P(7.41,2.93)}` +
+          ` L${P(7.11,0.06)} L${P(6.76,1.49)} L${P(6.76,3.05)} L${P(6.46,3.11)}` +
+          ` L${P(5.86,2.63)} L${P(5.86,2.27)} L${P(5.26,2.15)} L${P(2.03,-0.60)}` +
+          ` L${P(1.26,-3.71)} L${P(0.54,-9.21)} Z`
+        }/>
+      );
+    }
+
+    case 'F35':
+    case 'F35A':
+    case 'F35B':
+    case 'F35C': {
+      // F-35 Lightning II (all variants) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(11.133,3) scale(0.214022) resolved.
+      // Diamond-shaped low-observable planform; ±7.5 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.09,-11.00)} L${P(-0.69,-9.61)} L${P(-1.30,-4.85)} L${P(-1.73,-4.76)}` +
+          ` L${P(-2.17,-5.02)} L${P(-2.34,-4.59)} L${P(-2.51,-1.04)} L${P(-3.38,0.26)}` +
+          ` L${P(-7.54,3.03)} L${P(-7.54,5.28)} L${P(-2.77,6.50)} L${P(-2.94,7.36)}` +
+          ` L${P(-5.11,8.83)} L${P(-5.11,10.13)} L${P(-1.39,11.00)} L${P(-1.04,8.75)}` +
+          ` L${P(0.95,8.57)} L${P(1.39,11.00)} L${P(5.11,10.13)} L${P(5.11,8.92)}` +
+          ` L${P(2.94,7.36)} L${P(2.77,6.50)} L${P(7.54,5.28)} L${P(7.54,3.03)}` +
+          ` L${P(2.94,-0.17)} L${P(2.51,-1.04)} L${P(2.34,-4.59)} L${P(2.17,-5.02)}` +
+          ` L${P(1.73,-4.76)} L${P(1.30,-4.85)} L${P(0.69,-9.53)} Z`
+        }/>
+      );
+    }
+
+    case 'B2': {
+      // B-2 Spirit — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,17.946) scale(0.223077) resolved.
+      // Flying-wing stealth bomber; extremely wide, shallow depth. ±11 wide, ±4.65 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,2.99)} L${P(-9.90,4.65)} L${P(-5.85,1.89)} L${P(-5.48,1.89)}` +
+          ` L${P(-2.90,4.00)} L${P(-1.89,2.99)} L${P(-1.43,2.99)} L${P(-0.05,4.37)}` +
+          ` L${P(1.43,2.99)} L${P(1.89,2.99)} L${P(2.90,4.00)} L${P(5.48,1.89)}` +
+          ` L${P(5.94,1.89)} L${P(9.80,4.65)} L${P(10.17,4.37)} L${P(11.00,3.18)}` +
+          ` L${P(11.00,2.99)} L${P(0.14,-4.65)} L${P(-0.14,-4.65)} Z`
+        }/>
+      );
+    }
+
+    case 'B52': {
+      // B-52 Stratofortress — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,5.981) scale(0.271028) resolved.
+      // High-mounted swept wings with distinctive multi-bogey undercarriage detail.
+      // ±11 wide, ±9.7 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.17,-9.70)} L${P(-0.73,-8.69)} L${P(-0.73,-4.96)} L${P(-2.76,-3.61)}` +
+          ` L${P(-3.44,-3.72)} L${P(-3.67,-4.85)} L${P(-4.46,-4.96)} L${P(-4.79,-4.63)}` +
+          ` L${P(-4.79,-2.37)} L${P(-5.81,-1.58)} L${P(-6.49,-1.69)} L${P(-6.60,-2.59)}` +
+          ` L${P(-7.50,-2.59)} L${P(-7.62,-0.45)} L${P(-8.74,0.34)} L${P(-9.19,0.34)}` +
+          ` L${P(-9.53,-0.23)} L${P(-9.98,0.00)} L${P(-9.98,1.13)} L${P(-11.00,1.81)}` +
+          ` L${P(-11.00,3.16)} L${P(-0.85,-1.24)} L${P(-0.51,5.64)} L${P(-3.44,8.01)}` +
+          ` L${P(-3.44,9.03)} L${P(-0.51,8.01)} L${P(-0.39,9.48)} L${P(0.28,9.70)}` +
+          ` L${P(0.51,8.01)} L${P(3.44,9.03)} L${P(3.44,8.01)} L${P(0.51,5.64)}` +
+          ` L${P(0.85,-1.24)} L${P(11.00,3.16)} L${P(11.00,1.81)} L${P(9.98,1.13)}` +
+          ` L${P(9.76,-0.23)} L${P(8.52,0.23)} L${P(7.62,-0.45)} L${P(7.62,-2.03)}` +
+          ` L${P(7.28,-2.71)} L${P(6.60,-2.59)} L${P(6.37,-1.58)} L${P(5.81,-1.58)}` +
+          ` L${P(4.79,-2.37)} L${P(4.79,-4.51)} L${P(4.46,-4.96)} L${P(3.78,-4.96)}` +
+          ` L${P(3.44,-4.63)} L${P(3.44,-3.61)} L${P(2.88,-3.50)} L${P(0.73,-5.08)}` +
+          ` L${P(0.73,-8.69)} L${P(0.28,-9.59)} Z`
+        }/>
+      );
+    }
+
+    case 'B1':
+    case 'B1A':
+    case 'B1B': {
+      // B-1 Lancer — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(15.023,3) scale(0.096186) resolved.
+      // Variable-sweep-wing bomber (drawn in swept-back configuration); ±6.1 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.07,-11.00)} L${P(-0.60,-8.69)} L${P(-0.97,-7.79)} L${P(-0.67,-7.76)}` +
+          ` L${P(-1.08,-3.43)} L${P(-1.57,-1.64)} L${P(-2.42,0.37)} L${P(-2.91,0.93)}` +
+          ` L${P(-3.02,1.68)} L${P(-6.12,9.62)} L${P(-5.22,10.48)} L${P(-2.80,6.86)}` +
+          ` L${P(-0.97,6.97)} L${P(-0.63,8.99)} L${P(-2.72,11.00)} L${P(2.72,11.00)}` +
+          ` L${P(0.63,8.99)} L${P(0.97,6.97)} L${P(2.57,6.97)} L${P(2.80,6.79)}` +
+          ` L${P(5.26,10.48)} L${P(5.89,10.11)} L${P(6.12,9.36)} L${P(3.02,1.60)}` +
+          ` L${P(2.91,0.86)} L${P(2.50,0.48)} L${P(1.60,-1.60)} L${P(1.12,-3.36)}` +
+          ` L${P(0.71,-7.76)} L${P(1.01,-7.79)} L${P(0.60,-8.76)} L${P(0.11,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'F18':
+    case 'EA18': {
+      // F/A-18 Hornet / EA-18G Growler — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(9.014,3) scale(0.164773) resolved.
+      // Twin-tail carrier fighter; ±7.9 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.03,-11.00)} L${P(-0.58,-9.01)} L${P(-0.65,-5.50)} L${P(-1.82,-2.82)}` +
+          ` L${P(-2.23,0.00)} L${P(-7.25,2.54)} L${P(-7.67,2.48)} L${P(-7.87,1.65)}` +
+          ` L${P(-7.87,5.16)} L${P(-1.82,5.50)} L${P(-2.37,7.29)} L${P(-4.37,9.42)}` +
+          ` L${P(-4.37,10.66)} L${P(-3.88,11.00)} L${P(-1.48,9.76)} L${P(-0.10,10.11)}` +
+          ` L${P(1.48,9.76)} L${P(3.88,11.00)} L${P(4.37,10.66)} L${P(4.37,9.42)}` +
+          ` L${P(2.37,7.29)} L${P(1.82,5.50)} L${P(7.87,5.16)} L${P(7.87,1.65)}` +
+          ` L${P(7.67,2.54)} L${P(7.32,2.61)} L${P(2.23,0.00)} L${P(1.82,-2.82)}` +
+          ` L${P(0.65,-5.50)} L${P(0.58,-8.94)} Z`
+        }/>
+      );
+    }
+
+    case 'V22':
+    case 'CV22': {
+      // V-22 / CV-22 Osprey tiltrotor — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,13.394) scale(0.256637) resolved.
+      // Twin wingtip-mounted rotor nacelles; ±11 wide, ±7.5 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-11.00,-2.08)} L${P(-10.69,-1.45)} L${P(-6.02,-1.45)} L${P(-3.74,2.39)}` +
+          ` L${P(-3.22,2.28)} L${P(-3.22,1.87)} L${P(-4.25,-0.42)} L${P(-1.97,-0.21)}` +
+          ` L${P(-1.66,1.76)} L${P(-0.93,3.53)} L${P(-0.83,5.19)} L${P(-1.04,5.71)}` +
+          ` L${P(-2.08,5.50)} L${P(-1.97,7.47)} L${P(2.18,7.47)} L${P(2.18,5.50)}` +
+          ` L${P(0.93,5.60)} L${P(1.04,3.53)} L${P(2.08,0.62)} L${P(2.08,-0.31)}` +
+          ` L${P(4.36,-0.42)} L${P(3.32,1.87)} L${P(3.32,2.28)} L${P(3.84,2.39)}` +
+          ` L${P(6.12,-1.45)} L${P(11.00,-1.56)} L${P(11.00,-2.08)} L${P(6.85,-2.18)}` +
+          ` L${P(6.54,-3.11)} L${P(5.92,-3.22)} L${P(4.05,-6.33)} L${P(3.63,-6.33)}` +
+          ` L${P(3.53,-5.81)} L${P(5.08,-2.80)} L${P(1.66,-2.39)} L${P(1.14,-3.22)}` +
+          ` L${P(1.04,-6.02)} L${P(0.21,-7.47)} L${P(-0.42,-7.47)} L${P(-1.04,-5.29)}` +
+          ` L${P(-1.04,-3.22)} L${P(-1.56,-2.39)} L${P(-4.98,-2.80)} L${P(-3.32,-6.02)}` +
+          ` L${P(-3.94,-6.33)} L${P(-5.81,-3.22)} L${P(-6.43,-3.11)} L${P(-6.75,-2.18)} Z`
+        }/>
+      );
+    }
+
+    case 'A35K': {
+      // Airbus A350-1000 (A35K) — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Twin-engine widebody with curved wingtip devices; ±9.4 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.20,-11.00)} L${P(-0.89,-8.39)} L${P(-0.89,-2.57)} L${P(-2.47,-1.48)}` +
+          ` L${P(-2.57,-2.57)} L${P(-3.60,-2.61)} L${P(-3.55,-0.54)} L${P(-8.63,2.91)}` +
+          ` L${P(-9.27,3.65)} L${P(-9.42,4.39)} L${P(-3.16,1.43)} L${P(-0.94,1.33)}` +
+          ` L${P(-0.84,6.41)} L${P(-0.49,8.43)} L${P(-2.66,10.21)} L${P(-2.86,11.00)}` +
+          ` L${P(-0.20,10.11)} L${P(-0.05,11.00)} L${P(0.25,10.06)} L${P(2.86,11.00)}` +
+          ` L${P(2.57,10.06)} L${P(0.49,8.43)} L${P(0.89,5.87)} L${P(0.89,1.38)}` +
+          ` L${P(2.17,1.38)} L${P(2.22,1.63)} L${P(3.01,1.38)} L${P(3.60,1.92)}` +
+          ` L${P(4.24,1.87)} L${P(9.42,4.19)} L${P(8.98,3.26)} L${P(3.55,-0.54)}` +
+          ` L${P(3.60,-2.61)} L${P(2.57,-2.61)} L${P(2.47,-1.48)} L${P(0.89,-2.57)}` +
+          ` L${P(0.84,-8.83)} L${P(0.20,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'AJET': {
+      // Dassault/Dornier Alpha Jet — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(6.625,3) scale(0.426471) resolved.
+      // French/German twin-seat military jet trainer and light attack aircraft.
+      // ±10.2 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(-0.27,-11.00)} L${P(-0.99,-8.84)} L${P(-1.35,-4.51)} L${P(-2.25,-3.97)}` +
+          ` L${P(-2.43,-2.34)} L${P(-10.19,3.07)} L${P(-10.19,5.23)} L${P(-3.34,4.15)}` +
+          ` L${P(-2.25,4.33)} L${P(-2.07,6.31)} L${P(-5.68,9.38)} L${P(-5.50,10.82)}` +
+          ` L${P(-4.24,10.82)} L${P(-2.61,10.28)} L${P(-1.35,10.28)} L${P(-0.99,10.64)}` +
+          ` L${P(-0.45,10.64)} L${P(-0.27,11.00)} L${P(0.99,10.64)} L${P(1.35,10.28)}` +
+          ` L${P(2.61,10.28)} L${P(4.24,10.82)} L${P(5.50,10.82)} L${P(5.68,10.28)}` +
+          ` L${P(5.50,9.20)} L${P(2.07,6.31)} L${P(2.07,4.33)} L${P(3.34,4.15)}` +
+          ` L${P(10.19,5.23)} L${P(10.19,3.07)} L${P(2.43,-2.34)} L${P(2.43,-3.61)}` +
+          ` L${P(2.07,-4.15)} L${P(1.35,-4.51)} L${P(0.81,-9.56)} L${P(0.27,-11.00)} Z`
+        }/>
+      );
+    }
+
+    case 'F900': {
+      // Dassault Falcon 900 — user-supplied top-down silhouette.
+      // Path from viewBox "0 0 64 64" with translate(3,3) scale(0.129754) resolved.
+      // Tri-jet large-cabin business jet; ±9.9 wide, ±11 tall.
+      const s = Math.max(0.38, fc);
+      const P = (x,y) => `${(x*s).toFixed(2)},${(y*s).toFixed(2)}`;
+      return (
+        <path fill={color} opacity="0.96" d={
+          `M${P(0.27,-11.00)} L${P(-0.37,-10.95)} L${P(-1.11,-9.78)} L${P(-1.48,-7.61)}` +
+          ` L${P(-1.64,-2.52)} L${P(-4.40,-0.66)} L${P(-5.04,-0.66)} L${P(-5.62,-0.08)}` +
+          ` L${P(-9.22,1.51)} L${P(-9.86,2.41)} L${P(-9.86,3.15)} L${P(-9.33,3.21)}` +
+          ` L${P(-4.29,1.83)} L${P(-1.59,1.62)} L${P(-1.59,2.15)} L${P(-2.60,2.25)}` +
+          ` L${P(-2.70,4.21)} L${P(-2.49,5.43)} L${P(-1.22,5.54)} L${P(-1.22,6.60)}` +
+          ` L${P(-4.19,8.83)} L${P(-4.24,9.94)} L${P(-3.98,10.26)} L${P(-0.95,9.04)}` +
+          ` L${P(-0.69,11.00)} L${P(-0.42,9.78)} L${P(-0.11,9.73)} L${P(-0.16,8.93)}` +
+          ` L${P(3.29,10.47)} L${P(3.55,10.31)} L${P(3.39,8.77)} L${P(0.53,6.71)}` +
+          ` L${P(0.95,5.54)} L${P(1.70,5.80)} L${P(2.12,5.49)} L${P(2.28,2.68)}` +
+          ` L${P(1.91,2.20)} L${P(1.22,2.36)} L${P(1.33,1.72)} L${P(3.55,1.93)}` +
+          ` L${P(8.96,3.53)} L${P(9.86,3.53)} L${P(9.75,2.41)} L${P(9.33,1.88)}` +
+          ` L${P(6.41,0.66)} L${P(5.94,0.08)} L${P(4.35,-0.40)} L${P(1.33,-2.57)}` +
+          ` L${P(1.22,-8.56)} Z`
+        }/>
+      );
+    }
+
+    case 'super': {
+      // A380 — enormous double-deck, 4 engines, massive wingspan
+      const w = Math.max(0.30, f);
+      return (<>
+        <ellipse cx="0" cy="-0.5" rx="3.3" ry="9.5" fill={color}/>
+        {/* Subtle double-deck cross-section */}
+        <ellipse cx="0" cy="-4" rx="3.5" ry="3.2" fill={color} opacity="0.22"/>
+        {/* Huge swept wings */}
+        <polygon points={`-2.8,-1 ${-12*w},4 ${-11.5*w},6.5 -2.8,4.5`} fill={color}/>
+        <polygon points={`2.8,-1 ${12*w},4 ${11.5*w},6.5 2.8,4.5`} fill={color}/>
+        {/* Wing leading-edge highlights */}
+        <polygon points={`-2.8,-1 ${-12*w},4 ${-12.5*w},3.5 -2.8,-1.5`} fill={color} opacity="0.35"/>
+        <polygon points={`2.8,-1 ${12*w},4 ${12.5*w},3.5 2.8,-1.5`} fill={color} opacity="0.35"/>
+        {/* 4 engines — inboard pair closer in */}
+        <ellipse cx={-5.2*w}  cy="0.8" rx={1.6*w}  ry="0.88" fill={color} opacity="0.93"/>
+        <ellipse cx={-9.8*w}  cy="3.2" rx={1.5*w}  ry="0.82" fill={color} opacity="0.93"/>
+        <ellipse cx={ 5.2*w}  cy="0.8" rx={1.6*w}  ry="0.88" fill={color} opacity="0.93"/>
+        <ellipse cx={ 9.8*w}  cy="3.2" rx={1.5*w}  ry="0.82" fill={color} opacity="0.93"/>
+        {/* Engine intake rings */}
+        <circle cx={-5.2*w}  cy="0.1" r={1.05*w} fill="none" stroke={color} strokeWidth="0.5" opacity="0.5"/>
+        <circle cx={-9.8*w}  cy="2.5" r={0.95*w} fill="none" stroke={color} strokeWidth="0.5" opacity="0.5"/>
+        <circle cx={ 5.2*w}  cy="0.1" r={1.05*w} fill="none" stroke={color} strokeWidth="0.5" opacity="0.5"/>
+        <circle cx={ 9.8*w}  cy="2.5" r={0.95*w} fill="none" stroke={color} strokeWidth="0.5" opacity="0.5"/>
+        {/* Large horizontal stabilizer */}
+        <polygon points={`-2.2,8.5 ${-7.5*w},11 ${-6.5*w},12 -1.8,9.5`} fill={color} opacity="0.88"/>
+        <polygon points={`2.2,8.5 ${7.5*w},11 ${6.5*w},12 1.8,9.5`} fill={color} opacity="0.88"/>
+        {/* Fuselage depth spine */}
+        <ellipse cx="0" cy="-0.5" rx="1.3" ry="8.8" fill={color} opacity="0.2"/>
+      </>);
+    }
+
+    case 'jumbo': {
+      // B747 — iconic upper-deck hump, 4 engines
+      const w = Math.max(0.28, f);
+      return (<>
+        <ellipse cx="0" cy="-0.5" rx="2.6" ry="9.5" fill={color}/>
+        {/* Iconic upper-deck hump — wide oval displaced forward */}
+        <ellipse cx="0" cy="-5.5" rx="2.3" ry="3.2" fill={color} opacity="0.52"/>
+        <ellipse cx="0" cy="-5.5" rx="1.0" ry="2.8" fill={color} opacity="0.25"/>
+        {/* Wings */}
+        <polygon points={`-2.2,-1 ${-11.5*w},4.5 ${-10.5*w},6.5 -2.2,4.5`} fill={color}/>
+        <polygon points={`2.2,-1 ${11.5*w},4.5 ${10.5*w},6.5 2.2,4.5`} fill={color}/>
+        {/* Wing leading-edge highlights */}
+        <polygon points={`-2.2,-1 ${-11.5*w},4.5 ${-12*w},4 -2.2,-1.5`} fill={color} opacity="0.35"/>
+        <polygon points={`2.2,-1 ${11.5*w},4.5 ${12*w},4 2.2,-1.5`} fill={color} opacity="0.35"/>
+        {/* 4 engines */}
+        <ellipse cx={-4.8*w} cy="0.8" rx={1.52*w} ry="0.82" fill={color} opacity="0.93"/>
+        <ellipse cx={-8.8*w} cy="3.5" rx={1.42*w} ry="0.76" fill={color} opacity="0.93"/>
+        <ellipse cx={ 4.8*w} cy="0.8" rx={1.52*w} ry="0.82" fill={color} opacity="0.93"/>
+        <ellipse cx={ 8.8*w} cy="3.5" rx={1.42*w} ry="0.76" fill={color} opacity="0.93"/>
+        <circle cx={-4.8*w} cy="0.1" r={0.95*w} fill="none" stroke={color} strokeWidth="0.45" opacity="0.5"/>
+        <circle cx={ 4.8*w} cy="0.1" r={0.95*w} fill="none" stroke={color} strokeWidth="0.45" opacity="0.5"/>
+        {/* Horizontal stabilizer */}
+        <polygon points={`-1.8,8 ${-6*w},11 ${-5.5*w},12 -1.5,9`} fill={color} opacity="0.88"/>
+        <polygon points={`1.8,8 ${6*w},11 ${5.5*w},12 1.5,9`} fill={color} opacity="0.88"/>
+        <ellipse cx="0" cy="-0.5" rx="1.05" ry="8.5" fill={color} opacity="0.2"/>
+      </>);
+    }
+
+    case 'wide': {
+      // B777/787/A330/350 — large twin-engine widebody
+      const w = Math.max(0.28, f);
+      return (<>
+        <ellipse cx="0" cy="-0.5" rx="2.2" ry="9.5" fill={color}/>
+        {/* Wide-chord wings */}
+        <polygon points={`-2,-0.5 ${-11*w},4 ${-10.5*w},6.5 -2,4.5`} fill={color}/>
+        <polygon points={`2,-0.5 ${11*w},4 ${10.5*w},6.5 2,4.5`} fill={color}/>
+        {/* Wing leading-edge highlight */}
+        <polygon points={`-2,-0.5 ${-11*w},4 ${-11.5*w},3.5 -2,-1`} fill={color} opacity="0.35"/>
+        <polygon points={`2,-0.5 ${11*w},4 ${11.5*w},3.5 2,-1`} fill={color} opacity="0.35"/>
+        {/* 2 large engines, further from fuselage */}
+        <ellipse cx={-7*w}  cy="1.5" rx={1.85*w} ry="0.98" fill={color} opacity="0.93"/>
+        <ellipse cx={ 7*w}  cy="1.5" rx={1.85*w} ry="0.98" fill={color} opacity="0.93"/>
+        <circle  cx={-7*w}  cy="0.7" r={1.15*w}  fill="none" stroke={color} strokeWidth="0.5" opacity="0.52"/>
+        <circle  cx={ 7*w}  cy="0.7" r={1.15*w}  fill="none" stroke={color} strokeWidth="0.5" opacity="0.52"/>
+        {/* Horizontal stabilizer */}
+        <polygon points={`-1.8,8.5 ${-6*w},11.5 ${-5.5*w},12 -1.5,9.5`} fill={color} opacity="0.88"/>
+        <polygon points={`1.8,8.5 ${6*w},11.5 ${5.5*w},12 1.5,9.5`} fill={color} opacity="0.88"/>
+        <ellipse cx="0" cy="-0.5" rx="0.88" ry="8.5" fill={color} opacity="0.2"/>
+        <ellipse cx="0" cy="-8.8" rx="0.9" ry="1.0" fill={color} opacity="0.45"/>
+      </>);
+    }
+
+    case 'regional': {
+      // CRJ/ERJ — slim, short wings forward, REAR-mounted engines, T-tail
+      const w = Math.max(0.32, f);
+      return (<>
+        <ellipse cx="0" cy="-0.5" rx="1.15" ry="9.5" fill={color}/>
+        {/* Short swept wings, placed forward */}
+        <polygon points={`-1.1,-2.5 ${-7.5*w},1 ${-7*w},3 -1.1,1.5`} fill={color}/>
+        <polygon points={`1.1,-2.5 ${7.5*w},1 ${7*w},3 1.1,1.5`} fill={color}/>
+        {/* Wing leading-edge highlight */}
+        <polygon points={`-1.1,-2.5 ${-7.5*w},1 ${-7.9*w},0.6 -1.1,-2.9`} fill={color} opacity="0.4"/>
+        <polygon points={`1.1,-2.5 ${7.5*w},1 ${7.9*w},0.6 1.1,-2.9`} fill={color} opacity="0.4"/>
+        {/* REAR-MOUNTED engines — key visual distinguisher from narrowbody */}
+        <ellipse cx={-2.3*w} cy="5.5" rx={1.28*w} ry="0.7"  fill={color} opacity="0.93"/>
+        <ellipse cx={ 2.3*w} cy="5.5" rx={1.28*w} ry="0.7"  fill={color} opacity="0.93"/>
+        <circle  cx={-2.3*w} cy="4.85" r={0.78*w} fill="none" stroke={color} strokeWidth="0.48" opacity="0.65"/>
+        <circle  cx={ 2.3*w} cy="4.85" r={0.78*w} fill="none" stroke={color} strokeWidth="0.48" opacity="0.65"/>
+        {/* T-tail horizontal stabilizer — prominent, high-mounted */}
+        <polygon points={`-1,9.5 ${-5.5*w},11.5 ${-5*w},12 -0.8,10.3`} fill={color} opacity="0.93"/>
+        <polygon points={`1,9.5 ${5.5*w},11.5 ${5*w},12 0.8,10.3`} fill={color} opacity="0.93"/>
+        {/* Fuselage spine */}
+        <ellipse cx="0" cy="0" rx="0.52" ry="8.8" fill={color} opacity="0.28"/>
+        <ellipse cx="0" cy="-8.8" rx="0.6" ry="0.85" fill={color} opacity="0.45"/>
+      </>);
+    }
+
+    case 'bizjet': {
+      // Gulfstream/Citation — very slim, highly-swept wings, rear engines, T-tail
+      const w = Math.max(0.30, f);
+      return (<>
+        <ellipse cx="0" cy="-0.5" rx="0.95" ry="10" fill={color}/>
+        {/* Pointed nose */}
+        <ellipse cx="0" cy="-9.2" rx="0.58" ry="1.1" fill={color} opacity="0.55"/>
+        {/* Highly-swept wings — longer chord toward root */}
+        <polygon points={`-1,0 ${-9.5*w},5.5 ${-8.5*w},7 -1,3.5`} fill={color}/>
+        <polygon points={`1,0 ${9.5*w},5.5 ${8.5*w},7 1,3.5`} fill={color}/>
+        {/* Crisp leading-edge highlight */}
+        <polygon points={`-1,0 ${-9.5*w},5.5 ${-10*w},5 -1,-0.4`} fill={color} opacity="0.42"/>
+        <polygon points={`1,0 ${9.5*w},5.5 ${10*w},5 1,-0.4`} fill={color} opacity="0.42"/>
+        {/* Rear-mounted engines — close to fuselage, aft */}
+        <ellipse cx={-1.9*w} cy="5.8" rx={1.12*w} ry="0.6"  fill={color} opacity="0.93"/>
+        <ellipse cx={ 1.9*w} cy="5.8" rx={1.12*w} ry="0.6"  fill={color} opacity="0.93"/>
+        <circle  cx={-1.9*w} cy="5.2" r={0.68*w}  fill="none" stroke={color} strokeWidth="0.45" opacity="0.62"/>
+        <circle  cx={ 1.9*w} cy="5.2" r={0.68*w}  fill="none" stroke={color} strokeWidth="0.45" opacity="0.62"/>
+        {/* T-tail horizontal stab — high-mounted */}
+        <polygon points={`-0.8,9.5 ${-4.5*w},11 ${-4*w},11.8 -0.6,10.2`} fill={color} opacity="0.93"/>
+        <polygon points={`0.8,9.5 ${4.5*w},11 ${4*w},11.8 0.6,10.2`} fill={color} opacity="0.93"/>
+        <ellipse cx="0" cy="0" rx="0.44" ry="9" fill={color} opacity="0.28"/>
+      </>);
+    }
+
+    case 'milTransport': {
+      // C-17 Globemaster III — traced from reference silhouette
+      // Wide box fuselage, 4 engine pods, spoiler slots, winglets, T-tail
+      // Long narrow empennage taper with small T-tail
+      const w = Math.max(0.3, f);
+      return (<>
+        {/* Main body + wings + long tapered empennage + T-tail */}
+        <path d={`
+          M 0,-12
+          C ${1.2*w},-11.6 ${2.8*w},-10.2 ${2.8*w},-8.5
+          L ${2.8*w},-2.5
+          C ${5.8*w},-1.5 ${9.8*w},0.5 ${12.8*w},3.2
+          L ${13.2*w},3.8 L ${13.5*w},4.8
+          C ${11*w},5.2 ${8*w},4.8 ${2.8*w},4.2
+          C ${2.7*w},5.5 ${2.4*w},7.2 ${2.0*w},9.2
+          C ${2.0*w},9.5 ${1.8*w},10.2 ${1.6*w},11
+          C ${3.2*w},11.2 ${5.0*w},10.8 ${5.5*w},11.8
+          L ${5.8*w},13.5
+          L ${5.2*w},14.2
+          C ${4.0*w},14.5 ${2.4*w},13.8 ${1.6*w},13.2
+          L ${1.2*w},14.5
+          L 0,15
+          L ${-1.2*w},14.5
+          L ${-1.6*w},13.2
+          C ${-2.4*w},13.8 ${-4.0*w},14.5 ${-5.2*w},14.2
+          L ${-5.8*w},13.5
+          L ${-5.5*w},11.8
+          C ${-5.0*w},10.8 ${-3.2*w},11.2 ${-1.6*w},11
+          C ${-1.8*w},10.2 ${-2.0*w},9.5 ${-2.0*w},9.2
+          C ${-2.4*w},7.2 ${-2.7*w},5.5 ${-2.8*w},4.2
+          C ${-8*w},4.8 ${-11*w},5.2 ${-13.5*w},4.8
+          L ${-13.2*w},3.8 L ${-12.8*w},3.2
+          C ${-9.8*w},0.5 ${-5.8*w},-1.5 ${-2.8*w},-2.5
+          L ${-2.8*w},-8.5
+          C ${-2.8*w},-10.2 ${-1.2*w},-11.6 0,-12
+          Z`}
+          fill={color}/>
+        {/* Winglets */}
+        <line x1={13.2*w} y1="4.2" x2={14.2*w} y2="3.5"
+          stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1={-13.2*w} y1="4.2" x2={-14.2*w} y2="3.5"
+          stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
+        {/* Trailing edge spoiler slots */}
+        {[4.5,6.5,8.5,10.5].map(x=>(
+          <g key={x}>
+            <line x1={x*w} y1={4.18} x2={x*w+0.4} y2={3.6}
+              stroke="#010a18" strokeWidth="0.7" opacity="0.55"/>
+            <line x1={-x*w} y1={4.18} x2={-x*w-0.4} y2={3.6}
+              stroke="#010a18" strokeWidth="0.7" opacity="0.55"/>
+          </g>
+        ))}
+        {/* Engine pods — 4 total with intake rings */}
+        {[[5.5,0.5,-0.9],[9.8,2.2,0.85]].map(([cx,cy,iy])=>(
+          <g key={cx}>
+            <ellipse cx={cx*w}  cy={cy} rx={1.2*w} ry="2.05" fill={color} opacity=".95"/>
+            <ellipse cx={cx*w}  cy={iy} rx={1.0*w} ry="0.44" fill="#010512" opacity=".52"/>
+            <ellipse cx={-cx*w} cy={cy} rx={1.2*w} ry="2.05" fill={color} opacity=".95"/>
+            <ellipse cx={-cx*w} cy={iy} rx={1.0*w} ry="0.44" fill="#010512" opacity=".52"/>
+          </g>
+        ))}
+      </>);
+    }
+
+    case 'military': {
+      // F-22 Raptor — traced from reference silhouette
+      // Stepped chine LE, 42° wing sweep, large stabs, twin rectangular nozzle boxes
+      const w = Math.max(0.28, f);
+      return (<>
+        {/* Main body — two-step chine, broad wing, large stabs, nozzle boxes */}
+        <polygon points={`
+          0,-12
+          ${1.1*w},-10.2 ${2.4*w},-7.8 ${3.8*w},-5.5
+          ${13*w},4.2 ${12.6*w},5.2
+          ${9.2*w},5.8 ${10*w},7.2 ${9.8*w},9.6
+          ${5.2*w},9.2 ${3.2*w},9.8
+          ${3.2*w},12.2 ${1.1*w},12.2 ${1.1*w},9.8
+          ${-1.1*w},9.8 ${-1.1*w},12.2 ${-3.2*w},12.2
+          ${-3.2*w},9.8 ${-5.2*w},9.2
+          ${-9.8*w},9.6 ${-10*w},7.2 ${-9.2*w},5.8
+          ${-12.6*w},5.2 ${-13*w},4.2
+          ${-3.8*w},-5.5 ${-2.4*w},-7.8 ${-1.1*w},-10.2
+        `} fill={color} opacity="0.96"/>
+        {/* Chine facet lines — mark the stepped LE angle breaks */}
+        <line x1={1.1*w} y1="-10.2" x2={2.4*w} y2="-7.8" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={2.4*w} y1="-7.8"  x2={3.8*w} y2="-5.5" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={-1.1*w} y1="-10.2" x2={-2.4*w} y2="-7.8" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        <line x1={-2.4*w} y1="-7.8"  x2={-3.8*w} y2="-5.5" stroke="#010a18" strokeWidth="0.6" opacity="0.38"/>
+        {/* Cockpit — long narrow teardrop on forward fuselage */}
+        <ellipse cx="0" cy="-9" rx={0.95*w} ry="2.6" fill="#010a18" opacity="0.44"/>
+        {/* Gap between twin nozzle boxes */}
+        <rect x={-1.1*w} y="9.8" width={2.2*w} height="2.4" rx="0.2" fill="#010a18" opacity="0.48"/>
+      </>);
+    }
+
+    case 'piston': {
+      // C172/C182 — narrow nose, long tapering empennage, thin H-stab
+      // Wings: straight LE (nearly perpendicular), tapered TE, foreshortened by fc
+      const hw  = Math.max(1.2, 11.2 * Math.max(fc, 0.38)); // half wingspan
+      const ht  = Math.max(1.0, hw * 0.40);                  // half stab-span
+      return (<>
+        {/* ── Fuselage: narrow nose curves into wider cabin, long tail taper ── */}
+        <path d={`M0,-11.5
+          C${1.0},-11 ${1.8},-10.2 ${2.0},-9
+          C${2.3},-7.8 ${2.6},-6.5 ${2.7},-5.5
+          L${2.7},1.5
+          C${2.7},2.8 ${2.2},4.5 ${1.8},6.2
+          C${1.4},7.6 ${1.0},8.8 ${0.8},10
+          L0,10.4
+          L${-0.8},10
+          C${-1.0},8.8 ${-1.4},7.6 ${-1.8},6.2
+          C${-2.2},4.5 ${-2.7},2.8 ${-2.7},1.5
+          L${-2.7},-5.5
+          C${-2.6},-6.5 ${-2.3},-7.8 ${-2.0},-9
+          C${-1.8},-10.2 ${-1.0},-11 0,-11.5Z`}
+          fill={color}/>
+        {/* ── Wings: straight LE, tapered toward tip ── */}
+        <polygon points={`-2.6,-2.0 ${-hw},-2.3 ${-hw},1.2 -2.6,3.0`} fill={color}/>
+        <ellipse cx={-hw} cy={-0.55} rx="0.78" ry="1.75" fill={color}/>
+        <polygon points={`2.6,-2.0 ${hw},-2.3 ${hw},1.2 2.6,3.0`} fill={color}/>
+        <ellipse cx={hw}  cy={-0.55} rx="0.78" ry="1.75" fill={color}/>
+        {/* ── High-wing strut hints ── */}
+        <line x1="-2.6" y1="0.5" x2={-hw*0.8} y2="0.3"
+          stroke={color} strokeWidth="0.55" opacity="0.28"/>
+        <line x1="2.6"  y1="0.5" x2={hw*0.8}  y2="0.3"
+          stroke={color} strokeWidth="0.55" opacity="0.28"/>
+        {/* ── H-stab: thin rect + rounded tips ── */}
+        <rect x={-ht} y="9.5" width={ht*2} height="0.85" rx="0.42" fill={color}/>
+        <ellipse cx={-ht} cy="9.92" rx="0.52" ry="0.88" fill={color}/>
+        <ellipse cx={ht}  cy="9.92" rx="0.52" ry="0.88" fill={color}/>
+        {/* ── Prop + hub ── */}
+        <line x1="-3.4" y1="-9.0" x2="3.4" y2="-9.0"
+          stroke={color} strokeWidth="1.9" strokeLinecap="round"/>
+        <circle cx="0" cy="-9.0" r="1.1" fill={color}/>
+      </>);
+    }
+
+    case 'helicopter': {
+      // Top-down helicopter: main rotor disc + fuselage + tail boom + tail rotor
+      return (<>
+        {/* Main rotor blades — 4-blade, no foreshortening (rotor is always overhead) */}
+        <line x1="0" y1="-11" x2="0" y2="11" stroke={color} strokeWidth="1.6" strokeLinecap="round" opacity="0.9"/>
+        <line x1="-11" y1="0" x2="11" y2="0" stroke={color} strokeWidth="1.6" strokeLinecap="round" opacity="0.9"/>
+        {/* Diagonal blades (offset 45°) */}
+        <line x1="-7.8" y1="-7.8" x2="7.8" y2="7.8" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.6"/>
+        <line x1="7.8" y1="-7.8" x2="-7.8" y2="7.8" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.6"/>
+        {/* Rotor hub */}
+        <circle cx="0" cy="0" r="2" fill={color} opacity="0.95"/>
+        {/* Fuselage — wide oval, nose forward (-y) */}
+        <ellipse cx="0" cy="1" rx="3.2" ry="5.5" fill={color} opacity="0.92"/>
+        {/* Cockpit bubble */}
+        <ellipse cx="0" cy="-2" rx="3.5" ry="3.2" fill={color} opacity="0.55"/>
+        {/* Tail boom — narrow tube aft */}
+        <rect x="-1.0" y="6.5" width="2.0" height="5.5" rx="0.8" fill={color} opacity="0.88"/>
+        {/* Tail rotor — perpendicular at boom tip */}
+        <line x1="-3.5" y1="11.2" x2="3.5" y2="11.2" stroke={color} strokeWidth="1.4" strokeLinecap="round" opacity="0.9"/>
+        <circle cx="0" cy="11.2" r="0.9" fill={color}/>
+        {/* Skids — landing gear lines */}
+        <line x1="-4" y1="1" x2="-4" y2="4.5" stroke={color} strokeWidth="0.8" strokeLinecap="round" opacity="0.45"/>
+        <line x1="4"  y1="1" x2="4"  y2="4.5" stroke={color} strokeWidth="0.8" strokeLinecap="round" opacity="0.45"/>
+        <line x1="-5" y1="4.5" x2="-1" y2="4.5" stroke={color} strokeWidth="0.8" strokeLinecap="round" opacity="0.45"/>
+        <line x1="5"  y1="4.5" x2="1"  y2="4.5" stroke={color} strokeWidth="0.8" strokeLinecap="round" opacity="0.45"/>
+      </>);
+    }
+
+    default: {
+      // Narrowbody — B737 style
+      // Slimmer fuselage, engines closer to body, thinner tapered wings
+      const w = Math.max(0.38, f);
+      return (<>
+        {/* Slim fuselage — rx 1.5 (was 1.55), smooth nose taper */}
+        <path d={`M0,-10.8
+          C${1.2},-10.4 ${1.5},-9.5 ${1.5},-8
+          L${1.5},-2.8
+          C${4.8},-1.5 ${8.5*w},.4 ${11*w},2.4
+          Q${11.8*w},3.2 ${11*w},4.2
+          C${8.8*w},4.4 ${5.5*w},3.2 ${2.2},2.5
+          L${2},7
+          C${3.5},7 ${5.5},6.8 ${5.9},7.7
+          L${6.2},8.8
+          Q${5},9.2 0,9.3
+          Q${-5},9.2 ${-6.2},8.8
+          L${-5.9},7.7
+          C${-5.5},6.8 ${-3.5},7 ${-2},7
+          L${-2.2},2.5
+          C${-5.5*w},3.2 ${-8.8*w},4.4 ${-11*w},4.2
+          Q${-11.8*w},3.2 ${-11*w},2.4
+          C${-8.5*w},.4 ${-4.8},-1.5 ${-1.5},-2.8
+          L${-1.5},-8
+          C${-1.5},-9.5 ${-1.2},-10.4 0,-10.8Z`}
+          fill={color}/>
+        {/* Wings: thinner chord (root 3.4, tip 1.4), more taper */}
+        <polygon points={`-1.5,-2.2 ${-12*w},1.2 ${-11.5*w},2.6 -1.5,1.2`} fill={color}/>
+        <ellipse cx={-12*w} cy="1.9" rx="0.6" ry="0.85" fill={color}/>
+        <polygon points={`1.5,-2.2 ${12*w},1.2 ${11.5*w},2.6 1.5,1.2`} fill={color}/>
+        <ellipse cx={12*w} cy="1.9" rx="0.6" ry="0.85" fill={color}/>
+        {/* Engines: closer in (cx ±5 vs old ±6.5), clear intake ring */}
+        <ellipse cx={-5*w} cy="1.5" rx={1.35*w} ry={2.4*w} fill={color} opacity="0.95"/>
+        <ellipse cx={-5*w} cy={0.1} rx={1.05*w} ry={0.5*w} fill="#010512" opacity="0.55"/>
+        <ellipse cx={ 5*w} cy="1.5" rx={1.35*w} ry={2.4*w} fill={color} opacity="0.95"/>
+        <ellipse cx={ 5*w} cy={0.1} rx={1.05*w} ry={0.5*w} fill="#010512" opacity="0.55"/>
+      </>);
+    }
+  }
+};
+
+
+
+const CITIES = [
+  {name:'New York',st:'NY',lat:40.7128,lon:-74.006},
+  {name:'Yonkers',st:'NY',lat:40.9312,lon:-73.8988},
+  {name:'Buffalo',st:'NY',lat:42.8864,lon:-78.8784},
+  {name:'Rochester',st:'NY',lat:43.1566,lon:-77.6088},
+  {name:'Syracuse',st:'NY',lat:43.0481,lon:-76.1474},
+  {name:'Albany',st:'NY',lat:42.6526,lon:-73.7562},
+  {name:'New Haven',st:'CT',lat:41.3082,lon:-72.9279},
+  {name:'Hartford',st:'CT',lat:41.7658,lon:-72.6851},
+  {name:'Bridgeport',st:'CT',lat:41.1865,lon:-73.1952},
+  {name:'Stamford',st:'CT',lat:41.0534,lon:-73.5387},
+  {name:'Worcester',st:'MA',lat:42.2626,lon:-71.8023},
+  {name:'Boston',st:'MA',lat:42.3601,lon:-71.0589},
+  {name:'Springfield',st:'MA',lat:42.1015,lon:-72.5898},
+  {name:'Providence',st:'RI',lat:41.824,lon:-71.4128},
+  {name:'Manchester',st:'NH',lat:42.9956,lon:-71.4548},
+  {name:'Portland',st:'ME',lat:43.6591,lon:-70.2568},
+  {name:'Philadelphia',st:'PA',lat:39.9526,lon:-75.1652},
+  {name:'Pittsburgh',st:'PA',lat:40.4406,lon:-79.9959},
+  {name:'Allentown',st:'PA',lat:40.6084,lon:-75.4902},
+  {name:'Reading',st:'PA',lat:40.3356,lon:-75.9269},
+  {name:'Erie',st:'PA',lat:42.1292,lon:-80.0851},
+  {name:'Scranton',st:'PA',lat:41.409,lon:-75.6624},
+  {name:'Newark',st:'NJ',lat:40.7357,lon:-74.1724},
+  {name:'Jersey City',st:'NJ',lat:40.7178,lon:-74.0431},
+  {name:'Paterson',st:'NJ',lat:40.9176,lon:-74.1719},
+  {name:'Elizabeth',st:'NJ',lat:40.664,lon:-74.2107},
+  {name:'Trenton',st:'NJ',lat:40.2171,lon:-74.7429},
+  {name:'Baltimore',st:'MD',lat:39.2904,lon:-76.6122},
+  {name:'Washington',st:'DC',lat:38.9072,lon:-77.0369},
+  {name:'Alexandria',st:'VA',lat:38.8048,lon:-77.0469},
+  {name:'Wilmington',st:'DE',lat:39.7447,lon:-75.5484},
+  {name:'Virginia Beach',st:'VA',lat:36.8529,lon:-75.978},
+  {name:'Norfolk',st:'VA',lat:36.8508,lon:-76.2859},
+  {name:'Chesapeake',st:'VA',lat:36.7682,lon:-76.2875},
+  {name:'Richmond',st:'VA',lat:37.5407,lon:-77.436},
+  {name:'Hampton',st:'VA',lat:37.0299,lon:-76.3452},
+  {name:'Newport News',st:'VA',lat:37.0871,lon:-76.473},
+  {name:'Charlotte',st:'NC',lat:35.2271,lon:-80.8431},
+  {name:'Raleigh',st:'NC',lat:35.7796,lon:-78.6382},
+  {name:'Greensboro',st:'NC',lat:36.0726,lon:-79.792},
+  {name:'Durham',st:'NC',lat:35.994,lon:-78.8986},
+  {name:'Winston-Salem',st:'NC',lat:36.0999,lon:-80.2442},
+  {name:'Fayetteville',st:'NC',lat:35.0527,lon:-78.8784},
+  {name:'Cary',st:'NC',lat:35.7915,lon:-78.7811},
+  {name:'Atlanta',st:'GA',lat:33.749,lon:-84.388},
+  {name:'Columbus',st:'GA',lat:32.461,lon:-84.9877},
+  {name:'Augusta',st:'GA',lat:33.4735,lon:-82.0105},
+  {name:'Savannah',st:'GA',lat:32.0809,lon:-81.0912},
+  {name:'Macon',st:'GA',lat:32.8407,lon:-83.6324},
+  {name:'Jacksonville',st:'FL',lat:30.3322,lon:-81.6557},
+  {name:'Miami',st:'FL',lat:25.7617,lon:-80.1918},
+  {name:'Tampa',st:'FL',lat:27.9506,lon:-82.4572},
+  {name:'Orlando',st:'FL',lat:28.5383,lon:-81.3792},
+  {name:'St. Petersburg',st:'FL',lat:27.7676,lon:-82.6403},
+  {name:'Hialeah',st:'FL',lat:25.8576,lon:-80.2781},
+  {name:'Tallahassee',st:'FL',lat:30.4518,lon:-84.2807},
+  {name:'Fort Lauderdale',st:'FL',lat:26.1224,lon:-80.1373},
+  {name:'Cape Coral',st:'FL',lat:26.5629,lon:-81.9495},
+  {name:'Coral Springs',st:'FL',lat:26.2709,lon:-80.2706},
+  {name:'Hollywood',st:'FL',lat:26.0112,lon:-80.1495},
+  {name:'Gainesville',st:'FL',lat:29.6516,lon:-82.3248},
+  {name:'Clearwater',st:'FL',lat:27.9659,lon:-82.8001},
+  {name:'Lakeland',st:'FL',lat:28.0395,lon:-81.9498},
+  {name:'Pompano Beach',st:'FL',lat:26.2379,lon:-80.1248},
+  {name:'West Palm Beach',st:'FL',lat:26.7153,lon:-80.0534},
+  {name:'Nashville',st:'TN',lat:36.1627,lon:-86.7816},
+  {name:'Memphis',st:'TN',lat:35.1495,lon:-90.049},
+  {name:'Knoxville',st:'TN',lat:35.9606,lon:-83.9207},
+  {name:'Chattanooga',st:'TN',lat:35.0456,lon:-85.3097},
+  {name:'Clarksville',st:'TN',lat:36.5298,lon:-87.3595},
+  {name:'Murfreesboro',st:'TN',lat:35.8456,lon:-86.3903},
+  {name:'Louisville',st:'KY',lat:38.2527,lon:-85.7585},
+  {name:'Lexington',st:'KY',lat:38.0406,lon:-84.5037},
+  {name:'Birmingham',st:'AL',lat:33.5186,lon:-86.8104},
+  {name:'Montgomery',st:'AL',lat:32.3668,lon:-86.2999},
+  {name:'Huntsville',st:'AL',lat:34.7304,lon:-86.5861},
+  {name:'Mobile',st:'AL',lat:30.6954,lon:-88.0399},
+  {name:'Jackson',st:'MS',lat:32.2988,lon:-90.1848},
+  {name:'Baton Rouge',st:'LA',lat:30.4515,lon:-91.1871},
+  {name:'New Orleans',st:'LA',lat:29.9511,lon:-90.0715},
+  {name:'Shreveport',st:'LA',lat:32.5252,lon:-93.7502},
+  {name:'Little Rock',st:'AR',lat:34.7465,lon:-92.2896},
+  {name:'Chicago',st:'IL',lat:41.8781,lon:-87.6298},
+  {name:'Rockford',st:'IL',lat:42.2711,lon:-89.094},
+  {name:'Joliet',st:'IL',lat:41.525,lon:-88.0817},
+  {name:'Naperville',st:'IL',lat:41.7508,lon:-88.1535},
+  {name:'Peoria',st:'IL',lat:40.6936,lon:-89.589},
+  {name:'Elgin',st:'IL',lat:42.0354,lon:-88.2826},
+  {name:'Indianapolis',st:'IN',lat:39.7684,lon:-86.1581},
+  {name:'Fort Wayne',st:'IN',lat:41.0793,lon:-85.1394},
+  {name:'South Bend',st:'IN',lat:41.6764,lon:-86.252},
+  {name:'Evansville',st:'IN',lat:37.9716,lon:-87.5711},
+  {name:'Columbus',st:'OH',lat:39.9612,lon:-82.9988},
+  {name:'Cleveland',st:'OH',lat:41.4993,lon:-81.6944},
+  {name:'Cincinnati',st:'OH',lat:39.1031,lon:-84.512},
+  {name:'Toledo',st:'OH',lat:41.6639,lon:-83.5552},
+  {name:'Akron',st:'OH',lat:41.0814,lon:-81.519},
+  {name:'Dayton',st:'OH',lat:39.7589,lon:-84.1916},
+  {name:'Detroit',st:'MI',lat:42.3314,lon:-83.0458},
+  {name:'Grand Rapids',st:'MI',lat:42.9634,lon:-85.6681},
+  {name:'Warren',st:'MI',lat:42.5145,lon:-83.0146},
+  {name:'Sterling Heights',st:'MI',lat:42.5803,lon:-83.0302},
+  {name:'Lansing',st:'MI',lat:42.7325,lon:-84.5555},
+  {name:'Ann Arbor',st:'MI',lat:42.2808,lon:-83.743},
+  {name:'Flint',st:'MI',lat:43.0125,lon:-83.6875},
+  {name:'Minneapolis',st:'MN',lat:44.9778,lon:-93.265},
+  {name:'St. Paul',st:'MN',lat:44.9537,lon:-93.09},
+  {name:'Rochester',st:'MN',lat:44.0121,lon:-92.4802},
+  {name:'Milwaukee',st:'WI',lat:43.0389,lon:-87.9065},
+  {name:'Madison',st:'WI',lat:43.0731,lon:-89.4012},
+  {name:'Green Bay',st:'WI',lat:44.5133,lon:-88.0133},
+  {name:'Kenosha',st:'WI',lat:42.5847,lon:-87.8212},
+  {name:'Kansas City',st:'MO',lat:39.0997,lon:-94.5786},
+  {name:'St. Louis',st:'MO',lat:38.627,lon:-90.1994},
+  {name:'Springfield',st:'MO',lat:37.2153,lon:-93.2982},
+  {name:'Independence',st:'MO',lat:39.0911,lon:-94.4155},
+  {name:'Omaha',st:'NE',lat:41.2565,lon:-95.9345},
+  {name:'Lincoln',st:'NE',lat:40.8136,lon:-96.7026},
+  {name:'Wichita',st:'KS',lat:37.6872,lon:-97.3301},
+  {name:'Overland Park',st:'KS',lat:38.9822,lon:-94.6708},
+  {name:'Kansas City',st:'KS',lat:39.1142,lon:-94.6275},
+  {name:'Topeka',st:'KS',lat:39.0558,lon:-95.689},
+  {name:'Des Moines',st:'IA',lat:41.5868,lon:-93.625},
+  {name:'Cedar Rapids',st:'IA',lat:41.9779,lon:-91.6656},
+  {name:'Sioux Falls',st:'SD',lat:43.5446,lon:-96.7311},
+  {name:'Fargo',st:'ND',lat:46.8772,lon:-96.7898},
+  {name:'Houston',st:'TX',lat:29.7604,lon:-95.3698},
+  {name:'San Antonio',st:'TX',lat:29.4241,lon:-98.4936},
+  {name:'Dallas',st:'TX',lat:32.7767,lon:-96.797},
+  {name:'Austin',st:'TX',lat:30.2672,lon:-97.7431},
+  {name:'Fort Worth',st:'TX',lat:32.7555,lon:-97.3308},
+  {name:'El Paso',st:'TX',lat:31.7619,lon:-106.485},
+  {name:'Arlington',st:'TX',lat:32.7357,lon:-97.1081},
+  {name:'Corpus Christi',st:'TX',lat:27.8006,lon:-97.3964},
+  {name:'Plano',st:'TX',lat:33.0198,lon:-96.6989},
+  {name:'Laredo',st:'TX',lat:27.5306,lon:-99.4803},
+  {name:'Lubbock',st:'TX',lat:33.5779,lon:-101.8552},
+  {name:'Garland',st:'TX',lat:32.9126,lon:-96.6389},
+  {name:'Irving',st:'TX',lat:32.814,lon:-96.9489},
+  {name:'Amarillo',st:'TX',lat:35.222,lon:-101.8313},
+  {name:'McKinney',st:'TX',lat:33.1972,lon:-96.6397},
+  {name:'Frisco',st:'TX',lat:33.1584,lon:-96.8236},
+  {name:'Grand Prairie',st:'TX',lat:32.746,lon:-97.0208},
+  {name:'Brownsville',st:'TX',lat:25.9018,lon:-97.4975},
+  {name:'Pasadena',st:'TX',lat:29.6911,lon:-95.2091},
+  {name:'Killeen',st:'TX',lat:31.1171,lon:-97.7278},
+  {name:'McAllen',st:'TX',lat:26.2034,lon:-98.23},
+  {name:'Mesquite',st:'TX',lat:32.7668,lon:-96.5992},
+  {name:'Waco',st:'TX',lat:31.5493,lon:-97.1467},
+  {name:'Denton',st:'TX',lat:33.2148,lon:-97.1331},
+  {name:'Midland',st:'TX',lat:31.9974,lon:-102.0779},
+  {name:'Abilene',st:'TX',lat:32.4487,lon:-99.7331},
+  {name:'Beaumont',st:'TX',lat:30.0802,lon:-94.1266},
+  {name:'Carrollton',st:'TX',lat:32.9537,lon:-96.8903},
+  {name:'Round Rock',st:'TX',lat:30.5083,lon:-97.6789},
+  {name:'Odessa',st:'TX',lat:31.8457,lon:-102.3676},
+  {name:'Port Arthur',st:'TX',lat:29.8849,lon:-93.9399},
+  {name:'Lewisville',st:'TX',lat:33.0462,lon:-96.9942},
+  {name:'Richardson',st:'TX',lat:32.9483,lon:-96.7299},
+  {name:'Tyler',st:'TX',lat:32.3513,lon:-95.301},
+  {name:'Oklahoma City',st:'OK',lat:35.4676,lon:-97.5164},
+  {name:'Tulsa',st:'OK',lat:36.154,lon:-95.9928},
+  {name:'Norman',st:'OK',lat:35.2226,lon:-97.4395},
+  {name:'Broken Arrow',st:'OK',lat:36.0526,lon:-95.7908},
+  {name:'Columbia',st:'SC',lat:34.0007,lon:-81.0348},
+  {name:'North Charleston',st:'SC',lat:32.8546,lon:-79.9748},
+  {name:'Los Angeles',st:'CA',lat:34.0522,lon:-118.2437},
+  {name:'San Diego',st:'CA',lat:32.7157,lon:-117.1611},
+  {name:'San Jose',st:'CA',lat:37.3382,lon:-121.8863},
+  {name:'San Francisco',st:'CA',lat:37.7749,lon:-122.4194},
+  {name:'Fresno',st:'CA',lat:36.7378,lon:-119.7871},
+  {name:'Sacramento',st:'CA',lat:38.5816,lon:-121.4944},
+  {name:'Long Beach',st:'CA',lat:33.7701,lon:-118.1937},
+  {name:'Oakland',st:'CA',lat:37.8044,lon:-122.2712},
+  {name:'Bakersfield',st:'CA',lat:35.3733,lon:-119.0187},
+  {name:'Anaheim',st:'CA',lat:33.8366,lon:-117.9143},
+  {name:'Santa Ana',st:'CA',lat:33.7455,lon:-117.8677},
+  {name:'Riverside',st:'CA',lat:33.9806,lon:-117.3755},
+  {name:'Stockton',st:'CA',lat:37.9577,lon:-121.2908},
+  {name:'Irvine',st:'CA',lat:33.6846,lon:-117.8265},
+  {name:'Chula Vista',st:'CA',lat:32.6401,lon:-117.0842},
+  {name:'Fremont',st:'CA',lat:37.5485,lon:-121.9886},
+  {name:'San Bernardino',st:'CA',lat:34.1083,lon:-117.2898},
+  {name:'Modesto',st:'CA',lat:37.6391,lon:-120.9969},
+  {name:'Fontana',st:'CA',lat:34.0922,lon:-117.435},
+  {name:'Moreno Valley',st:'CA',lat:33.9375,lon:-117.2306},
+  {name:'Glendale',st:'CA',lat:34.1425,lon:-118.2551},
+  {name:'Huntington Beach',st:'CA',lat:33.6595,lon:-117.9988},
+  {name:'Santa Rosa',st:'CA',lat:38.4404,lon:-122.7141},
+  {name:'Garden Grove',st:'CA',lat:33.7743,lon:-117.9378},
+  {name:'Oceanside',st:'CA',lat:33.1959,lon:-117.3795},
+  {name:'Rancho Cucamonga',st:'CA',lat:34.1064,lon:-117.5931},
+  {name:'Ontario',st:'CA',lat:34.0633,lon:-117.6509},
+  {name:'Corona',st:'CA',lat:33.8753,lon:-117.5664},
+  {name:'Lancaster',st:'CA',lat:34.6868,lon:-118.1542},
+  {name:'Palmdale',st:'CA',lat:34.5794,lon:-118.1165},
+  {name:'Pomona',st:'CA',lat:34.0553,lon:-117.75},
+  {name:'Torrance',st:'CA',lat:33.8358,lon:-118.3406},
+  {name:'El Monte',st:'CA',lat:34.0686,lon:-118.0276},
+  {name:'Sunnyvale',st:'CA',lat:37.3688,lon:-122.0363},
+  {name:'Escondido',st:'CA',lat:33.1192,lon:-117.0864},
+  {name:'Salinas',st:'CA',lat:36.6777,lon:-121.6555},
+  {name:'Thousand Oaks',st:'CA',lat:34.1706,lon:-118.8376},
+  {name:'Simi Valley',st:'CA',lat:34.2694,lon:-118.7815},
+  {name:'Visalia',st:'CA',lat:36.3302,lon:-119.2921},
+  {name:'Concord',st:'CA',lat:37.978,lon:-122.0311},
+  {name:'Roseville',st:'CA',lat:38.7521,lon:-121.288},
+  {name:'Hayward',st:'CA',lat:37.6688,lon:-122.0808},
+  {name:'Victorville',st:'CA',lat:34.5362,lon:-117.2928},
+  {name:'Berkeley',st:'CA',lat:37.8716,lon:-122.2727},
+  {name:'Costa Mesa',st:'CA',lat:33.6411,lon:-117.9187},
+  {name:'Inglewood',st:'CA',lat:33.9617,lon:-118.3531},
+  {name:'Santa Clarita',st:'CA',lat:34.3917,lon:-118.5426},
+  {name:'Fullerton',st:'CA',lat:33.8703,lon:-117.9242},
+  {name:'Murrieta',st:'CA',lat:33.5539,lon:-117.2139},
+  {name:'Temecula',st:'CA',lat:33.4936,lon:-117.1484},
+  {name:'El Cajon',st:'CA',lat:32.7948,lon:-116.9625},
+  {name:'Oxnard',st:'CA',lat:34.1975,lon:-119.1771},
+  {name:'Orange',st:'CA',lat:33.7879,lon:-117.8531},
+  {name:'Elk Grove',st:'CA',lat:38.4088,lon:-121.3716},
+  {name:'Santa Clara',st:'CA',lat:37.3541,lon:-121.9552},
+  {name:'Pasadena',st:'CA',lat:34.1478,lon:-118.1445},
+  {name:'West Covina',st:'CA',lat:34.0686,lon:-117.939},
+  {name:'Vallejo',st:'CA',lat:38.1041,lon:-122.2566},
+  {name:'Rialto',st:'CA',lat:34.1064,lon:-117.3703},
+  {name:'Peoria',st:'AZ',lat:33.5806,lon:-112.2374},
+  {name:'Phoenix',st:'AZ',lat:33.4484,lon:-112.074},
+  {name:'Tucson',st:'AZ',lat:32.2226,lon:-110.9747},
+  {name:'Mesa',st:'AZ',lat:33.4152,lon:-111.8315},
+  {name:'Chandler',st:'AZ',lat:33.3062,lon:-111.8413},
+  {name:'Scottsdale',st:'AZ',lat:33.4942,lon:-111.9261},
+  {name:'Gilbert',st:'AZ',lat:33.3528,lon:-111.789},
+  {name:'Glendale',st:'AZ',lat:33.5387,lon:-112.186},
+  {name:'Tempe',st:'AZ',lat:33.4255,lon:-111.94},
+  {name:'Surprise',st:'AZ',lat:33.6292,lon:-112.3679},
+  {name:'Goodyear',st:'AZ',lat:33.4353,lon:-112.3576},
+  {name:'Avondale',st:'AZ',lat:33.4356,lon:-112.3496},
+  {name:'Las Vegas',st:'NV',lat:36.1699,lon:-115.1398},
+  {name:'Henderson',st:'NV',lat:36.0395,lon:-114.9817},
+  {name:'Reno',st:'NV',lat:39.5296,lon:-119.8138},
+  {name:'North Las Vegas',st:'NV',lat:36.1989,lon:-115.1175},
+  {name:'Paradise',st:'NV',lat:36.0948,lon:-115.1399},
+  {name:'Denver',st:'CO',lat:39.7392,lon:-104.9903},
+  {name:'Colorado Springs',st:'CO',lat:38.8339,lon:-104.8214},
+  {name:'Aurora',st:'CO',lat:39.7294,lon:-104.8319},
+  {name:'Fort Collins',st:'CO',lat:40.5853,lon:-105.0844},
+  {name:'Lakewood',st:'CO',lat:39.7047,lon:-105.0814},
+  {name:'Thornton',st:'CO',lat:39.8683,lon:-104.9719},
+  {name:'Pueblo',st:'CO',lat:38.2544,lon:-104.6091},
+  {name:'Arvada',st:'CO',lat:39.8028,lon:-105.0875},
+  {name:'Westminster',st:'CO',lat:39.8367,lon:-105.0372},
+  {name:'Salt Lake City',st:'UT',lat:40.7608,lon:-111.891},
+  {name:'West Valley City',st:'UT',lat:40.6916,lon:-112.001},
+  {name:'Provo',st:'UT',lat:40.2338,lon:-111.6585},
+  {name:'West Jordan',st:'UT',lat:40.6097,lon:-111.9391},
+  {name:'Orem',st:'UT',lat:40.2969,lon:-111.6946},
+  {name:'Ogden',st:'UT',lat:41.223,lon:-111.9738},
+  {name:'St. George',st:'UT',lat:37.1041,lon:-113.5841},
+  {name:'Albuquerque',st:'NM',lat:35.0844,lon:-106.6504},
+  {name:'Las Cruces',st:'NM',lat:32.3199,lon:-106.7637},
+  {name:'Rio Rancho',st:'NM',lat:35.2328,lon:-106.663},
+  {name:'Seattle',st:'WA',lat:47.6062,lon:-122.3321},
+  {name:'Spokane',st:'WA',lat:47.6588,lon:-117.426},
+  {name:'Tacoma',st:'WA',lat:47.2529,lon:-122.4443},
+  {name:'Vancouver',st:'WA',lat:45.6387,lon:-122.6615},
+  {name:'Bellevue',st:'WA',lat:47.6101,lon:-122.2015},
+  {name:'Kent',st:'WA',lat:47.3809,lon:-122.2348},
+  {name:'Renton',st:'WA',lat:47.4829,lon:-122.2171},
+  {name:'Kirkland',st:'WA',lat:47.6815,lon:-122.2087},
+  {name:'Spokane Valley',st:'WA',lat:47.6732,lon:-117.2394},
+  {name:'Federal Way',st:'WA',lat:47.3223,lon:-122.3126},
+  {name:'Portland',st:'OR',lat:45.5051,lon:-122.675},
+  {name:'Eugene',st:'OR',lat:44.0521,lon:-123.0868},
+  {name:'Salem',st:'OR',lat:44.9429,lon:-123.0351},
+  {name:'Gresham',st:'OR',lat:45.4929,lon:-122.4286},
+  {name:'Hillsboro',st:'OR',lat:45.5229,lon:-122.9898},
+  {name:'Beaverton',st:'OR',lat:45.4871,lon:-122.8037},
+  {name:'Anchorage',st:'AK',lat:61.2181,lon:-149.9003},
+  {name:'Honolulu',st:'HI',lat:21.3069,lon:-157.8583},
+  {name:'East Honolulu',st:'HI',lat:21.289,lon:-157.733},
+  {name:'Billings',st:'MT',lat:45.7833,lon:-108.5007},
+  {name:'Boise',st:'ID',lat:43.6187,lon:-116.2146},
+  {name:'Nampa',st:'ID',lat:43.5407,lon:-116.5635},
+  {name:'Toronto',st:'ON',lat:43.6532,lon:-79.3832},
+  {name:'Montreal',st:'QC',lat:45.5017,lon:-73.5673},
+  {name:'Vancouver',st:'BC',lat:49.2827,lon:-123.1207},
+  {name:'Calgary',st:'AB',lat:51.0447,lon:-114.0719},
+  {name:'Edmonton',st:'AB',lat:53.5461,lon:-113.4938},
+  {name:'Ottawa',st:'ON',lat:45.4215,lon:-75.6972},
+  {name:'Winnipeg',st:'MB',lat:49.8951,lon:-97.1384},
+  {name:'Quebec City',st:'QC',lat:46.8139,lon:-71.208},
+  {name:'Hamilton',st:'ON',lat:43.2557,lon:-79.8711},
+  {name:'Kitchener',st:'ON',lat:43.4516,lon:-80.4925},
+  {name:'London',st:'ON',lat:42.9849,lon:-81.2453},
+  {name:'Halifax',st:'NS',lat:44.6488,lon:-63.5752},
+  {name:'Victoria',st:'BC',lat:48.4284,lon:-123.3656},
+  {name:'Windsor',st:'ON',lat:42.3149,lon:-83.0364},
+  {name:'Oshawa',st:'ON',lat:43.8971,lon:-78.8658},
+  {name:'Saskatoon',st:'SK',lat:52.1332,lon:-106.67},
+  {name:'Regina',st:'SK',lat:50.4452,lon:-104.6189},
+  {name:'Burnaby',st:'BC',lat:49.2488,lon:-122.9805},
+  {name:'Surrey',st:'BC',lat:49.1913,lon:-122.849},
+  {name:'Brampton',st:'ON',lat:43.7315,lon:-79.7624},
+  {name:'Mississauga',st:'ON',lat:43.589,lon:-79.6441},
+  {name:'Laval',st:'QC',lat:45.6066,lon:-73.7124},
+  {name:'Richmond',st:'BC',lat:49.1666,lon:-123.1336},
+  {name:'Longueuil',st:'QC',lat:45.5312,lon:-73.5185},
+  {name:'Kelowna',st:'BC',lat:49.888,lon:-119.496},
+  {name:'Abbotsford',st:'BC',lat:49.0504,lon:-122.3045},
+  {name:'Coquitlam',st:'BC',lat:49.2838,lon:-122.7932},
+  {name:'Barrie',st:'ON',lat:44.3894,lon:-79.6903},
+  {name:'Markham',st:'ON',lat:43.8561,lon:-79.337},
+  {name:'Vaughan',st:'ON',lat:43.8563,lon:-79.5085},
+  {name:'Gatineau',st:'QC',lat:45.4765,lon:-75.7013},
+  {name:'St. Catharines',st:'ON',lat:43.1594,lon:-79.2469},
+  {name:'Cambridge',st:'ON',lat:43.3601,lon:-80.312},
+  {name:'Guelph',st:'ON',lat:43.5448,lon:-80.2482},
+  {name:'Whitby',st:'ON',lat:43.8975,lon:-78.9429},
+  {name:'Ajax',st:'ON',lat:43.8509,lon:-79.0204},
+  {name:'Thunder Bay',st:'ON',lat:48.3809,lon:-89.2477},
+  {name:'Sudbury',st:'ON',lat:46.49,lon:-80.993},
+  {name:'Red Deer',st:'AB',lat:52.2681,lon:-113.8112},
+  {name:'Lethbridge',st:'AB',lat:49.6956,lon:-112.8451},
+  {name:"St. John's",st:'NL',lat:47.5615,lon:-52.7126},
+  {name:'Trois-Rivieres',st:'QC',lat:46.3432,lon:-72.5418},
+  {name:'Sherbrooke',st:'QC',lat:45.4042,lon:-71.8929},
+  {name:'Saguenay',st:'QC',lat:48.4278,lon:-71.058},
+  {name:'Moncton',st:'NB',lat:46.1328,lon:-64.7714},
+  {name:'Fredericton',st:'NB',lat:45.9636,lon:-66.6431},
+  {name:'Saint John',st:'NB',lat:45.2733,lon:-66.0633},
+  {name:'Mexico City',st:'MX',lat:19.4326,lon:-99.1332},
+  {name:'Guadalajara',st:'MX',lat:20.6597,lon:-103.3496},
+  {name:'Monterrey',st:'MX',lat:25.6866,lon:-100.3161},
+  {name:'Puebla',st:'MX',lat:19.0414,lon:-98.2063},
+  {name:'Tijuana',st:'MX',lat:32.5149,lon:-117.0382},
+  {name:'Ciudad Juarez',st:'MX',lat:31.6904,lon:-106.4245},
+  {name:'Leon',st:'MX',lat:21.1221,lon:-101.6827},
+  {name:'Zapopan',st:'MX',lat:20.7202,lon:-103.3878},
+  {name:'Ecatepec',st:'MX',lat:19.601,lon:-99.035},
+  {name:'Guadalupe',st:'MX',lat:25.6741,lon:-100.2569},
+  {name:'Merida',st:'MX',lat:20.9674,lon:-89.5926},
+  {name:'Chihuahua',st:'MX',lat:28.632,lon:-106.0691},
+  {name:'San Luis Potosi',st:'MX',lat:22.1565,lon:-100.9855},
+  {name:'Aguascalientes',st:'MX',lat:21.8852,lon:-102.2916},
+  {name:'Mexicali',st:'MX',lat:32.6245,lon:-115.4523},
+  {name:'Hermosillo',st:'MX',lat:29.0729,lon:-110.9559},
+  {name:'Saltillo',st:'MX',lat:25.4232,lon:-101.003},
+  {name:'Morelia',st:'MX',lat:19.706,lon:-101.195},
+  {name:'Culiacan',st:'MX',lat:24.7994,lon:-107.404},
+  {name:'Acapulco',st:'MX',lat:16.8531,lon:-99.8237},
+  {name:'Queretaro',st:'MX',lat:20.5888,lon:-100.3899},
+  {name:'Torreon',st:'MX',lat:25.5428,lon:-103.4068},
+  {name:'Cancun',st:'MX',lat:21.1619,lon:-86.8515},
+  {name:'Mazatlan',st:'MX',lat:23.2494,lon:-106.4111},
+  {name:'Reynosa',st:'MX',lat:26.08,lon:-98.2772},
+  {name:'Matamoros',st:'MX',lat:25.8694,lon:-97.5042},
+  {name:'Nuevo Laredo',st:'MX',lat:27.477,lon:-99.513},
+  {name:'Durango',st:'MX',lat:24.0277,lon:-104.6532},
+  {name:'Veracruz',st:'MX',lat:19.1738,lon:-96.1342},
+  {name:'Tuxtla Gutierrez',st:'MX',lat:16.7515,lon:-93.1151},
+  {name:'Tlalnepantla',st:'MX',lat:19.5433,lon:-99.2065},
+  {name:'Naucalpan',st:'MX',lat:19.4771,lon:-99.2395},
+  {name:'Celaya',st:'MX',lat:20.5235,lon:-100.8156},
+  {name:'Xalapa',st:'MX',lat:19.5438,lon:-96.9102},
+  {name:'Irapuato',st:'MX',lat:20.6742,lon:-101.3545},
+  {name:'Ensenada',st:'MX',lat:31.8676,lon:-116.596},
+  {name:'Oaxaca',st:'MX',lat:17.0732,lon:-96.7266},
+  {name:'Pachuca',st:'MX',lat:20.1011,lon:-98.7591},
+  {name:'Villahermosa',st:'MX',lat:17.9892,lon:-92.9475},
+  {name:'Tepic',st:'MX',lat:21.5034,lon:-104.8956},
+  {name:'Nogales',st:'MX',lat:31.3154,lon:-110.9434},
+  {name:'Tapachula',st:'MX',lat:14.9054,lon:-92.2634},
+  {name:'Ciudad Obregon',st:'MX',lat:27.488,lon:-109.9322},
+  {name:'Coatzacoalcos',st:'MX',lat:18.1423,lon:-94.4494},
+
+  // ── US additions 50k–75k ───────────────────────────────────────
+  // Alabama
+  {name:'Dothan',st:'AL',lat:31.2232,lon:-85.3905},
+  {name:'Decatur',st:'AL',lat:34.6059,lon:-86.9833},
+  {name:'Tuscaloosa',st:'AL',lat:33.2098,lon:-87.5692},
+  {name:'Hoover',st:'AL',lat:33.4048,lon:-86.8114},
+  // Arizona
+  {name:'Lake Havasu City',st:'AZ',lat:34.4839,lon:-114.3224},
+  {name:'Casa Grande',st:'AZ',lat:32.8795,lon:-111.7574},
+  {name:'Maricopa',st:'AZ',lat:33.0581,lon:-112.0476},
+  {name:'Prescott',st:'AZ',lat:34.54,lon:-112.469},
+  {name:'Prescott Valley',st:'AZ',lat:34.61,lon:-112.315},
+  // Arkansas
+  {name:'Conway',st:'AR',lat:35.0887,lon:-92.4421},
+  {name:'Bentonville',st:'AR',lat:36.3729,lon:-94.2088},
+  {name:'Hot Springs',st:'AR',lat:34.5037,lon:-93.0552},
+  {name:'Jonesboro',st:'AR',lat:35.8423,lon:-90.7043},
+  // California
+  {name:'Davis',st:'CA',lat:38.5449,lon:-121.7405},
+  {name:'Redlands',st:'CA',lat:34.0556,lon:-117.1825},
+  {name:'Turlock',st:'CA',lat:37.4947,lon:-120.8466},
+  {name:'Rosemead',st:'CA',lat:34.0689,lon:-118.0723},
+  {name:'Perris',st:'CA',lat:33.7825,lon:-117.2286},
+  {name:'Hawthorne',st:'CA',lat:33.9164,lon:-118.3526},
+  {name:'Compton',st:'CA',lat:33.8958,lon:-118.2201},
+  {name:'Vacaville',st:'CA',lat:38.3566,lon:-121.9877},
+  {name:'Citrus Heights',st:'CA',lat:38.7073,lon:-121.2808},
+  {name:'Hesperia',st:'CA',lat:34.4264,lon:-117.3009},
+  {name:'Livermore',st:'CA',lat:37.6819,lon:-121.768},
+  {name:'Lakewood',st:'CA',lat:33.8536,lon:-118.1339},
+  {name:'San Leandro',st:'CA',lat:37.7249,lon:-122.1561},
+  // Colorado
+  {name:'Castle Rock',st:'CO',lat:39.3722,lon:-104.8561},
+  {name:'Loveland',st:'CO',lat:40.3978,lon:-105.0749},
+  {name:'Parker',st:'CO',lat:39.5186,lon:-104.7614},
+  {name:'Commerce City',st:'CO',lat:39.8083,lon:-104.9339},
+  // Connecticut
+  {name:'New Britain',st:'CT',lat:41.6612,lon:-72.7795},
+  {name:'Meriden',st:'CT',lat:41.5382,lon:-72.7973},
+  {name:'Hamden',st:'CT',lat:41.3959,lon:-72.8968},
+  {name:'West Haven',st:'CT',lat:41.2709,lon:-72.9471},
+  {name:'Bristol',st:'CT',lat:41.6718,lon:-72.9493},
+  {name:'Naugatuck',st:'CT',lat:41.4851,lon:-73.0504},
+  // Florida
+  {name:'Deerfield Beach',st:'FL',lat:26.3184,lon:-80.0998},
+  {name:'Homestead',st:'FL',lat:25.4687,lon:-80.4776},
+  {name:'Boynton Beach',st:'FL',lat:26.5317,lon:-80.0905},
+  {name:'Largo',st:'FL',lat:27.9095,lon:-82.7873},
+  {name:'Melbourne',st:'FL',lat:28.0836,lon:-80.6081},
+  {name:'Plantation',st:'FL',lat:26.1276,lon:-80.2331},
+  {name:'Palm Coast',st:'FL',lat:29.5849,lon:-81.2079},
+  {name:'Lauderhill',st:'FL',lat:26.1404,lon:-80.2131},
+  {name:'Margate',st:'FL',lat:26.2448,lon:-80.2064},
+  {name:'Daytona Beach',st:'FL',lat:29.2108,lon:-81.0228},
+  // Georgia
+  {name:'Johns Creek',st:'GA',lat:34.0298,lon:-84.1985},
+  {name:'Albany',st:'GA',lat:31.5785,lon:-84.1557},
+  {name:'Alpharetta',st:'GA',lat:34.0754,lon:-84.2941},
+  {name:'Warner Robins',st:'GA',lat:32.6130,lon:-83.5996},
+  {name:'Roswell',st:'GA',lat:34.0232,lon:-84.3616},
+  {name:'Sandy Springs',st:'GA',lat:33.9304,lon:-84.3733},
+  {name:'Peachtree City',st:'GA',lat:33.3967,lon:-84.5949},
+  // Idaho
+  {name:'Idaho Falls',st:'ID',lat:43.4917,lon:-112.034},
+  {name:'Caldwell',st:'ID',lat:43.6629,lon:-116.6874},
+  {name:'Twin Falls',st:'ID',lat:42.5629,lon:-114.4609},
+  // Illinois
+  {name:'Waukegan',st:'IL',lat:42.3636,lon:-87.8448},
+  {name:'Cicero',st:'IL',lat:41.8456,lon:-87.7539},
+  {name:'Champaign',st:'IL',lat:40.1164,lon:-88.2434},
+  {name:'Bloomington',st:'IL',lat:40.4842,lon:-88.9937},
+  {name:'Decatur',st:'IL',lat:39.8403,lon:-88.9548},
+  {name:'Evanston',st:'IL',lat:42.0451,lon:-87.6877},
+  {name:'Schaumburg',st:'IL',lat:42.0334,lon:-88.0834},
+  {name:'Bolingbrook',st:'IL',lat:41.6986,lon:-88.068},
+  // Indiana
+  {name:'Hammond',st:'IN',lat:41.5831,lon:-87.5},
+  {name:'Muncie',st:'IN',lat:40.1934,lon:-85.3864},
+  {name:'Terre Haute',st:'IN',lat:39.4667,lon:-87.4139},
+  {name:'Anderson',st:'IN',lat:40.1053,lon:-85.6803},
+  {name:'Carmel',st:'IN',lat:39.9784,lon:-86.118},
+  // Iowa
+  {name:'Sioux City',st:'IA',lat:42.4999,lon:-96.4003},
+  {name:'Iowa City',st:'IA',lat:41.6611,lon:-91.5302},
+  {name:'Waterloo',st:'IA',lat:42.4928,lon:-92.3426},
+  {name:'Ames',st:'IA',lat:42.0347,lon:-93.62},
+  {name:'Dubuque',st:'IA',lat:42.5006,lon:-90.6646},
+  // Kansas
+  {name:'Lawrence',st:'KS',lat:38.9717,lon:-95.2353},
+  {name:'Manhattan',st:'KS',lat:39.1836,lon:-96.5717},
+  {name:'Salina',st:'KS',lat:38.8403,lon:-97.6114},
+  // Kentucky
+  {name:'Bowling Green',st:'KY',lat:36.9685,lon:-86.4808},
+  {name:'Owensboro',st:'KY',lat:37.7719,lon:-87.1111},
+  {name:'Covington',st:'KY',lat:39.0837,lon:-84.5086},
+  // Louisiana
+  {name:'Lake Charles',st:'LA',lat:30.2266,lon:-93.2174},
+  {name:'Monroe',st:'LA',lat:32.5093,lon:-92.1193},
+  {name:'Alexandria',st:'LA',lat:31.3113,lon:-92.4451},
+  // Maine
+  {name:'Lewiston',st:'ME',lat:44.1004,lon:-70.2148},
+  // Maryland
+  {name:'Frederick',st:'MD',lat:39.4143,lon:-77.4105},
+  {name:'Rockville',st:'MD',lat:39.084,lon:-77.1528},
+  {name:'Gaithersburg',st:'MD',lat:39.1434,lon:-77.2014},
+  {name:'Bowie',st:'MD',lat:38.9426,lon:-76.7291},
+  // Massachusetts
+  {name:'Lynn',st:'MA',lat:42.4668,lon:-70.9495},
+  {name:'Fall River',st:'MA',lat:41.7015,lon:-71.155},
+  {name:'Newton',st:'MA',lat:42.337,lon:-71.2092},
+  {name:'Somerville',st:'MA',lat:42.3876,lon:-71.0995},
+  {name:'Lawrence',st:'MA',lat:42.707,lon:-71.1631},
+  {name:'Waltham',st:'MA',lat:42.3765,lon:-71.2356},
+  {name:'Haverhill',st:'MA',lat:42.7762,lon:-71.0773},
+  {name:'Malden',st:'MA',lat:42.4251,lon:-71.0662},
+  {name:'Medford',st:'MA',lat:42.4184,lon:-71.1062},
+  {name:'Quincy',st:'MA',lat:42.2529,lon:-71.0023},
+  // Michigan
+  {name:'Kalamazoo',st:'MI',lat:42.2917,lon:-85.5872},
+  {name:'Pontiac',st:'MI',lat:42.6389,lon:-83.2911},
+  {name:'Westland',st:'MI',lat:42.3242,lon:-83.4002},
+  {name:'Saginaw',st:'MI',lat:43.4195,lon:-83.9508},
+  {name:'Battle Creek',st:'MI',lat:42.3212,lon:-85.1797},
+  {name:'Muskegon',st:'MI',lat:43.2342,lon:-86.2484},
+  {name:'Bay City',st:'MI',lat:43.5945,lon:-83.8888},
+  // Minnesota
+  {name:'Duluth',st:'MN',lat:46.7867,lon:-92.1005},
+  {name:'Bloomington',st:'MN',lat:44.8408,lon:-93.3477},
+  {name:'Brooklyn Park',st:'MN',lat:45.094,lon:-93.3752},
+  {name:'Plymouth',st:'MN',lat:45.0105,lon:-93.4555},
+  {name:'Maple Grove',st:'MN',lat:45.0724,lon:-93.4557},
+  {name:'Woodbury',st:'MN',lat:44.9239,lon:-92.9591},
+  {name:'Coon Rapids',st:'MN',lat:45.1197,lon:-93.3113},
+  {name:'Burnsville',st:'MN',lat:44.7677,lon:-93.2777},
+  {name:'Eagan',st:'MN',lat:44.8041,lon:-93.1669},
+  {name:'Eden Prairie',st:'MN',lat:44.8547,lon:-93.4708},
+  {name:'Minnetonka',st:'MN',lat:44.9211,lon:-93.4687},
+  {name:'Apple Valley',st:'MN',lat:44.7319,lon:-93.2177},
+  // Mississippi
+  {name:'Gulfport',st:'MS',lat:30.3674,lon:-89.0928},
+  {name:'Southaven',st:'MS',lat:34.9887,lon:-89.9928},
+  {name:'Hattiesburg',st:'MS',lat:31.3271,lon:-89.2903},
+  // Missouri
+  {name:'St. Joseph',st:'MO',lat:39.7675,lon:-94.8467},
+  {name:"Lee's Summit",st:'MO',lat:38.9108,lon:-94.3822},
+  {name:"O'Fallon",st:'MO',lat:38.8106,lon:-90.6998},
+  {name:'Florissant',st:'MO',lat:38.7892,lon:-90.3226},
+  // Montana
+  {name:'Missoula',st:'MT',lat:46.872,lon:-113.9940},
+  {name:'Great Falls',st:'MT',lat:47.4942,lon:-111.2833},
+  // Nebraska
+  {name:'Bellevue',st:'NE',lat:41.1367,lon:-95.8945},
+  {name:'Kearney',st:'NE',lat:40.6993,lon:-99.0817},
+  // Nevada
+  {name:'Sparks',st:'NV',lat:39.5349,lon:-119.7527},
+  {name:'Enterprise',st:'NV',lat:36.0253,lon:-115.2367},
+  // New Hampshire
+  {name:'Concord',st:'NH',lat:43.2081,lon:-71.5376},
+  {name:'Derry',st:'NH',lat:42.8812,lon:-71.3273},
+  // New Jersey
+  {name:'Clifton',st:'NJ',lat:40.8584,lon:-74.1638},
+  {name:'Camden',st:'NJ',lat:39.9259,lon:-75.1196},
+  {name:'Passaic',st:'NJ',lat:40.857,lon:-74.1285},
+  {name:'Union City',st:'NJ',lat:40.7673,lon:-74.0324},
+  {name:'Bayonne',st:'NJ',lat:40.6687,lon:-74.1143},
+  {name:'East Orange',st:'NJ',lat:40.7673,lon:-74.2049},
+  {name:'Vineland',st:'NJ',lat:39.4862,lon:-74.9271},
+  {name:'New Brunswick',st:'NJ',lat:40.4873,lon:-74.4454},
+  {name:'Perth Amboy',st:'NJ',lat:40.5068,lon:-74.2654},
+  {name:'Toms River',st:'NJ',lat:39.9537,lon:-74.1979},
+  // New Mexico
+  {name:'Santa Fe',st:'NM',lat:35.687,lon:-105.9378},
+  // New York
+  {name:'New Rochelle',st:'NY',lat:40.9115,lon:-73.7826},
+  {name:'Mount Vernon',st:'NY',lat:40.9126,lon:-73.8371},
+  {name:'Schenectady',st:'NY',lat:42.8142,lon:-73.9396},
+  {name:'Utica',st:'NY',lat:43.0962,lon:-75.2329},
+  {name:'White Plains',st:'NY',lat:41.034,lon:-73.7629},
+  {name:'Hempstead',st:'NY',lat:40.7062,lon:-73.619},
+  // North Carolina
+  {name:'Greenville',st:'NC',lat:35.6127,lon:-77.3663},
+  {name:'Asheville',st:'NC',lat:35.5951,lon:-82.5515},
+  {name:'Gastonia',st:'NC',lat:35.2621,lon:-81.1873},
+  {name:'High Point',st:'NC',lat:35.9557,lon:-79.9858},
+  {name:'Wilmington',st:'NC',lat:34.2104,lon:-77.8868},
+  // North Dakota
+  {name:'Bismarck',st:'ND',lat:46.8083,lon:-100.7837},
+  {name:'Grand Forks',st:'ND',lat:47.9253,lon:-97.0329},
+  // Ohio
+  {name:'Parma',st:'OH',lat:41.3845,lon:-81.7229},
+  {name:'Canton',st:'OH',lat:40.7989,lon:-81.3784},
+  {name:'Youngstown',st:'OH',lat:41.0998,lon:-80.6495},
+  {name:'Lorain',st:'OH',lat:41.4523,lon:-82.1824},
+  {name:'Hamilton',st:'OH',lat:39.3995,lon:-84.5613},
+  {name:'Springfield',st:'OH',lat:39.9242,lon:-83.8088},
+  {name:'Kettering',st:'OH',lat:39.6895,lon:-84.1688},
+  {name:'Elyria',st:'OH',lat:41.3684,lon:-82.1077},
+  {name:'Lakewood',st:'OH',lat:41.4822,lon:-81.7982},
+  {name:'Cuyahoga Falls',st:'OH',lat:41.1334,lon:-81.4845},
+  // Oklahoma
+  {name:'Edmond',st:'OK',lat:35.6528,lon:-97.4781},
+  {name:'Lawton',st:'OK',lat:34.6036,lon:-98.3959},
+  {name:'Moore',st:'OK',lat:35.3395,lon:-97.4867},
+  {name:'Midwest City',st:'OK',lat:35.4495,lon:-97.3967},
+  {name:'Stillwater',st:'OK',lat:36.1156,lon:-97.0584},
+  // Oregon
+  {name:'Bend',st:'OR',lat:44.0582,lon:-121.3153},
+  {name:'Medford',st:'OR',lat:42.3265,lon:-122.8756},
+  {name:'Springfield',st:'OR',lat:44.0462,lon:-122.9846},
+  {name:'Corvallis',st:'OR',lat:44.5646,lon:-123.2620},
+  // Pennsylvania
+  {name:'Bethlehem',st:'PA',lat:40.6259,lon:-75.3705},
+  {name:'Lancaster',st:'PA',lat:40.0379,lon:-76.3055},
+  // Rhode Island
+  {name:'Cranston',st:'RI',lat:41.7798,lon:-71.4373},
+  {name:'Pawtucket',st:'RI',lat:41.8787,lon:-71.3826},
+  // South Carolina
+  {name:'Mount Pleasant',st:'SC',lat:32.8323,lon:-79.8284},
+  {name:'Greenville',st:'SC',lat:34.8526,lon:-82.394},
+  {name:'Rock Hill',st:'SC',lat:34.9249,lon:-81.025},
+  {name:'Summerville',st:'SC',lat:33.0185,lon:-80.1756},
+  // South Dakota
+  {name:'Rapid City',st:'SD',lat:44.0805,lon:-103.2310},
+  // Tennessee
+  {name:'Franklin',st:'TN',lat:35.9251,lon:-86.8689},
+  {name:'Jackson',st:'TN',lat:35.6145,lon:-88.8139},
+  {name:'Johnson City',st:'TN',lat:36.3134,lon:-82.3535},
+  {name:'Kingsport',st:'TN',lat:36.5484,lon:-82.5618},
+  {name:'Hendersonville',st:'TN',lat:36.3048,lon:-86.62},
+  // Texas
+  {name:'Wichita Falls',st:'TX',lat:33.9137,lon:-98.4934},
+  {name:'League City',st:'TX',lat:29.5075,lon:-95.0949},
+  {name:'Pearland',st:'TX',lat:29.5635,lon:-95.2860},
+  {name:'Allen',st:'TX',lat:33.1032,lon:-96.6705},
+  {name:'Mansfield',st:'TX',lat:32.5632,lon:-97.1417},
+  {name:'San Angelo',st:'TX',lat:31.4638,lon:-100.4370},
+  {name:'Longview',st:'TX',lat:32.5007,lon:-94.7405},
+  {name:'New Braunfels',st:'TX',lat:29.7030,lon:-98.1245},
+  {name:'Edinburg',st:'TX',lat:26.3017,lon:-98.1633},
+  {name:'Mission',st:'TX',lat:26.2159,lon:-98.3252},
+  {name:'Bryan',st:'TX',lat:30.6744,lon:-96.3698},
+  {name:'Harlingen',st:'TX',lat:26.1906,lon:-97.6961},
+  {name:'Conroe',st:'TX',lat:30.3119,lon:-95.4561},
+  // Utah
+  {name:'Layton',st:'UT',lat:41.0602,lon:-111.9711},
+  {name:'South Jordan',st:'UT',lat:40.5622,lon:-111.9296},
+  {name:'Taylorsville',st:'UT',lat:40.6677,lon:-111.9388},
+  {name:'Millcreek',st:'UT',lat:40.6869,lon:-111.8774},
+  {name:'Murray',st:'UT',lat:40.6669,lon:-111.888},
+  // Virginia
+  {name:'Roanoke',st:'VA',lat:37.2710,lon:-79.9414},
+  {name:'Portsmouth',st:'VA',lat:36.8354,lon:-76.2983},
+  {name:'Suffolk',st:'VA',lat:36.7282,lon:-76.5836},
+  {name:'Lynchburg',st:'VA',lat:37.4138,lon:-79.1422},
+  {name:'Harrisonburg',st:'VA',lat:38.4496,lon:-78.8689},
+  {name:'Charlottesville',st:'VA',lat:38.0293,lon:-78.4767},
+  {name:'Blacksburg',st:'VA',lat:37.2296,lon:-80.4139},
+  // Washington
+  {name:'Redmond',st:'WA',lat:47.6740,lon:-122.1215},
+  {name:'Marysville',st:'WA',lat:48.0512,lon:-122.1771},
+  {name:'Kennewick',st:'WA',lat:46.2113,lon:-119.1372},
+  {name:'Pasco',st:'WA',lat:46.2396,lon:-119.1006},
+  {name:'Yakima',st:'WA',lat:46.6021,lon:-120.5059},
+  {name:'Bellingham',st:'WA',lat:48.7519,lon:-122.4787},
+  // Wisconsin
+  {name:'Racine',st:'WI',lat:42.7261,lon:-87.7829},
+  {name:'Appleton',st:'WI',lat:44.2619,lon:-88.4154},
+  {name:'Waukesha',st:'WI',lat:43.0117,lon:-88.2315},
+  {name:'Oshkosh',st:'WI',lat:44.0247,lon:-88.5426},
+  {name:'Eau Claire',st:'WI',lat:44.8113,lon:-91.4985},
+  {name:'Janesville',st:'WI',lat:42.6828,lon:-89.0187},
+  {name:'La Crosse',st:'WI',lat:43.8014,lon:-91.2396},
+  // Wyoming
+  {name:'Cheyenne',st:'WY',lat:41.134,lon:-104.8202},
+  {name:'Casper',st:'WY',lat:42.8501,lon:-106.3252},
+
+  // ── Canada additions 50k–75k ────────────────────────────────────
+  {name:'Peterborough',st:'ON',lat:44.3,lon:-78.3167},
+  {name:'Brantford',st:'ON',lat:43.1394,lon:-80.2644},
+  {name:'Nanaimo',st:'BC',lat:49.1658,lon:-123.9401},
+  {name:'Kamloops',st:'BC',lat:50.6745,lon:-120.3273},
+  {name:'Chilliwack',st:'BC',lat:49.1577,lon:-121.9509},
+  {name:'Prince George',st:'BC',lat:53.9171,lon:-122.7497},
+  {name:'Medicine Hat',st:'AB',lat:50.0418,lon:-110.6775},
+  {name:'Terrebonne',st:'QC',lat:45.7,lon:-73.6333},
+  {name:'Sault Ste. Marie',st:'ON',lat:46.5136,lon:-84.3358},
+  {name:'Prince Albert',st:'SK',lat:53.2033,lon:-105.7531},
+  {name:'Moose Jaw',st:'SK',lat:50.3933,lon:-105.5519},
+  {name:'Brandon',st:'MB',lat:49.8483,lon:-99.9501},
+  {name:'Charlottetown',st:'PE',lat:46.2382,lon:-63.1311},
+  {name:'Belleville',st:'ON',lat:44.1628,lon:-77.3832},
+  {name:'North Bay',st:'ON',lat:46.3091,lon:-79.4608},
+  {name:'Cornwall',st:'ON',lat:45.0275,lon:-74.7278},
+  {name:'Halton Hills',st:'ON',lat:43.63,lon:-79.8833},
+  {name:'Maple Ridge',st:'BC',lat:49.2193,lon:-122.5969},
+  {name:'New Westminster',st:'BC',lat:49.2069,lon:-122.9110},
+
+  // ── Mexico additions 50k–75k ────────────────────────────────────
+  {name:'Colima',st:'MX',lat:19.2452,lon:-103.7241},
+  {name:'Campeche',st:'MX',lat:19.8301,lon:-90.5349},
+  {name:'Chetumal',st:'MX',lat:18.5001,lon:-88.3},
+  {name:'Ciudad del Carmen',st:'MX',lat:18.6501,lon:-91.8002},
+  {name:'Iguala',st:'MX',lat:18.3476,lon:-99.5398},
+  {name:'Tehuacan',st:'MX',lat:18.4583,lon:-97.3917},
+  {name:'Monclova',st:'MX',lat:26.9063,lon:-101.4216},
+];
+const AIRPORTS = [
+  // ── USA — Major hubs ──────────────────────────────────────────
+  {id:'ATL',name:'Atlanta',        lat:33.6407, lon:-84.4277},
+  {id:'ORD',name:'Chicago OHare',lat:41.9742, lon:-87.9073},
+  {id:'LAX',name:'Los Angeles',    lat:33.9425, lon:-118.4081},
+  {id:'DFW',name:'Dallas/FW',      lat:32.8998, lon:-97.0403},
+  {id:'DEN',name:'Denver',         lat:39.8561, lon:-104.6737},
+  {id:'JFK',name:'New York',       lat:40.6413, lon:-73.7781},
+  {id:'SFO',name:'San Francisco',  lat:37.6213, lon:-122.3790},
+  {id:'LAS',name:'Las Vegas',      lat:36.0840, lon:-115.1537},
+  {id:'SEA',name:'Seattle',        lat:47.4502, lon:-122.3088},
+  {id:'MCO',name:'Orlando',        lat:28.4294, lon:-81.3089},
+  {id:'EWR',name:'Newark',         lat:40.6925, lon:-74.1687},
+  {id:'MSP',name:'Minneapolis',    lat:44.8848, lon:-93.2223},
+  {id:'DTW',name:'Detroit',        lat:42.2162, lon:-83.3554},
+  {id:'BOS',name:'Boston',         lat:42.3656, lon:-71.0096},
+  {id:'PHX',name:'Phoenix',        lat:33.4373, lon:-112.0078},
+  {id:'PHL',name:'Philadelphia',   lat:39.8721, lon:-75.2431},
+  {id:'IAH',name:'Houston Intl',   lat:29.9902, lon:-95.3368},
+  {id:'CLT',name:'Charlotte',      lat:35.2140, lon:-80.9431},
+  {id:'MIA',name:'Miami',          lat:25.7959, lon:-80.2870},
+  {id:'FLL',name:'Fort Lauderdale',lat:26.0726, lon:-80.1527},
+  {id:'BWI',name:'Baltimore',      lat:39.1754, lon:-76.6682},
+  {id:'DCA',name:'Washington',     lat:38.8512, lon:-77.0402},
+  {id:'IAD',name:'Dulles',         lat:38.9531, lon:-77.4565},
+  {id:'SLC',name:'Salt Lake City', lat:40.7884, lon:-111.9778},
+  {id:'SAN',name:'San Diego',      lat:32.7336, lon:-117.1897},
+  {id:'HNL',name:'Honolulu',       lat:21.3245, lon:-157.9251},
+  {id:'ANC',name:'Anchorage',      lat:61.1743, lon:-149.9961},
+  {id:'MCI',name:'Kansas City',    lat:39.2976, lon:-94.7139},
+  {id:'STL',name:'St. Louis',      lat:38.7487, lon:-90.3700},
+  {id:'MSY',name:'New Orleans',    lat:29.9934, lon:-90.2580},
+  {id:'BNA',name:'Nashville',      lat:36.1245, lon:-86.6782},
+  {id:'RDU',name:'Raleigh-Durham', lat:35.8777, lon:-78.7875},
+  {id:'MDW',name:'Chicago Midway', lat:41.7860, lon:-87.7524},
+  {id:'AUS',name:'Austin',         lat:30.1975, lon:-97.6664},
+  {id:'TPA',name:'Tampa',          lat:27.9755, lon:-82.5332},
+  {id:'PDX',name:'Portland',       lat:45.5887, lon:-122.5975},
+  {id:'CLE',name:'Cleveland',      lat:41.4058, lon:-81.8549},
+  {id:'PIT',name:'Pittsburgh',     lat:40.4915, lon:-80.2329},
+  {id:'CMH',name:'Columbus',       lat:39.9980, lon:-82.8919},
+  {id:'IND',name:'Indianapolis',   lat:39.7173, lon:-86.2944},
+  {id:'MKE',name:'Milwaukee',      lat:42.9472, lon:-87.8966},
+  {id:'ABQ',name:'Albuquerque',    lat:35.0402, lon:-106.6090},
+  {id:'SMF',name:'Sacramento',     lat:38.6954, lon:-121.5908},
+  {id:'RNO',name:'Reno',           lat:39.4991, lon:-119.7681},
+  {id:'OAK',name:'Oakland',        lat:37.7213, lon:-122.2208},
+  {id:'SJC',name:'San Jose',       lat:37.3626, lon:-121.9290},
+  {id:'BUR',name:'Burbank',        lat:34.2007, lon:-118.3585},
+  {id:'SNA',name:'Orange County',  lat:33.6757, lon:-117.8682},
+  {id:'GEG',name:'Spokane',        lat:47.6199, lon:-117.5338},
+  {id:'BOI',name:'Boise',          lat:43.5644, lon:-116.2228},
+  {id:'FAT',name:'Fresno',         lat:36.7762, lon:-119.7182},
+  {id:'PSP',name:'Palm Springs',   lat:33.8297, lon:-116.5070},
+  // ── USA — Northeast ────────────────────────────────────────────
+  {id:'BUF',name:'Buffalo',        lat:42.9405, lon:-78.7322},
+  {id:'SYR',name:'Syracuse',       lat:43.1112, lon:-76.1063},
+  {id:'ROC',name:'Rochester',      lat:43.1189, lon:-77.6724},
+  {id:'ALB',name:'Albany',         lat:42.7483, lon:-73.8020},
+  {id:'BDL',name:'Hartford',       lat:41.9389, lon:-72.6832},
+  {id:'PVD',name:'Providence',     lat:41.7270, lon:-71.4282},
+  {id:'MHT',name:'Manchester NH',  lat:42.9326, lon:-71.4357},
+  {id:'PWM',name:'Portland ME',    lat:43.6462, lon:-70.3093},
+  {id:'HPN',name:'Westchester',    lat:41.0670, lon:-73.7076},
+  {id:'ACY',name:'Atlantic City',  lat:39.4576, lon:-74.5772},
+  {id:'BTV',name:'Burlington VT',  lat:44.4719, lon:-73.1533},
+  // ── USA — Southeast ────────────────────────────────────────────
+  {id:'ORF',name:'Norfolk',        lat:36.8976, lon:-76.0133},
+  {id:'RIC',name:'Richmond',       lat:37.5052, lon:-77.3197},
+  {id:'CHS',name:'Charleston SC',  lat:32.8988, lon:-80.0405},
+  {id:'SAV',name:'Savannah',       lat:32.1276, lon:-81.2021},
+  {id:'JAX',name:'Jacksonville',   lat:30.4941, lon:-81.6879},
+  {id:'PBI',name:'West Palm Beach',lat:26.6832, lon:-80.0956},
+  {id:'RSW',name:'Fort Myers',     lat:26.5362, lon:-81.7553},
+  {id:'PIE',name:'St Pete-Clrwtr', lat:27.9102, lon:-82.6874},
+  {id:'MYR',name:'Myrtle Beach',   lat:33.6797, lon:-78.9283},
+  {id:'GSP',name:'Greenville SC',  lat:34.8957, lon:-82.2190},
+  {id:'AVL',name:'Asheville',      lat:35.4362, lon:-82.5418},
+  {id:'PNS',name:'Pensacola',      lat:30.4734, lon:-87.1866},
+  {id:'MOB',name:'Mobile',         lat:30.6912, lon:-88.2428},
+  {id:'BHM',name:'Birmingham',     lat:33.5629, lon:-86.7535},
+  {id:'HSV',name:'Huntsville',     lat:34.6372, lon:-86.7751},
+  {id:'LIT',name:'Little Rock',    lat:34.7294, lon:-92.2243},
+  // ── USA — South/Southwest ──────────────────────────────────────
+  {id:'SAT',name:'San Antonio',    lat:29.5337, lon:-98.4698},
+  {id:'ELP',name:'El Paso',        lat:31.8072, lon:-106.3779},
+  {id:'TUL',name:'Tulsa',          lat:36.1984, lon:-95.8881},
+  {id:'OKC',name:'Oklahoma City',  lat:35.3931, lon:-97.6007},
+  {id:'CRP',name:'Corpus Christi', lat:27.7704, lon:-97.5012},
+  {id:'MAF',name:'Midland',        lat:31.9425, lon:-102.2019},
+  {id:'LBB',name:'Lubbock',        lat:33.6636, lon:-101.8228},
+  {id:'AMA',name:'Amarillo',       lat:35.2194, lon:-101.7060},
+  // ── USA — Mountain/Rockies ─────────────────────────────────────
+  {id:'COS',name:'Colorado Sprgs', lat:38.8059, lon:-104.7009},
+  {id:'ASE',name:'Aspen',          lat:39.2232, lon:-106.8693},
+  {id:'MTJ',name:'Montrose',       lat:38.5098, lon:-107.8939},
+  {id:'GJT',name:'Grand Junction', lat:39.1224, lon:-108.5268},
+  {id:'BZN',name:'Bozeman',        lat:45.7775, lon:-111.1530},
+  {id:'MSO',name:'Missoula',       lat:46.9163, lon:-114.0906},
+  {id:'FCA',name:'Kalispell',      lat:48.3105, lon:-114.2560},
+  {id:'BOZ',name:'Great Falls',    lat:47.4820, lon:-111.3709},
+  {id:'JAC',name:'Jackson Hole',   lat:43.6073, lon:-110.7377},
+  {id:'CPR',name:'Casper',         lat:42.9080, lon:-106.4644},
+  {id:'DRO',name:'Durango',        lat:37.1515, lon:-107.7538},
+  // ── USA — Midwest ──────────────────────────────────────────────
+  {id:'DSM',name:'Des Moines',     lat:41.5340, lon:-93.6630},
+  {id:'OMA',name:'Omaha',          lat:41.3032, lon:-95.8941},
+  {id:'ICT',name:'Wichita',        lat:37.6498, lon:-97.4331},
+  {id:'FAR',name:'Fargo',          lat:46.9207, lon:-96.8158},
+  {id:'BIS',name:'Bismarck',       lat:46.7727, lon:-100.7467},
+  {id:'FSD',name:'Sioux Falls',    lat:43.5820, lon:-96.7419},
+  {id:'GRR',name:'Grand Rapids',   lat:42.8808, lon:-85.5228},
+  {id:'CVG',name:'Cincinnati',     lat:39.0488, lon:-84.6678},
+  {id:'SDF',name:'Louisville',     lat:38.1744, lon:-85.7360},
+  {id:'DAY',name:'Dayton',         lat:39.9024, lon:-84.2194},
+  {id:'LEX',name:'Lexington',      lat:38.0364, lon:-84.6060},
+  {id:'MDT',name:'Harrisburg',     lat:40.1935, lon:-76.7634},
+  {id:'MEM',name:'Memphis',        lat:35.0424, lon:-89.9767},
+  {id:'DLH',name:'Duluth',         lat:46.8421, lon:-92.1936},
+  {id:'MSN',name:'Madison',        lat:43.1399, lon:-89.3375},
+  {id:'GRB',name:'Green Bay',      lat:44.4851, lon:-88.1296},
+  // ── USA — Alaska & Hawaii ──────────────────────────────────────
+  {id:'FAI',name:'Fairbanks',      lat:64.8151, lon:-147.8560},
+  {id:'JNU',name:'Juneau',         lat:58.3550, lon:-134.5762},
+  {id:'OGG',name:'Maui',           lat:20.8986, lon:-156.4305},
+  {id:'KOA',name:'Kona',           lat:19.7388, lon:-156.0456},
+  // ── Canada ────────────────────────────────────────────────────
+  {id:'YYZ',name:'Toronto',        lat:43.6777, lon:-79.6248},
+  {id:'YUL',name:'Montreal',       lat:45.4706, lon:-73.7408},
+  {id:'YVR',name:'Vancouver',      lat:49.1947, lon:-123.1842},
+  {id:'YYC',name:'Calgary',        lat:51.1315, lon:-114.0108},
+  {id:'YEG',name:'Edmonton',       lat:53.3097, lon:-113.5797},
+  {id:'YOW',name:'Ottawa',         lat:45.3225, lon:-75.6692},
+  {id:'YQB',name:'Quebec City',    lat:46.7911, lon:-71.3933},
+  {id:'YHZ',name:'Halifax',        lat:44.8808, lon:-63.5086},
+  {id:'YWG',name:'Winnipeg',       lat:49.9100, lon:-97.2398},
+  {id:'YXE',name:'Saskatoon',      lat:52.1708, lon:-106.6993},
+  {id:'YYJ',name:'Victoria',       lat:48.6469, lon:-123.4258},
+  // ── Mexico ────────────────────────────────────────────────────
+  {id:'MEX',name:'Mexico City',    lat:19.4363, lon:-99.0721},
+  {id:'CUN',name:'Cancun',         lat:21.0365, lon:-86.8771},
+  {id:'GDL',name:'Guadalajara',    lat:20.5218, lon:-103.3111},
+  {id:'MTY',name:'Monterrey',      lat:25.7785, lon:-100.1069},
+  {id:'TIJ',name:'Tijuana',        lat:32.5411, lon:-116.9701},
+  {id:'SJD',name:'Los Cabos',      lat:23.1518, lon:-109.7213},
+  {id:'PVR',name:'Puerto Vallarta',lat:20.6801, lon:-105.2544},
 ];
 
-export const CAT_RARITY = {
-  narrow:10, regional:16, wide:34, jumbo:74, super:80,
-  bizjet:18, piston:22, helicopter:36, military:80, milTransport:72, '':24,
+const nearestCity = (lat,lon) => {
+  let best={name:'unknown',d:Infinity};
+  CITIES.forEach(c=>{const d=haversine(lat,lon,c.lat,c.lon);if(d<best.d) best={name:`${c.name}, ${c.st}`,d};});
+  return best.name;
 };
 
-export const globalRarity = (icaoType, cat) => {
-  const t = (icaoType||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  let best=null, bestLen=-1;
-  if(t) for(const [pre,score] of GLOBAL_RARITY){
-    if(t.startsWith(pre) && pre.length>bestLen){ best=score; bestLen=pre.length; }
+
+// ── Region: snap to nearest airport in the AIRPORTS list (within 150 nm) ──
+// Falls back to a lat/lon grid cell (1° ≈ 70 mi) with a readable label.
+// Used as the leaderboard partition key so scores are grouped by local sky.
+const regionFor = (lat, lon) => {
+  let best = null, bestD = Infinity;
+  AIRPORTS.forEach(a => {
+    const d = haversine(lat, lon, a.lat, a.lon);
+    if(d < bestD){ bestD = d; best = a; }
+  });
+  if(best && bestD < 150 * 1852) return {code: best.id, label: best.name};
+  // Grid fallback
+  const glat = Math.round(lat), glon = Math.round(lon);
+  return {code: `${glat}N_${Math.abs(glon)}${glon<0?'W':'E'}`,
+          label: `${glat}°N ${Math.abs(glon)}°${glon<0?'W':'E'}`};
+};
+
+const DEVICE_KEY = 'soratomo_device_id';
+const getDeviceId = () => {
+  try{
+    let id = localStorage.getItem(DEVICE_KEY);
+    if(!id){
+      id = 'dev_' + Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10);
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  }catch{ return 'dev_unknown'; }
+};
+
+const CALLSIGN_KEY = 'soratomo_callsign';
+
+const LOG_KEY='soratomo_logbook', PROX_KEY='soratomo_prox';
+const CATCH_KEY    ='soratomo_catches_v1';
+const DAILY_KEY    ='soratomo_daily_v1';
+// Daily score store: { days:{ 'YYYY-MM-DD': totalScore }, best:{date,score} }.
+// 'best' is the lifetime single-day high water mark used for the celebration trigger.
+const loadDaily = () => {try{const d=JSON.parse(localStorage.getItem(DAILY_KEY)||'null');
+  return d&&d.days?d:{days:{},best:{date:null,score:0}};}catch{return {days:{},best:{date:null,score:0}};}};
+const saveDaily = d => {try{localStorage.setItem(DAILY_KEY,JSON.stringify(d));}catch{}};
+const todayKey  = () => {const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+// Catch store: per-type tally of confirmed catches (tap=spotted, photo=captured).
+// Shape: { [icaoType]: {type,cat,spotted,captured,best:{score,tier,label,color},
+//                       first:ts, last:ts, rarest:{cs,reg,score,tier,ts}} }
+const loadCatches = () => {try{return JSON.parse(localStorage.getItem(CATCH_KEY)||'{}');}catch{return {};}};
+const saveCatches = c => {try{localStorage.setItem(CATCH_KEY,JSON.stringify(c));}catch{}};
+const TYPE_CACHE_KEY='soratomo_type_cache';
+const MAX_TYPE_CACHE=2000; // hex entries; ~100KB at ~50B each
+const loadTypeCache=()=>{
+  try{return new Map(JSON.parse(localStorage.getItem(TYPE_CACHE_KEY)||'[]'));}
+  catch{return new Map();}
+};
+const saveTypeCache=map=>{
+  try{
+    const entries=[...map.entries()]
+      .filter(([,v])=>v&&typeof v==='object') // skip pending/null
+      .slice(-MAX_TYPE_CACHE);
+    localStorage.setItem(TYPE_CACHE_KEY,JSON.stringify(entries));
+  }catch{}
+};
+const loadLog   = () => {try{const r=JSON.parse(localStorage.getItem(LOG_KEY)||'[]');return r.filter(e=>Array.isArray(e.tails));}catch{return [];}};
+const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}catch{}};
+const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
+
+// ── AircraftMarker ─────────────────────────────────────────────
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
+  const cat        = getAircraftCat(f.type, f.emitter||'');
+  const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
+  const dNmi       = f.dist/M_PER_NMI;
+  const isNearby   = f.dist <= proximityM;
+  // Red ring: first-ever sighting of this ICAO type (takes priority over green/amber)
+  const isNewType  = isNearby && f.type && f.type!=='UNKN' && !(loggedTypes||new Set()).has(f.type);
+
+  // Ring = RARITY of the aircraft, so the user instantly sees how special it is:
+  //   MYTHIC(red) > LEGENDARY(amber) > RARE(gold) > UNCOMMON(teal) > COMMON(grey).
+  // Uses global scarcity (objective) so the cue is consistent regardless of personal history.
+  // Dot = AR accuracy: green/yellow/orange (tilt mode only) — unchanged.
+  const rarTier    = computeRarity(f.type, cat, 0);   // priorCount 0 → pure global scarcity
+  const ringColor  = isNearby ? rarTier.color : `${rarTier.color}66`;
+  const badgeColor = isNearby ? rarTier.color : null;
+  // Faster pulse for the rarest finds so they visually 'pop' more urgently
+
+  // Log-linear size scale: very dramatic range — 58px at 1nmi, 34px at 10nmi, 17px at 50nmi, 11px at 100+nmi
+  const rawSize  = Math.max(11, Math.min(58, Math.round(58 - Math.log10(Math.max(0.5,dNmi)) * 24)));
+  const iconSize = isSelected ? rawSize+8 : rawSize;
+  // Ring sizes also scale with icon
+  const ringInner  = Math.round(rawSize * 1.35);
+  const ringOuter  = Math.round(rawSize * 1.85);
+
+  // 3D aspect: rotate by hdg-bear → nose points in direction of flight as seen from ground
+  const aspect     = ((f.hdg-f.bear)+360)%360;
+  const wingFC     = 1; // fixed — icons always show full wingspan regardless of heading
+
+  return (
+    <div onClick={e=>{e.stopPropagation();onSelect(f);}} style={{
+      position:'absolute',left:`${f.x}%`,top:`${f.y}%`,
+      transform:'translate(-50%,-50%)',cursor:'pointer',
+      zIndex:isSelected?20:10,
+      opacity:dimmed?0.28:1,
+      transition:'opacity 0.25s ease',
+    }}>
+      {/* Uncertainty bubble — tilt/camera mode only, selected aircraft only */}
+      {isSelected && tiltMode && (
+        <div style={{
+          position:'absolute',
+          left:'50%', top:'50%',
+          width:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
+          height:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
+          transform:'translate(-50%,-50%)',
+          borderRadius:'50%',
+          border:`1.5px dashed ${color}`,
+          background:`${color}12`,
+          opacity:0.6,
+          pointerEvents:'none',
+          transition:'width 0.8s ease, height 0.8s ease',
+        }}/>
+      )}
+      {/* Entry ping — one-shot on first appearance */}
+      {isDisplayNew&&<>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1.5px solid ${color}cc`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 1 forwards'}}/>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1px solid ${color}88`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 0.22s 1 forwards'}}/>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
+      </>}
+      {/* Glow ring rules:
+           - Any aircraft within 10 nm (catchable): glow ring always shown
+           - UNCOMMON/LEGENDARY/MYTHIC: glow ring always shown regardless of range
+           - RARE/COMMON beyond 10 nm: no ring
+           Pulse speed: MYTHIC 2s, LEGENDARY 3s, UNCOMMON 4.5s, catchable-others 3.5s */}
+      {(()=>{
+        const tk = rarTier.key;
+        // UNCOMMON only gets ring when catchable (<10 nm)
+        // LEGENDARY and MYTHIC show ring at any range (faint when distant)
+        const showRing = isCatchable ||
+                         tk==='mythic' || tk==='legendary';
+        if(!showRing) return null;
+        const dur = tk==='mythic' ? '2s'
+                  : tk==='legendary' ? '3s'
+                  : tk==='uncommon' ? '4.5s'
+                  : '3.5s'; // catchable RARE/COMMON
+        const opacity = isCatchable ? 1 : 0.4; // faint when legendary/mythic out of range
+        return <div style={{
+          position:'absolute',width:ringInner,height:ringInner,
+          borderRadius:'50%',
+          border:`2px solid ${rarTier.color}`,
+          top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+          animation:`glowRing ${dur} ease-in-out infinite`,
+          filter:`drop-shadow(0 0 4px ${rarTier.color})`,
+          opacity,
+          pointerEvents:'none',
+        }}/>;
+      })()}
+
+      {/* Aircraft silhouette + NEW dot wrapped together */}
+      <div style={{position:'relative',display:'inline-block'}}>
+        <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24"
+          style={{display:'block',overflow:'visible',
+            filter:`drop-shadow(0 0 ${isNearby?6:4}px ${ringColor}88)`,
+            transform:`rotate(${aspect}deg)`,
+          }}>
+          <PlaneShape cat={cat} color={color} fc={wingFC} icao={f.type||''}/>
+        </svg>
+        {/* Accuracy dot — green=HIGH, yellow=MED, orange=LOW confidence (tilt mode only) */}
+        {tiltMode && f.confidence && (()=>{
+          const dc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
+          return (
+            <div style={{
+              position:'absolute',top:-4,right:-4,
+              width:10,height:10,borderRadius:'50%',
+              background:dc,border:'2px solid #010a18',
+              boxShadow:`0 0 5px ${dc}99`,
+              pointerEvents:'none',
+            }}/>
+          );
+        })()}
+      </div>
+
+      {/* Callsign label */}
+      <div style={{
+        position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
+        marginTop:4,color,fontSize:Math.max(8,Math.min(10,rawSize*0.22)),
+        fontFamily:"'Orbitron',monospace",fontWeight:700,
+        whiteSpace:'nowrap',letterSpacing:'0.06em',textShadow:`0 0 8px ${color}`,
+        background:'rgba(1,8,20,0.6)',padding:'1px 5px',borderRadius:3,pointerEvents:'none',
+      }}>{f.cs}</div>
+
+
+
+      {/* Proximity badge */}
+      {isNearby && (
+        <div style={{
+          position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
+          marginTop:16+Math.max(8,Math.min(10,rawSize*0.22)),
+          background:`${rarTier.color}1f`,
+          border:`1px solid ${badgeColor}55`,
+          borderRadius:3,padding:'1px 5px',
+          fontSize:9,color:badgeColor,
+          fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
+          whiteSpace:'nowrap',pointerEvents:'none',
+        }}>{rarTier.score>=60 ? `${rarTier.label} \u00b7 ` : (isNewType ? '\u2605 NEW TYPE \u00b7 ' : '')}{distNmi(f.dist)} NMI</div>
+      )}
+    </div>
+  );
+}
+, (prev,next)=>{
+  // Only re-render if visually relevant props changed
+  if(prev.isSelected!==next.isSelected||prev.isDisplayNew!==next.isDisplayNew) return false;
+  if(prev.proximityM!==next.proximityM||prev.isCatchable!==next.isCatchable||prev.loggedTypes!==next.loggedTypes) return false;
+  if(prev.onSelect!==next.onSelect) return false;
+  if(prev.f.id!==next.f.id||prev.f.cs!==next.f.cs||prev.f.type!==next.f.type) return false;
+  if(prev.f.alt!==next.f.alt||prev.f.hdg!==next.f.hdg||prev.f.spd!==next.f.spd) return false;
+  if(prev.f.confidence!==next.f.confidence||prev.f.uncertRadiusVw!==next.f.uncertRadiusVw) return false;
+  if(prev.tiltMode!==next.tiltMode) return false;
+  if(Math.abs(prev.f.x-next.f.x)>0.05||Math.abs(prev.f.y-next.f.y)>0.05) return false;
+  if((prev.f.trail?.length??0)!==(next.f.trail?.length??0)) return false;
+  return true; // equal — skip re-render
+});
+
+// ── Toast notifications ────────────────────────────────────────
+function Toasts({ items }) {
+  return (
+    <div style={{position:'absolute',bottom:28,right:88,zIndex:45,
+      display:'flex',flexDirection:'column-reverse',gap:6,pointerEvents:'none',maxWidth:175}}>
+      {items.map(n=>(
+        <div key={n.nid} style={{
+          background:'rgba(2,10,30,0.96)',
+          border:`1px solid ${n.isNew?'rgba(45,255,180,0.5)':'rgba(255,184,77,0.4)'}`,
+          borderRadius:9,padding:'9px 12px',
+          animation:'slideUp 0.3s ease',
+        }}>
+          <div style={{fontSize:8.5,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:3,
+            color:n.isNew?'#2dffb4':'#ffb84d'}}>
+            {n.isNew ? 'NEW AIRCRAFT LOGGED' : 'AIRCRAFT LOGGED'}
+          </div>
+          <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",fontWeight:700}}>{n.cs}</div>
+          <div style={{fontSize:11,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{n.airline}</div>
+          <div style={{fontSize:9,color:'#3a7888',fontFamily:"'Orbitron',monospace",marginTop:2}}>
+            CLOSEST {n.closestNmi} NMI
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ── CompassStrip ───────────────────────────────────────────────
+function CompassStrip({ heading }) {
+  const cardinal={0:'N',45:'NE',90:'E',135:'SE',180:'S',225:'SW',270:'W',315:'NW'};
+  const ticks=[];
+  for(let d=0;d<360;d+=5){
+    const diff=((d-heading+540)%360)-180;
+    if(Math.abs(diff)>75) continue;
+    const x=50+(diff/75)*50,fade=1-Math.abs(diff)/75;
+    const isCard=d%90===0,isMaj=d%45===0;
+    ticks.push({d,x,fade,isCard,isMaj,label:cardinal[d]||(isMaj?String(d):null)});
   }
-  return best!=null ? best : (CAT_RARITY[cat] ?? 24);
+  return (
+    <div style={{position:'relative',height:44,overflow:'hidden'}}>
+      <div style={{position:'absolute',left:0,top:0,bottom:0,width:'14%',background:'linear-gradient(90deg,rgba(1,8,20,1),transparent)',zIndex:2,pointerEvents:'none'}}/>
+      <div style={{position:'absolute',right:0,top:0,bottom:0,width:'14%',background:'linear-gradient(-90deg,rgba(1,8,20,1),transparent)',zIndex:2,pointerEvents:'none'}}/>
+      <div style={{position:'absolute',left:'50%',top:0,transform:'translateX(-50%)',zIndex:3,
+        width:0,height:0,borderLeft:'4px solid transparent',borderRight:'4px solid transparent',borderTop:'7px solid #4db8ff'}}/>
+      {ticks.map(t=>(
+        <div key={t.d} style={{position:'absolute',left:`${t.x}%`,top:8,transform:'translateX(-50%)',opacity:0.35+t.fade*0.65}}>
+          <div style={{width:t.isCard?2:t.isMaj?1.5:1,height:t.isCard?16:t.isMaj?11:7,
+            background:t.isCard?'#b8e4ff':t.isMaj?'#4db8ff88':'#1a4a6a',margin:'0 auto',borderRadius:1}}/>
+          {t.label&&<div style={{fontSize:t.isCard?10:8,fontFamily:"'Orbitron',monospace",
+            fontWeight:t.isCard?700:400,color:t.isCard?'#b8e4ff':'#5a9ab8',
+            textAlign:'center',marginTop:2,letterSpacing:'0.03em'}}>{t.label}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ── Share card generation ─────────────────────────────────────────
+// Draws a bright 1080×1080 PNG card suitable for Instagram / iMessage
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);
+  c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);
+  c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);
+  c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);
+  c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+}
+async function generateShareCard(d){
+  await document.fonts.ready;
+  const W=1080,H=1080;
+  const cv=document.createElement('canvas');
+  cv.width=W;cv.height=H;
+  const c=cv.getContext('2d');
+  const NAVY='#0c1a2e',BLUE='#0ea5e9',DTEXT='#1e293b',MTEXT='#475569',LTEXT='#94a3b8',WHITE='#ffffff';
+
+  // Background gradient
+  const bg=c.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#dbeafe');bg.addColorStop(1,'#f8fafc');
+  c.fillStyle=bg;c.fillRect(0,0,W,H);
+
+  // Subtle radar rings + crosshair (decorative, top-right)
+  c.strokeStyle='rgba(14,165,233,0.08)';c.lineWidth=2;
+  [220,380,540,700].forEach(r=>{c.beginPath();c.arc(W*0.82,H*0.35,r,0,Math.PI*2);c.stroke();});
+  c.strokeStyle='rgba(14,165,233,0.05)';c.lineWidth=1.5;
+  c.beginPath();c.moveTo(W*0.82,H*0.35-760);c.lineTo(W*0.82,H*0.35+760);c.stroke();
+  c.beginPath();c.moveTo(W*0.82-760,H*0.35);c.lineTo(W*0.82+760,H*0.35);c.stroke();
+
+  // Header bar
+  c.fillStyle=NAVY;c.fillRect(0,0,W,116);
+  c.font="bold 42px 'Orbitron',monospace";c.fillStyle=WHITE;c.textAlign='left';
+  c.fillText('SORATOMO',56,72);
+  c.font="bold 19px 'Orbitron',monospace";c.fillStyle=BLUE;c.textAlign='right';
+  c.fillText('AIRCRAFT SPOTTED',W-56,60);
+  c.font="15px 'Orbitron',monospace";c.fillStyle='#64748b';
+  c.fillText('SKYGAZING, FOR AIRCRAFT.',W-56,86);
+  c.textAlign='left';
+
+  // Rarity badge — pill in the header area when this is a scored catch
+  if(d.rarity){
+    const rc=d.rarity.color||'#4db8ff';
+    const txt=`${d.rarity.label}  ·  ${d.rarity.score}`;
+    c.font="bold 26px 'Orbitron',monospace";
+    const pw=c.measureText(txt).width+56, ph=58, px=W-60-pw, py=150;
+    // hex→rgba for translucent fill
+    const h=rc.replace('#','');
+    const rr=parseInt(h.slice(0,2),16),gg=parseInt(h.slice(2,4),16),bb=parseInt(h.slice(4,6),16);
+    c.fillStyle=`rgba(${rr},${gg},${bb},0.14)`;
+    roundRect(c,px,py,pw,ph,29);c.fill();
+    c.strokeStyle=rc;c.lineWidth=2.5;roundRect(c,px,py,pw,ph,29);c.stroke();
+    c.fillStyle=rc;c.textAlign='center';
+    c.fillText(txt,px+pw/2,py+ph*0.66);
+    c.textAlign='left';
+    // 'CAPTURED' / 'SPOTTED' kicker above callsign
+    c.font="bold 22px 'Orbitron',monospace";c.fillStyle=rc;
+    c.fillText((d.rarity.kind==='captured'?'CAPTURED':'SPOTTED'),62,212);
+  }
+
+  // Callsign — scale down if too wide
+  const cs=d.cs||'UNKNOWN';
+  let csFontSize=108;
+  c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
+  if(c.measureText(cs).width>940) csFontSize=Math.floor(csFontSize*940/c.measureText(cs).width);
+  c.font=`bold ${csFontSize}px 'Orbitron',monospace`;
+  c.fillStyle=DTEXT;c.fillText(cs, 60, d.rarity?300:282);
+
+  // Airline
+  c.font="500 44px 'Exo 2',sans-serif";c.fillStyle=MTEXT;
+  c.fillText(d.airline||'',62,342);
+
+  // Type + category
+  c.font="400 30px 'Exo 2',sans-serif";c.fillStyle=LTEXT;
+  c.fillText([d.type,d.catLabel].filter(Boolean).join('  ·  '),62,386);
+
+  // Accent line
+  c.strokeStyle=BLUE;c.lineWidth=3;
+  c.beginPath();c.moveTo(60,416);c.lineTo(W-60,416);c.stroke();
+
+  // Stats boxes (4 across)
+  const stats = d.altFt!=null
+    ? [{l:'ALTITUDE',v:`${Number(d.altFt).toLocaleString()} ft`},{l:'SPEED',v:`${d.spdKts||'—'} kts`},{l:'DISTANCE',v:`${d.distNmiVal||'—'} nmi`},{l:'BEARING',v:`${d.bearDeg!=null?d.bearDeg+'°':'—'}`}]
+    : [{l:'CLOSEST',v:`${d.closestNmi||'—'} nmi`},{l:'ALTITUDE',v:`${d.logAltFt?Number(d.logAltFt).toLocaleString()+' ft':'—'}`},{l:'SPEED',v:`${d.spdKts||'—'} kts`},{l:'HEADING',v:`${d.hdgDeg!=null?String(d.hdgDeg).padStart(3,'0')+'°':'—'}`}];
+  const bW=Math.floor((W-128)/4),bH=178,bY=446;
+  stats.forEach((s,i)=>{
+    const x=60+i*(bW+8);
+    c.fillStyle=i%2===0?'#eff8fe':'#ffffff';
+    roundRect(c,x,bY,bW,bH,10);c.fill();
+    c.strokeStyle='rgba(14,165,233,0.18)';c.lineWidth=1;roundRect(c,x,bY,bW,bH,10);c.stroke();
+    const vSize=s.v.length>9?38:46;
+    c.font=`bold ${vSize}px 'Orbitron',monospace`;c.fillStyle=DTEXT;c.textAlign='center';
+    c.fillText(s.v,x+bW/2,bY+bH*0.56);
+    c.font="15px 'Orbitron',monospace";c.fillStyle=LTEXT;
+    c.fillText(s.l,x+bW/2,bY+bH*0.81);
+    c.textAlign='left';
+  });
+
+  // Location
+  if(d.location){
+    c.font="22px 'Orbitron',monospace";c.fillStyle=MTEXT;c.fillText('SPOTTED NEAR',62,686);
+    c.font="bold 34px 'Orbitron',monospace";c.fillStyle=BLUE;
+    c.fillText(d.location.toUpperCase().slice(0,38),62,730);
+  }
+
+  // Date/time
+  const dt=d.timestamp?new Date(d.timestamp).toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'}):'';
+  c.font="28px 'Exo 2',sans-serif";c.fillStyle=MTEXT;c.fillText(dt,62,782);
+
+  // Footer bar
+  c.fillStyle=NAVY;c.fillRect(0,H-86,W,86);
+  c.font="20px 'Orbitron',monospace";c.fillStyle='#64748b';c.textAlign='center';
+  c.fillText('soratomo.netlify.app  ·  Skygazing, for aircraft.',W/2,H-30);
+  c.textAlign='left';
+
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+
+
+// ── Aircraft type → full human-readable name ─────────────────────
+const TYPE_NAMES={
+  // Airbus narrowbody
+  A19N:'Airbus A319neo',A20N:'Airbus A320neo',A21N:'Airbus A321neo',
+  A318:'Airbus A318',A319:'Airbus A319',A320:'Airbus A320',A321:'Airbus A321',
+  // Airbus widebody
+  A332:'Airbus A330-200',A333:'Airbus A330-300',A338:'Airbus A330-800neo',A339:'Airbus A330-900neo',
+  A342:'Airbus A340-200',A343:'Airbus A340-300',A345:'Airbus A340-500',A346:'Airbus A340-600',
+  A359:'Airbus A350-900',A35K:'Airbus A350-1000',
+  A388:'Airbus A380',
+  // Boeing narrowbody
+  B732:'Boeing 737-200',B733:'Boeing 737-300',B734:'Boeing 737-400',
+  B735:'Boeing 737-500',B736:'Boeing 737-600',B737:'Boeing 737',
+  B738:'Boeing 737-800',B739:'Boeing 737-900',
+  B37M:'Boeing 737 MAX 7',B38M:'Boeing 737 MAX 8',B39M:'Boeing 737 MAX 9',B3XM:'Boeing 737 MAX 10',
+  // Boeing widebody
+  B752:'Boeing 757-200',B753:'Boeing 757-300',
+  B762:'Boeing 767-200',B763:'Boeing 767-300',B764:'Boeing 767-400',
+  B772:'Boeing 777-200',B773:'Boeing 777-300',
+  B77L:'Boeing 777-200LR',B77W:'Boeing 777-300ER',
+  B778:'Boeing 777X-8',B779:'Boeing 777X-9',
+  B788:'Boeing 787-8 Dreamliner',B789:'Boeing 787-9 Dreamliner',B78X:'Boeing 787-10 Dreamliner',
+  B741:'Boeing 747-100',B742:'Boeing 747-200',B743:'Boeing 747-300',
+  B744:'Boeing 747-400',B748:'Boeing 747-8',
+  // Regional jets
+  CRJ1:'Bombardier CRJ-100',CRJ2:'Bombardier CRJ-200',
+  CRJ7:'Bombardier CRJ-700',CRJ9:'Bombardier CRJ-900',CRJX:'Bombardier CRJ-1000',
+  E135:'Embraer ERJ-135',E145:'Embraer ERJ-145',
+  E170:'Embraer 170',E175:'Embraer 175',E190:'Embraer 190',E195:'Embraer 195',
+  E290:'Embraer E190-E2',E295:'Embraer E195-E2',
+  // Business jets
+  FA10:'Dassault Falcon 10',FA20:'Dassault Falcon 20',FA50:'Dassault Falcon 50',
+  FA7X:'Dassault Falcon 7X',FA8X:'Dassault Falcon 8X',
+  F900:'Dassault Falcon 900',F2TH:'Dassault Falcon 2000',
+  GLF4:'Gulfstream IV',GLF5:'Gulfstream V',
+  G280:'Gulfstream G280',G550:'Gulfstream G550',
+  G650:'Gulfstream G650',G700:'Gulfstream G700',G800:'Gulfstream G800',
+  GLEX:'Bombardier Global Express',GL5T:'Bombardier Global 5000',
+  GL6T:'Bombardier Global 6000',GL7T:'Bombardier Global 7500',
+  C25A:'Cessna Citation CJ2',C25B:'Cessna Citation CJ3',
+  C25C:'Cessna Citation CJ4',C56X:'Cessna Citation XLS',
+  C68A:'Cessna Citation Sovereign',C750:'Cessna Citation X',
+  LJ60:'Learjet 60',LJ75:'Learjet 75',
+  CL30:'Bombardier Challenger 300',CL35:'Bombardier Challenger 350',
+  CL60:'Bombardier Challenger 600',CL65:'Bombardier Challenger 650',
+  // Military fighters / attack
+  F15:'F-15 Eagle',F16:'F-16 Fighting Falcon',
+  F18A:'F/A-18A Hornet',F18B:'F/A-18B Hornet',
+  F18C:'F/A-18C Hornet',F18D:'F/A-18D Hornet',
+  F18E:'F/A-18E Super Hornet',F18F:'F/A-18F Super Hornet',
+  FA18:'F/A-18 Hornet',
+  F22:'F-22 Raptor',F35:'F-35 Lightning II',
+  A10:'A-10 Thunderbolt II',
+  // Bombers
+  B52:'B-52 Stratofortress',B1:'B-1 Lancer',B2:'B-2 Spirit',
+  SR71:'SR-71 Blackbird',U2:'U-2 Dragon Lady',
+  // Military transport / tanker
+  C17:'C-17 Globemaster III',C5M:'C-5 Galaxy',C5AM:'C-5M Super Galaxy',
+  C130:'C-130 Hercules',C130J:'C-130J Super Hercules',
+  KC135:'KC-135 Stratotanker',KC46:'KC-46 Pegasus',
+  E3CF:'E-3 Sentry AWACS',P8:'P-8 Poseidon',
+  V22:'V-22 Osprey',MV22:'MV-22 Osprey',
+  // Military helicopters
+  UH60:'UH-60 Black Hawk',MH60:'MH-60 Black Hawk',HH60:'HH-60 Pave Hawk',
+  SH60:'SH-60 Seahawk',AH64:'AH-64 Apache',
+  CH47:'CH-47 Chinook',OH58:'OH-58 Kiowa',
+  // Civil helicopters
+  S61:'Sikorsky S-61',S76:'Sikorsky S-76',S92:'Sikorsky S-92',
+  EC35:'Airbus H135',EC45:'Airbus H145',EC55:'Airbus H155',
+  EC65:'Airbus H160',AS35:'Airbus AS350',
+  B06:'Bell 206 JetRanger',B407:'Bell 407',B412:'Bell 412',B429:'Bell 429',
+  R44:'Robinson R44',R66:'Robinson R66',
+  MD82:'MD-82',MD83:'MD-83',MD88:'MD-88',MD90:'MD-90',
+  // GA / piston
+  C172:'Cessna 172 Skyhawk',C182:'Cessna 182 Skylane',
+  C152:'Cessna 152',C162:'Cessna 162 Skycatcher',
+  C208:'Cessna 208 Caravan',C210:'Cessna 210 Centurion',
+  PA28:'Piper Cherokee',PA32:'Piper Cherokee Six',PA44:'Piper Seminole',
+  SR20:'Cirrus SR20',SR22:'Cirrus SR22',
+  DA40:'Diamond DA40',DA42:'Diamond DA42',
+  M20T:'Mooney TLS',TBM9:'TBM 930',PC12:'Pilatus PC-12',
 };
 
-/**
- * Deterministic rarity — a function of the aircraft's global scarcity ONLY.
- * The same aircraft type always yields the same tier, regardless of how many
- * times the user has caught it. (priorCount is accepted but ignored, kept for
- * call-site compatibility.)
- *
- * Formula preserves the tiers users already saw on icons: the old display path
- * always passed priorCount=0, giving 0.70*g + 0.30*100 = 0.70*g + 30. We keep
- * exactly that mapping so no aircraft changes tier with this switch — it only
- * makes the SCORED catch match what the icon already showed.
- */
-export const computeRarity = (icaoType, cat, _priorCount=0) => {
-  const g     = globalRarity(icaoType, cat);
-  const score = Math.round(0.70*g + 30);
-  const tier =
-    score>=85 ? {key:'mythic',   label:'MYTHIC',    color:'#ef4444'} :
-    score>=70 ? {key:'legendary',label:'LEGENDARY', color:'#f59e0b'} :
-    score>=50 ? {key:'rare',     label:'RARE',      color:'#fbbf24'} :
-    score>=40 ? {key:'uncommon', label:'UNCOMMON',  color:'#2dffb4'} :
-                {key:'common',   label:'COMMON',    color:'#7a98a8'};
-  return {score, ...tier};
+function typeFullName(type){
+  if(!type||type==='UNKN') return null;
+  const t=type.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(TYPE_NAMES[t]) return TYPE_NAMES[t];
+  // Pattern fallbacks for unlisted codes
+  if(/^B7[0-9]{2}/.test(t)) return 'Boeing '+t.slice(1);
+  if(/^A3[0-9]{2}/.test(t)) return 'Airbus A'+t.slice(2);
+  if(/^A2[0-9]{2}/.test(t)) return 'Airbus A'+t.slice(2);
+  return null;
+}
+
+
+// ── Aircraft info button — queries Wikipedia OpenSearch on tap ────────────
+// Opens a blank window immediately (avoids iOS popup blocking), then
+// navigates it to the Wikipedia article once the API responds.
+// Falls back to DuckDuckGo if Wikipedia returns no result or the API fails.
+async function fetchWikiArticleUrl(typeCode) {
+  // Only use Wikipedia OpenSearch when we have a real human-readable name.
+  // Raw ICAO codes (e.g. "A139", "OSCR") are too ambiguous — OpenSearch matches
+  // unrelated articles (motorways, awards, etc.). Fall back to DuckDuckGo instead.
+  const name = typeFullName(typeCode);
+  if(!name) return null;
+  try {
+    const res = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(name)}&limit=1&format=json&origin=*`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const data = await res.json();
+    // Response: [query, [titles], [descriptions], [urls]]
+    return data[3]?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function AircraftInfoButton({ typeCode, style }) {
+  const [loading, setLoading] = React.useState(false);
+  if(!typeCode) return null;
+
+  const handleClick = async () => {
+    if(loading) return;
+    setLoading(true);
+    // Open blank window NOW (synchronous — iOS allows it; async calls block popups)
+    // NOTE: no 'noopener' — that flag makes window.open() return null,
+    // which would prevent navigating the window after the async API call.
+    // Wikipedia/DuckDuckGo are trusted destinations so omitting it is safe.
+    const win = window.open('', '_blank');
+    try {
+      const wikiUrl = await fetchWikiArticleUrl(typeCode);
+      if(wikiUrl) {
+        win.location.href = wikiUrl;
+      } else {
+        // No Wikipedia result — fall back to DuckDuckGo
+        const name = typeFullName(typeCode) || typeCode.toUpperCase();
+        win.location.href = `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
+      }
+    } catch {
+      const name = typeFullName(typeCode) || typeCode.toUpperCase();
+      win.location.href = `https://duckduckgo.com/?q=${encodeURIComponent(name+' aircraft')}`;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const base = {
+    width:'100%', background:'transparent', borderRadius:8, cursor:'pointer',
+    border:'1px solid rgba(77,184,255,0.22)', color: loading ? '#2a4a58' : '#4db8ff',
+    fontSize:10, fontFamily:"'Orbitron',monospace", letterSpacing:'.12em',
+    display:'flex', alignItems:'center', justifyContent:'center', gap:7,
+    padding:'6px 0', transition:'color 0.15s',
+  };
+
+  return (
+    <button onClick={handleClick} disabled={loading} style={{...base,...style}}>
+      {loading ? (
+        <>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+            style={{animation:'spin 0.9s linear infinite'}}>
+            <circle cx="6" cy="6" r="4.5" stroke="#2a4a58" strokeWidth="1.5"
+              strokeDasharray="14 8" strokeLinecap="round"/>
+          </svg>
+          LOOKING UP...
+        </>
+      ) : (
+        <>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="4.8" cy="4.8" r="3.8" stroke="#4a7898" strokeWidth="1.2"/>
+            <line x1="7.6" y1="7.6" x2="11" y2="11" stroke="#4a7898"
+              strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+          GET AIRCRAFT TYPE INFO
+        </>
+      )}
+    </button>
+  );
+}
+
+
+async function shareAircraft(data){
+  try{
+    const blob=await generateShareCard(data);
+    const file=new File([blob],`soratomo-${(data.cs||'aircraft').replace(/\s/g,'')}.png`,{type:'image/png'});
+    if(navigator.canShare?.({files:[file]})){
+      await navigator.share({
+        files:[file],
+        title:`${data.cs} spotted via SoraTomo`,
+        text:(()=>{
+          const acName=typeFullName(data.type)||data.catLabel||'aircraft';
+          const city=data.location||'my area';
+          return `Hey! I just spotted an awesome ${acName} near ${city} using SoraTomo! :)`;
+        })(),
+      });
+    } else {
+      // Fallback: trigger download
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=file.name;a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),5000);
+    }
+  } catch(e){ if(e?.name!=='AbortError') console.error('Share error',e); }
+}
+
+// Share icon SVG path (upload arrow)
+const ShareIcon=()=>(
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+    <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+  </svg>
+);
+
+// ── FlightCard ─────────────────────────────────────────────────
+function FlightCard({ f, onClose, loggedCallsigns }) {
+  const catFC=getAircraftCat(f.type, f.emitter||'');
+  const color=catFC==='military'?'#ff8c00':altColor(f.alt);
+  const over=nearestCity(f.lat,f.lon);
+  const cat=catFC;
+  const catLabel={'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+    'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet'}[cat]||'Aircraft';
+  const isNew=!loggedCallsigns.has(f.cs);
+  // Rarity — always shown in the card regardless of scoring eligibility
+  const rarity=computeRarity(f.type, catFC, 0); // global scarcity (priorCount=0)
+  const stats=[
+    {l:'ALTITUDE',v:`${mToFt(f.alt)} ft`},
+    {l:'SPEED',v:`${msToKts(f.spd)} kts`},
+    {l:'DISTANCE',v:`${distNmi(f.dist)} nmi`},
+    {l:'BEARING',v:`${Math.round(f.bear)}\u00b0`},
+    {l:'HEADING',v:`${Math.round(f.hdg)}\u00b0`},
+    {l:'ELEV AGL',v:`${Math.round(f.elev)}\u00b0`},
+  ];
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{
+      position:'absolute',bottom:0,left:'50%',transform:'translateX(-50%)',zIndex:50,
+      width:'min(58%,320px)',maxWidth:'320px',boxSizing:'border-box',
+      background:'linear-gradient(175deg,rgba(3,12,28,0.97) 0%,rgba(2,8,20,0.99) 100%)',
+      borderTop:`1px solid ${isNew?'#2dffb455':color+'2a'}`,
+      borderLeft:`1px solid ${isNew?'#2dffb433':color+'22'}`,
+      borderRight:`1px solid ${isNew?'#2dffb433':color+'22'}`,
+      borderRadius:'12px 12px 0 0',
+      padding:'6px 10px 7px',animation:'slideUpCentered 0.28s cubic-bezier(0.2,0,0.2,1)',
+    }}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,gap:6}}>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{fontSize:21,fontFamily:"'Orbitron',monospace",fontWeight:700,color,
+              letterSpacing:'0.12em',lineHeight:1,textShadow:`0 0 20px ${color}55`}}>{f.cs}</div>
+            {isNew && <div style={{fontSize:9,background:'rgba(45,255,180,0.12)',
+              border:'1px solid #2dffb455',borderRadius:4,padding:'2px 6px',
+              color:'#2dffb4',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>NEW</div>}
+          </div>
+          <div style={{fontSize:12,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",marginTop:2,lineHeight:1.25}}>
+            {f.airline}{f.type&&<span style={{color:'#5a8898',marginLeft:6}}>· {f.type}</span>}
+            <span style={{color:'#3a6878',marginLeft:5,fontSize:11}}>({catLabel})</span>
+          </div>
+        </div>
+        <button onClick={onClose} style={{background:'transparent',border:`1px solid ${color}25`,
+          borderRadius:6,color:'#6a9ab8',fontSize:13,cursor:'pointer',padding:'2px 9px',flexShrink:0,
+          fontFamily:"'Orbitron',monospace",letterSpacing:'0.06em',lineHeight:1.3}}>✕</button>
+      </div>
+      <div style={{background:'rgba(4,15,36,0.9)',borderRadius:6,border:`0.5px solid ${color}18`,
+        padding:'3px 9px',marginBottom:3,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>OVER</span>
+        <span style={{fontSize:12,color:'#a8d8f0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{over}</span>
+      </div>
+      {/* Rarity indicator */}
+      <div style={{background:`${rarity.color}14`,borderRadius:6,
+        border:`0.5px solid ${rarity.color}45`,
+        padding:'3px 9px',marginBottom:3,
+        display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em'}}>RARITY</span>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:11,color:rarity.color,fontFamily:"'Orbitron',monospace",
+            fontWeight:700,letterSpacing:'.1em'}}>{rarity.label}</span>
+          <span style={{fontSize:11,color:`${rarity.color}99`,fontFamily:"'Orbitron',monospace",
+            fontWeight:600}}>{rarity.score}</span>
+        </div>
+      </div>
+      {/* Confidence / accuracy indicator */}
+      {f.confidence&&(()=>{
+        const cc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
+        const desc={HIGH:'ADS-B data fresh · < 5s old',MED:'Data aging · 5–15s since last broadcast',LOW:'Stale data · DR extrapolation may be off'}[f.confidence];
+        return (
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+            background:`${cc}10`,border:`0.5px solid ${cc}35`,
+            borderRadius:6,padding:'3px 9px',marginBottom:3}}>
+            <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>ACCURACY</span>
+            <div style={{textAlign:'right'}}>
+              <span style={{fontSize:11,color:cc,fontFamily:"'Orbitron',monospace",fontWeight:700,letterSpacing:'.1em'}}>● {f.confidence}</span>
+              <div style={{fontSize:8,color:`${cc}99`,fontFamily:"'Exo 2',sans-serif",marginTop:1}}>{desc}</div>
+            </div>
+          </div>
+        );
+      })()}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:5}}>
+        {stats.map(s=>(
+          <div key={s.l} style={{background:'rgba(8,20,48,0.85)',borderRadius:6,
+            padding:'4px 7px',border:'0.5px solid rgba(25,55,95,0.7)'}}>
+            <div style={{fontSize:9,color:'#6a98b8',fontFamily:"'Orbitron',monospace",letterSpacing:'0.07em',marginBottom:1}}>{s.l}</div>
+            <div style={{fontSize:12,color:'#90c8e8',fontFamily:"'Orbitron',monospace",fontWeight:600,whiteSpace:'nowrap'}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+      {/* Action buttons */}
+      <div style={{display:'flex',flexDirection:'column',gap:5,marginTop:5}}>
+        <AircraftInfoButton typeCode={f.type} style={{borderRadius:7}}/>
+        <button onClick={()=>shareAircraft({
+          cs:f.cs,airline:f.airline,type:f.type,catLabel,
+          altFt:mToFt(f.alt),spdKts:msToKts(f.spd),
+          distNmiVal:distNmi(f.dist),bearDeg:Math.round(f.bear),
+          hdgDeg:Math.round(f.hdg),location:over,timestamp:Date.now(),
+        })} style={{width:'100%',padding:'6px 0',
+          background:'transparent',borderRadius:7,cursor:'pointer',
+          border:'1px solid rgba(77,184,255,0.28)',color:'#4db8ff',
+          fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+          display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+          <ShareIcon/> SHARE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Shared timestamp formatter used by Logbook and Stats
+const fmtTime = ts => {
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+    +' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 };
+
+// ── Logbook ────────────────────────────────────────────────────
+
+// ── Logbook Charts ────────────────────────────────────────────────
+const LB_CAT_COL={
+  narrow:'#4db8ff',wide:'#5598d0',super:'#2870c0',jumbo:'#1858b0',
+  regional:'#70d0ff',bizjet:'#90b8e8',
+  military:'#ff8c00',milTransport:'#e8a040',
+  helicopter:'#2dffb4',piston:'#c8eaf8',
+};
+const LB_CAT_LABEL={
+  narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',jumbo:'Jumbo',
+  regional:'Regional Jet',bizjet:'Business Jet',
+  military:'Military',milTransport:'Mil Transport',
+  helicopter:'Helicopter',piston:'Piston/GA',
+};
+
+function LbBarChart({data}){
+  const counts=React.useMemo(()=>{
+    const c={};
+    data.forEach(t=>{const k=t.cat||'unknown';c[k]=(c[k]||0)+1;});
+    return Object.entries(c)
+      .map(([k,v])=>({cat:k,count:v,label:LB_CAT_LABEL[k]||k}))
+      .sort((a,b)=>b.count-a.count);
+  },[data]);
+  if(!counts.length) return <div style={{textAlign:'center',padding:32,color:'#2a5068',fontSize:10,fontFamily:"'Orbitron',monospace"}}>NO DATA IN RANGE</div>;
+  const mx=Math.max(...counts.map(c=>c.count),1);
+  const W=340,H=220,PL=44,PB=72,PT=16,PR=10;
+  const cW=W-PL-PR,cH=H-PT-PB,bW=cW/counts.length;
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',overflow:'visible'}}>
+      {[0,.25,.5,.75,1].map(f=>{
+        const y=PT+cH*(1-f);
+        return <g key={f}>
+          <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(77,184,255,0.08)" strokeWidth="1"/>
+          <text x={PL-4} y={y+3} textAnchor="end" fontSize="8" fill="#3a6878" fontFamily="Orbitron,monospace">{Math.round(mx*f)}</text>
+        </g>;
+      })}
+      {counts.map((c,i)=>{
+        const bH=(c.count/mx)*cH,x=PL+i*bW+bW*.12,y=PT+cH-bH;
+        const col=LB_CAT_COL[c.cat]||'#4db8ff';
+        return <g key={c.cat}>
+          <rect x={x} y={y} width={bW*.76} height={bH} fill={col} rx="2" opacity=".85"/>
+          <text x={x+bW*.38} y={y-4} textAnchor="middle" fontSize="9" fill={col} fontFamily="Orbitron,monospace">{c.count}</text>
+          <text x={x+bW*.38} y={H-PB+14} textAnchor="middle" fontSize="8" fill="#4a7898" fontFamily="Orbitron,monospace"
+            transform={`rotate(-45,${x+bW*.38},${H-PB+14})`}>{c.label.slice(0,9)}</text>
+        </g>;
+      })}
+      <line x1={PL} y1={PT} x2={PL} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+      <line x1={PL} y1={PT+cH} x2={W-PR} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function LbTimeline({data}){
+  const {weeks,cats}=React.useMemo(()=>{
+    const g={};
+    data.forEach(t=>{
+      if(!t.timestamp) return;
+      const d=new Date(t.timestamp);
+      // Use LOCAL date components — toISOString() converts to UTC and can shift
+      // entries across midnight into the wrong week (e.g. 8 PM ET = next UTC day)
+      const localDay=d.getDay(); // 0=Sun … 6=Sat
+      const daysFromMon=(localDay+6)%7;
+      const mon=new Date(d.getFullYear(),d.getMonth(),d.getDate()-daysFromMon);
+      const key=`${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
+      if(!g[key]) g[key]={};
+      const cat=t.cat||'unknown';
+      g[key][cat]=(g[key][cat]||0)+1;
+    });
+    const ws=Object.entries(g).sort(([a],[b])=>a.localeCompare(b))
+      .map(([k,v])=>({key:k,cats:v,total:Object.values(v).reduce((s,x)=>s+x,0)}));
+    // Preserve category order by first-seen across all data
+    const catOrder=[]; const seen=new Set();
+    data.forEach(t=>{ const c=t.cat||'unknown'; if(!seen.has(c)){seen.add(c);catOrder.push(c);}});
+    return {weeks:ws,cats:catOrder};
+  },[data]);
+  if(!weeks.length) return <div style={{textAlign:'center',padding:32,color:'#2a5068',fontSize:10,fontFamily:"'Orbitron',monospace"}}>NO DATA IN RANGE</div>;
+  const mx=Math.max(...weeks.map(w=>w.total),1);
+  const W=360,H=210,PL=36,PB=56,PT=16,PR=10;
+  const cW=W-PL-PR,cH=H-PT-PB,bW=cW/weeks.length;
+  // Show at most 6 x-axis labels, always including the last bar (most recent week)
+  const maxLabels=6;
+  const labelSet=new Set();
+  if(weeks.length<=maxLabels){
+    weeks.forEach((_,i)=>labelSet.add(i));
+  } else {
+    const step=Math.floor((weeks.length-1)/(maxLabels-1));
+    for(let i=0;i<weeks.length-1;i+=step) labelSet.add(i);
+    labelSet.add(weeks.length-1); // always label the most recent week
+  }
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:'block',overflow:'visible'}}>
+      {/* Y-axis gridlines + labels — skip zero to avoid axis overlap */}
+      {[.5,1].map(f=>{
+        const y=PT+cH*(1-f);
+        return <g key={f}>
+          <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(77,184,255,0.08)" strokeWidth="1"/>
+          <text x={PL-3} y={y+3} textAnchor="end" fontSize="8" fill="#3a6878" fontFamily="Orbitron,monospace">{Math.round(mx*f)}</text>
+        </g>;
+      })}
+      {weeks.map((w,i)=>{
+        const x=PL+i*bW+bW*.06; let yOff=0;
+        return <g key={w.key}>
+          {cats.map(cat=>{
+            const v=w.cats[cat]||0; if(!v) return null;
+            const bH=(v/mx)*cH; yOff+=bH;
+            return <rect key={cat} x={x} y={PT+cH-yOff} width={bW*.88} height={bH}
+              fill={LB_CAT_COL[cat]||'#4db8ff'} rx="1" opacity=".82"/>;
+          })}
+          {labelSet.has(i)&&<text x={x+bW*.44} y={H-PB+14} textAnchor="middle" fontSize="7" fill="#3a6878"
+            fontFamily="Orbitron,monospace" transform={`rotate(-45,${x+bW*.44},${H-PB+14})`}>{w.key.slice(5)}</text>}
+        </g>;
+      })}
+      {/* Legend */}
+      {cats.slice(0,5).map((cat,i)=>(
+        <g key={cat} transform={`translate(${PL+i*62},${H-8})`}>
+          <rect width="7" height="7" y="-7" fill={LB_CAT_COL[cat]||'#4db8ff'} rx="1"/>
+          <text x="10" y="-1" fontSize="7" fill="#3a6878" fontFamily="Orbitron,monospace">{(LB_CAT_LABEL[cat]||cat).slice(0,8)}</text>
+        </g>
+      ))}
+      <line x1={PL} y1={PT} x2={PL} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+      <line x1={PL} y1={PT+cH} x2={W-PR} y2={PT+cH} stroke="rgba(77,184,255,0.2)" strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function LbMap({data, onSelect, selected, pos}){
+  const mapDivRef    = React.useRef(null);
+  const leafletRef   = React.useRef(null);   // L instance
+  const mapObjRef    = React.useRef(null);   // Leaflet map
+  const markerRefs   = React.useRef([]);     // [{marker, t}]
+  const userMarkerRef= React.useRef(null);
+  const [ready, setReady] = React.useState(false);
+
+  // ── Load Leaflet from CDN once (JS + CSS) ───────────────────────────
+  React.useEffect(()=>{
+    if(window.L){ leafletRef.current=window.L; setReady(true); return; }
+    if(!document.getElementById('lf-css')){
+      const lk=document.createElement('link');
+      lk.id='lf-css'; lk.rel='stylesheet';
+      lk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(lk);
+    }
+    const sc=document.createElement('script');
+    sc.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    sc.onload=()=>{ leafletRef.current=window.L; setReady(true); };
+    sc.onerror=()=>console.error('Leaflet CDN load failed');
+    document.head.appendChild(sc);
+  },[]);
+
+  // ── Initialise map after Leaflet is ready ────────────────────────
+  React.useEffect(()=>{
+    if(!ready||!mapDivRef.current||mapObjRef.current) return;
+    const L=leafletRef.current||window.L;
+    const lat=pos?.lat||38.9, lon=pos?.lon||(-77.0);
+    const map=L.map(mapDivRef.current,{
+      center:[lat,lon], zoom:8,
+      zoomControl:false,
+      attributionControl:false,
+    });
+    // CartoDB dark tiles — free, no key
+    L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {subdomains:'abcd', maxZoom:18}
+    ).addTo(map);
+    // Small attribution tucked away
+    L.control.attribution({position:'bottomleft',prefix:false})
+      .addAttribution('&copy; OSM &amp; CARTO').addTo(map);
+    mapObjRef.current=map;
+    return ()=>{ map.remove(); mapObjRef.current=null; };
+  },[ready]);
+
+  // ── Update aircraft markers when data changes ────────────────────
+  React.useEffect(()=>{
+    if(!mapObjRef.current||!window.L) return;
+    const L=window.L, map=mapObjRef.current;
+    markerRefs.current.forEach(({marker})=>marker.remove());
+    markerRefs.current=[];
+    data.filter(t=>t.lat&&t.lon).forEach(t=>{
+      const col=LB_CAT_COL[t.cat]||'#4db8ff';
+      const m=L.circleMarker([t.lat,t.lon],{
+        radius:6, fillColor:col, fillOpacity:.82,
+        color:'#010a1c', weight:1,
+      }).addTo(map);
+      m.on('click',()=>onSelect(t));
+      markerRefs.current.push({marker:m,t});
+    });
+  },[data, ready]);
+
+  // ── Highlight selected marker ────────────────────────────────────
+  React.useEffect(()=>{
+    markerRefs.current.forEach(({marker,t})=>{
+      const isSel=selected&&selected.cs===t.cs&&selected.timestamp===t.timestamp;
+      const col=LB_CAT_COL[t.cat]||'#4db8ff';
+      marker.setStyle({
+        radius: isSel?9:6,
+        fillColor:col, fillOpacity:isSel?1:.82,
+        color:isSel?'#ffffff':'#010a1c', weight:isSel?2:1,
+      });
+    });
+  },[selected]);
+
+  // ── User position dot ────────────────────────────────────────────
+  React.useEffect(()=>{
+    if(!mapObjRef.current||!window.L||!pos) return;
+    const L=window.L, map=mapObjRef.current;
+    if(userMarkerRef.current) userMarkerRef.current.remove();
+    userMarkerRef.current=L.circleMarker([pos.lat,pos.lon],{
+      radius:7, fillColor:'#4db8ff', fillOpacity:.9,
+      color:'#fff', weight:2,
+    }).addTo(map);
+  },[pos?.lat, pos?.lon, ready]);
+
+  const recenter=()=>{
+    if(mapObjRef.current&&pos)
+      mapObjRef.current.setView([pos.lat,pos.lon], 8, {animate:true});
+  };
+
+  return (
+    <div style={{position:'relative',borderRadius:8,overflow:'hidden',
+      border:'1px solid rgba(77,184,255,0.12)',marginBottom:6}}>
+      {!ready?(
+        <div style={{height:300,display:'flex',alignItems:'center',justifyContent:'center',
+          background:'#010a1c',color:'#2a5068',fontSize:9,fontFamily:"'Orbitron',monospace"}}>
+          LOADING MAP…
+        </div>
+      ):(
+        <div ref={mapDivRef} style={{height:300}}/>
+      )}
+      {/* Re-center button */}
+      {ready&&pos&&(
+        <button onClick={recenter} style={{
+          position:'absolute',top:8,right:8,zIndex:1000,
+          background:'rgba(2,10,28,0.85)',border:'1px solid rgba(77,184,255,0.3)',
+          borderRadius:6,color:'#4db8ff',padding:'5px 8px',cursor:'pointer',
+          fontSize:8,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
+        }}>⊕ MY LOC</button>
+      )}
+    </div>
+  );
+}
+
+function LbAircraftCard({tail,onClose}){
+  const cat=tail.cat||'unknown';
+  const col=LB_CAT_COL[cat]||'#4db8ff';
+  const stats=[
+    ['DISTANCE',`${tail.closestNmi||'?'} nmi`],
+    ['ALTITUDE',`${tail.alt?Number(tail.alt).toLocaleString()+' ft':'—'}`],
+    ['SPEED',`${tail.spd||'—'} kts`],
+    ['HEADING',`${tail.hdg!=null?String(tail.hdg).padStart(3,'0')+'°':'—'}`],
+    ['YOU WERE IN',(tail.userCity||tail.city||'?').slice(0,14)],
+    ['DATE',tail.timestamp?new Date(tail.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'?'],
+  ];
+  return (
+    <div style={{marginTop:8,background:'rgba(2,10,30,0.98)',border:`1px solid ${col}38`,borderRadius:10,padding:'12px 14px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+        <div>
+          <div style={{fontSize:14,fontFamily:"'Orbitron',monospace",fontWeight:700,color:col}}>{tail.cs||tail.reg||'????'}</div>
+          <div style={{fontSize:9,color:'#5a8898',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{tail.airline||''}{tail.airline&&tail.type?' · ':''}{tail.type||''}</div>
+        </div>
+        <button onClick={onClose} style={{background:'transparent',border:'none',color:'#3a6878',fontSize:18,cursor:'pointer',lineHeight:1}}>×</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,marginBottom:8}}>
+        {stats.map(([l,v])=>(
+          <div key={l} style={{background:'rgba(8,20,48,0.85)',borderRadius:5,padding:'5px 7px'}}>
+            <div style={{fontSize:7,color:'#3a6878',fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',marginBottom:2}}>{l}</div>
+            <div style={{fontSize:9,color:'#90c8e8',fontFamily:"'Orbitron',monospace",fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <button onClick={()=>shareAircraft({
+        cs:tail.cs||tail.reg,airline:tail.airline||'',type:tail.type,
+        catLabel:LB_CAT_LABEL[cat]||'Aircraft',
+        altFt:null,closestNmi:tail.closestNmi,logAltFt:tail.alt,
+        spdKts:tail.spd,hdgDeg:tail.hdg,location:tail.userCity||tail.city,timestamp:tail.timestamp,
+      })} style={{width:'100%',padding:'7px 0',background:'transparent',borderRadius:6,cursor:'pointer',
+        border:`1px solid ${col}44`,color:col,fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+        display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+        <ShareIcon/> SHARE THIS AIRCRAFT
+      </button>
+    </div>
+  );
+}
+
+function LogbookCharts({entries, filterNmi, pos}){
+  const [tab,setTab]=React.useState('types');
+  const [mapSel,setMapSel]=React.useState(null);
+
+  const allTails=React.useMemo(()=>entries.flatMap(e=>
+    e.tails.map(t=>({...t,type:e.type,cat:e.cat,airline:t.airline||e.airline||''}))
+  ),[entries]);
+
+  const filtered=React.useMemo(()=>
+    // filterNmi = historical close-approach distance at time of logging (NOT current pos)
+  allTails.filter(t=>(t.closestNmi||999)<=filterNmi)
+  ,[allTails,filterNmi]);
+
+  const TABS=[['types','TYPES'],['timeline','TIMELINE'],['map','MAP']];
+
+  return (
+    <div style={{margin:'0 0 10px'}}>
+      {/* Sub-tabs */}
+      <div style={{display:'flex',borderBottom:'1px solid rgba(77,184,255,0.1)',marginBottom:4}}>
+        {TABS.map(([k,l])=>(
+          <div key={k} onClick={()=>{setTab(k);setMapSel(null);}} style={{
+            flex:1,textAlign:'center',padding:'7px 0',cursor:'pointer',
+            fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+            color:tab===k?'#4db8ff':'#3a6878',
+            borderBottom:`2px solid ${tab===k?'#4db8ff':'transparent'}`,
+          }}>{l}</div>
+        ))}
+      </div>
+      <div style={{fontSize:8,color:'#2a5068',fontFamily:"'Orbitron',monospace",textAlign:'center',marginBottom:4}}>
+        {filtered.length} ENCOUNTER{filtered.length!==1?'S':''}
+      </div>
+      {/* Chart content */}
+      <div style={{padding:'0 2px'}}>
+        {tab==='types'&&<LbBarChart data={filtered}/>}
+        {tab==='timeline'&&<LbTimeline data={filtered}/>}
+        {tab==='map'&&<>
+          <LbMap data={filtered} onSelect={t=>setMapSel(prev=>prev&&prev.cs===t.cs&&prev.timestamp===t.timestamp?null:t)} selected={mapSel} pos={pos}/>
+          {mapSel&&<LbAircraftCard tail={mapSel} onClose={()=>setMapSel(null)}/>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+
+
+// ── Logbook Tail Detail — bottom-sheet shown when user taps a tail chip ──
+function LogbookTailDetail({ tail, entry, onClose }) {
+  const cat   = entry?.cat || tail?.cat || '';
+  const col   = LB_CAT_COL[cat] || '#4db8ff';
+  const catLbl= LB_CAT_LABEL[cat] || 'Aircraft';
+
+  if(!tail) return null;
+
+  const stats = [
+    ['ALTITUDE',  tail.alt  ? Number(tail.alt).toLocaleString()+' ft' : '—'],
+    ['SPEED',     tail.spd  ? tail.spd+' kts'                         : '—'],
+    ['HEADING',   tail.hdg!=null ? String(tail.hdg).padStart(3,'0')+'°': '—'],
+    ['DISTANCE',  tail.closestNmi ? tail.closestNmi+' nmi'            : '—'],
+  ];
+
+  return (
+    <div onClick={onClose} style={{
+      position:'absolute',inset:0,zIndex:70,
+      background:'rgba(0,5,15,0.6)',
+      display:'flex',alignItems:'flex-end',
+      touchAction:'manipulation',
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:'100%',
+        background:'rgba(3,11,30,0.98)',
+        border:`1px solid ${col}30`,
+        borderRadius:'14px 14px 0 0',
+        padding:'0 0 env(safe-area-inset-bottom,0)',
+        maxHeight:'82vh',
+        overflowY:'auto',
+        WebkitOverflowScrolling:'touch',
+      }}>
+        {/* Drag handle */}
+        <div style={{display:'flex',justifyContent:'center',padding:'10px 0 4px'}}>
+          <div style={{width:36,height:4,borderRadius:2,background:'rgba(77,184,255,0.2)'}}/>
+        </div>
+
+        <div style={{padding:'4px 18px 20px'}}>
+          {/* Header */}
+          <div style={{display:'flex',justifyContent:'space-between',
+            alignItems:'flex-start',marginBottom:12}}>
+            <div>
+              <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",
+                fontWeight:700,color:col,letterSpacing:'.1em',lineHeight:1.1}}>
+                {tail.cs||tail.reg||'????'}
+              </div>
+              {tail.reg&&tail.cs&&tail.reg!==tail.cs&&(
+                <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+                  marginTop:2}}>{tail.reg}</div>
+              )}
+              <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+                marginTop:3}}>
+                {tail.airline||entry?.airline||''}{(tail.airline||entry?.airline)&&entry?.type?' · ':''}
+                {entry?.type||''}
+              </div>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
+              <button onClick={onClose} style={{background:'transparent',border:'none',
+                color:'#3a6878',fontSize:20,cursor:'pointer',padding:'0 2px',lineHeight:1}}>×</button>
+              <div style={{fontSize:8,color:`${col}99`,fontFamily:"'Orbitron',monospace",
+                background:`${col}15`,border:`0.5px solid ${col}30`,
+                borderRadius:4,padding:'2px 7px',letterSpacing:'.08em'}}>
+                {catLbl.toUpperCase()}
+              </div>
+            </div>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10}}>
+            {stats.map(([lbl,val])=>(
+              <div key={lbl} style={{background:'rgba(8,20,48,0.8)',
+                borderRadius:7,padding:'8px 10px'}}>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:13,color:'#90c8e8',fontFamily:"'Orbitron',monospace",
+                  fontWeight:600}}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Location block */}
+          <div style={{background:'rgba(8,20,48,0.6)',borderRadius:8,
+            padding:'10px 12px',marginBottom:10}}>
+            {(tail.userCity||tail.city)&&(
+              <div style={{marginBottom:6}}>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:2}}>YOU WERE IN</div>
+                <div style={{fontSize:12,color:'#b8e4ff',fontFamily:"'Orbitron',monospace",
+                  fontWeight:600}}>{(tail.userCity||tail.city).toUpperCase()}</div>
+                {tail.userLat!=null&&(
+                  <div style={{fontSize:8,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
+                    marginTop:1}}>{tail.userLat.toFixed(3)}° {tail.userLon.toFixed(3)}°</div>
+                )}
+              </div>
+            )}
+            {tail.city&&tail.userCity&&tail.city!==tail.userCity&&(
+              <div>
+                <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',marginBottom:2}}>AIRCRAFT OVER</div>
+                <div style={{fontSize:11,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>
+                  {tail.city.toUpperCase()}</div>
+                {tail.lat!=null&&(
+                  <div style={{fontSize:8,color:'#2a4a5a',fontFamily:"'Exo 2',sans-serif",
+                    marginTop:1}}>{tail.lat.toFixed(3)}° {tail.lon.toFixed(3)}°</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Timestamp */}
+          {tail.timestamp&&(
+            <div style={{fontSize:9,color:'#2a5068',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.06em',marginBottom:14,textAlign:'center'}}>
+              {new Date(tail.timestamp).toLocaleDateString('en-US',
+                {weekday:'short',year:'numeric',month:'short',day:'numeric'})}
+              {' · '}
+              {new Date(tail.timestamp).toLocaleTimeString('en-US',
+                {hour:'2-digit',minute:'2-digit'})}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <button
+              onClick={()=>shareAircraft({
+                cs: tail.cs||tail.reg,
+                airline: tail.airline||entry?.airline||'',
+                type: entry?.type||tail.type||'',
+                catLabel: catLbl,
+                altFt: null,
+                closestNmi: tail.closestNmi,
+                logAltFt: tail.alt,
+                spdKts: tail.spd,
+                hdgDeg: tail.hdg,
+                location: tail.userCity||tail.city,
+                timestamp: tail.timestamp,
+              })}
+              style={{
+                width:'100%',padding:'12px 0',
+                background:'transparent',
+                border:`1px solid ${col}50`,
+                borderRadius:10,cursor:'pointer',
+                color:col,fontSize:10,
+                fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.14em',fontWeight:600,
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+              }}>
+              <ShareIcon/> SHARE THIS AIRCRAFT
+            </button>
+            <AircraftInfoButton typeCode={entry?.type||tail.type} style={{padding:'11px 0',borderRadius:10,letterSpacing:'.14em'}}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Help / Info Panel ─────────────────────────────────────────────
+function HelpPanel({ onClose }) {
+  const CC = '#4db8ff';
+
+  const Section = ({title, children}) => (
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
+        fontWeight:700,marginBottom:8,paddingBottom:5,
+        borderBottom:'1px solid rgba(77,184,255,0.12)'}}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const Row = ({icon,label,desc,color}) => (
+    <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:7}}>
+      <div style={{flexShrink:0,width:20,textAlign:'center',marginTop:1}}>{icon}</div>
+      <div>
+        <span style={{fontSize:10,color:color||'#90c8e8',fontFamily:"'Orbitron',monospace",
+          fontWeight:600,letterSpacing:'.04em'}}>{label}</span>
+        {desc&&<div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
+          marginTop:1,lineHeight:1.45}}>{desc}</div>}
+      </div>
+    </div>
+  );
+
+  const Dot = ({col}) => (
+    <span style={{display:'inline-block',width:9,height:9,borderRadius:'50%',
+      background:col,border:'1.5px solid #010a18',verticalAlign:'middle',marginRight:6}}/>
+  );
+
+  const Ring = ({col}) => (
+    <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',
+      border:`2px solid ${col}`,verticalAlign:'middle',marginRight:6}}/>
+  );
+
+  return (
+    <div onClick={onClose} style={{position:'absolute',inset:0,zIndex:62,
+      paddingTop:'env(safe-area-inset-top,0px)',
+      background:'rgba(1,6,18,0.98)',display:'flex',flexDirection:'column',
+      animation:'slideUp 0.28s ease'}}>
+      <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',height:'100%'}}>
+
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+          padding:'14px 16px 10px',borderBottom:'1px solid rgba(77,184,255,0.1)',flexShrink:0}}>
+          <div>
+            <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:CC,letterSpacing:'.12em'}}>空友 SORATOMO</div>
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>
+              AR Aircraft Spotter — Quick Reference
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'transparent',border:'none',
+            color:'#3a6878',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',
+          padding:'16px 18px 32px'}}>
+
+          <Section title="WHAT IS THIS">
+            <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.6,marginBottom:4}}>
+              SoraTomo shows live ADS-B aircraft around you in AR. Point your phone at
+              the sky and see aircraft labels overlaid on the real world. Tap any aircraft
+              for details. Nearby aircraft are automatically logged to your logbook.
+            </div>
+          </Section>
+
+          <Section title="AR MODE">
+            <Row icon="✈" label="Radar / Scan"
+              desc="Default view — aircraft on a radar-style overlay. Drag to pan, pinch to zoom the FOV."/>
+            <Row icon="📱" label="Tilt AR"
+              desc="Tilt your phone to see aircraft in their real sky positions."/>
+            <Row icon="📷" label="Camera AR"
+              desc="Live camera feed with AR labels. Tap the camera icon to activate. Use ALIGN for best accuracy."/>
+          </Section>
+
+          <Section title="ACCURACY DOTS">
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+              marginBottom:8}}>Shown in tilt/camera mode — how fresh the ADS-B data is.</div>
+            <Row icon={<><Dot col="#2dffb4"/>  </>} label="Green — Fresh"
+              color="#2dffb4" desc="Data < 5 sec old. Position is current."/>
+            <Row icon={<><Dot col="#ffd700"/>  </>} label="Yellow — Aging"
+              color="#ffd700" desc="5–15 sec old. Dead-reckoning filling the gap."/>
+            <Row icon={<><Dot col="#ff8c00"/>  </>} label="Orange — Stale"
+              color="#ff8c00" desc="> 15 sec old. Aircraft may have moved significantly."/>
+          </Section>
+
+          <Section title="RARITY RINGS">
+            <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",
+              marginBottom:8}}>Ring color shows how rare the aircraft is. The rarest pulse faster.</div>
+            <Row icon={<><Ring col="#ef4444"/>  </>} label="Pink — Mythic"
+              color="#ef4444" desc="Top-tier finds: superjumbos, heavy military, Antonovs."/>
+            <Row icon={<><Ring col="#f59e0b"/>  </>} label="Amber — Legendary"
+              color="#f59e0b" desc="Jumbos, fighters, transports — a real event."/>
+            <Row icon={<><Ring col="#fbbf24"/>  </>} label="Gold — Rare"
+              color="#fbbf24" desc="Widebodies and uncommon types."/>
+            <Row icon={<><Ring col="#2dffb4"/>  </>} label="Teal — Uncommon"
+              color="#2dffb4" desc="Regional jets, GA, business aircraft."/>
+            <Row icon={<><Ring col="#7a98a8"/>  </>} label="Grey — Common"
+              color="#7a98a8" desc="Everyday narrowbody airliners."/>
+          </Section>
+
+          <Section title="AIRCRAFT SHAPES">
+            <Row icon="🛩" label="Narrow / Wide / Jumbo"
+              desc="Commercial jets — shape scales with aircraft size."/>
+            <Row icon="✈" label="Regional Jet"
+              desc="Small commercial turbojets (CRJ, E175, etc.)."/>
+            <Row icon="🛫" label="Business Jet"
+              desc="Citations, Gulfstreams, Falcons."/>
+            <Row icon="🚁" label="Helicopter"
+              desc="Rotary-wing. Military helos (UH-60 etc.) shown distinctly."/>
+            <Row icon="🪂" label="Piston / GA"
+              desc="Small general aviation — Cessnas, Pipers."/>
+            <Row icon="⚡" label="Military"
+              desc="Fighter/attack aircraft (F-22, F-35, etc.)."/>
+            <Row icon="🚛" label="Mil Transport"
+              desc="C-17, C-130, KC-135, P-8, V-22 and similar."/>
+          </Section>
+
+          <Section title="FILTERS">
+            <Row icon="🔴" label="Altitude"
+              desc="Slide to set floor/ceiling. Hides aircraft outside the band."/>
+            <Row icon="⚡" label="Speed"
+              desc="Filter by groundspeed in knots."/>
+            <Row icon="✈" label="Aircraft Type"
+              desc="Show All / Commercial / Military / Helicopters / Piston."/>
+            <Row icon="⭕" label="Range Ring"
+              desc="Drag the circular dial (bottom-right) to set max display distance."/>
+          </Section>
+
+          <Section title="SCORING">
+            <Row icon="✨" label="Spot (tap, any mode, ≤10 nm)"
+              desc="Tap any aircraft within 10 nm to earn points. Score = global rarity × proximity (1× at 0 nm, 0.5× at 10 nm). Once per type per day."/>
+            <Row icon="📸" label="Capture (camera photo, ≤10 nm)"
+              desc="Photograph an aircraft in camera mode for a 1.7× multiplier. If you spotted it first today, you earn the upgrade bonus only. Selecting an aircraft before shooting gives it priority; otherwise the rarest aircraft in frame gets credit. Successive photos credit the next-rarest uncaught aircraft in view."/>
+            <Row icon="📊" label="Proximity bonus"
+              desc="Score scales linearly with distance — closer is worth more. A MYTHIC at 1 nm beats the same MYTHIC at 9 nm."/>
+            <Row icon="🏆" label="Daily score"
+              desc="Each day’s total resets at midnight. Beat your all-time best day for a celebration. Tap TODAY or BEST DAY in the DEX to see the full breakdown."/>
+          </Section>
+
+          <Section title="DEX — COLLECTION">
+            <Row icon="🏆" label="Your collection"
+              desc="Tap the lines icon (top-right) → DEX tab. Shows types caught, rarity tiers, total points, and today vs best-day scores. Tap any type card to see every individual catch of that type."/>
+            <Row icon="📅" label="Day breakdown"
+              desc="Tap the TODAY or BEST DAY tile to see every aircraft that contributed to that day’s score, sorted by points."/>
+            <Row icon="🏆" label="Leaderboard"
+              desc="BOARD tab shows today’s top 20 spotters near you. Set your callsign on first visit. Score submits automatically 30s after each catch."/>
+          </Section>
+
+          <Section title="LOGBOOK">
+            <Row icon="📖" label="Accessing the Logbook"
+              desc="Tap the lines icon → LOG tab. Aircraft are logged automatically when within range — no tap needed."/>
+            <Row icon="📊" label="Charts"
+              desc="Switch between TYPES, TIMELINE, and MAP views inside the log."/>
+            <Row icon="🔗" label="Sharing"
+              desc="Tap any logbook entry → SHARE to generate a card and send via iMessage, Instagram, etc."/>
+          </Section>
+
+          <Section title="ALIGN — CALIBRATION">
+            <Row icon="🎯" label="One-tap aircraft align"
+              desc="Camera mode → ALIGN → tap a real aircraft. Solves heading + pitch instantly. Declutters to closest aircraft within 5 nm (25 nm airborne)."/>
+            <Row icon="🌅" label="Horizon align"
+              desc="Switch to HORIZON in the align bar, tap the visible horizon. Best for correcting the horizon line when no aircraft are handy."/>
+            <Row icon="🧭" label="True north built in"
+              desc="Magnetic declination corrected automatically from GPS worldwide — no manual steps."/>
+            <Row icon="📐" label="Self-improving"
+              desc="Each align tap refines the vertical FOV model. Two taps at different screen heights (one high, one low) dial it in automatically."/>
+          </Section>
+
+          <Section title="TIPS">
+            <Row icon="💡" label="Best accuracy"
+              desc="ALIGN on an aircraft or the horizon before using camera mode. Green accuracy dot = position is current."/>
+            <Row icon="✈" label="Works in flight"
+              desc="Elevation math accounts for your GPS altitude. ALIGN accepts large compass errors inside the cabin. Window seat recommended."/>
+            <Row icon="💡" label="Rarity rings"
+              desc="Pink = Mythic, Amber = Legendary, Blue = Rare, Teal = Uncommon, Grey = Common. Rarest rings pulse faster."/>
+            <Row icon="💡" label="Battery"
+              desc="Live polling pauses when the app is backgrounded and resumes automatically when you return."/>
+          </Section>
+
+          {/* Version footer */}
+          <div style={{textAlign:'center',marginTop:8,fontSize:8,color:'#1e3a50',
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>
+            SORATOMO · ADS-B DATA VIA ADSB.LOL
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function LeaderboardPanel({ callsign, deviceId, daily, pos, boardData, boardStatus, onSetCallsign, onRefresh }) {
+  const CC = '#4db8ff';
+  const [editMode, setEditMode] = React.useState(!callsign);
+  const [draft,    setDraft]    = React.useState(callsign||'');
+  const [draftErr, setDraftErr] = React.useState('');
+
+  const validate = v => {
+    if(!v) return 'Callsign required';
+    if(v.length < 2) return 'Min 2 characters';
+    if(v.length > 12) return 'Max 12 characters';
+    // Must match the server rule exactly (leaderboard.mjs): uppercase letters + digits only.
+    if(!/^[A-Z0-9]{2,12}$/.test(v)) return 'Letters and numbers only';
+    return '';
+  };
+
+  const saveCallsign = async () => {
+    const cs = draft.trim().toUpperCase();
+    const err = validate(cs);
+    if(err){ setDraftErr(err); return; }
+    // Probe the server with a 0-score write to catch profanity/blocklist rejections
+    // before committing the callsign locally. Errors surface as inline UI feedback.
+    try{
+      await onSetCallsign(cs); // parent handles submitScore; throws if server rejects
+      setEditMode(false);
+      setDraftErr('');
+      onRefresh();
+    } catch(e){
+      setDraftErr(e?.message||'Callsign rejected — please try another');
+    }
+  };
+
+  const tk = (()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const todayScore = daily?.days?.[tk] || 0;
+  const reg = regionFor(pos.lat, pos.lon);
+
+  // Find user's rank in board data
+  const myEntry = boardData.find(r => r.deviceId === deviceId);
+  const myRank  = myEntry ? boardData.indexOf(myEntry) + 1 : null;
+  const TIER_COLOR = score =>
+    score>=85?'#ef4444':score>=70?'#f59e0b':score>=50?'#fbbf24':score>=40?'#2dffb4':'#7a98a8';
+
+  return (
+    <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
+      padding:'14px 14px 32px'}}>
+
+      {/* Callsign setup / edit */}
+      {(editMode || !callsign) ? (
+        <div style={{background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.3)',
+          borderRadius:10,padding:'14px',marginBottom:14}}>
+          <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',
+            marginBottom:8}}>YOUR CALLSIGN</div>
+          <div style={{fontSize:10,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif",marginBottom:10,lineHeight:1.5}}>
+            Pick a spotter callsign to appear on the leaderboard.
+            2–12 characters, letters and numbers only.
+          </div>
+          <input value={draft} onChange={e=>{ setDraft(e.target.value.toUpperCase().slice(0,12)); setDraftErr(''); }}
+            onKeyDown={e=>e.key==='Enter'&&saveCallsign()}
+            placeholder="e.g. TOMCAT47"
+            style={{width:'100%',background:'rgba(1,8,22,0.9)',border:`1px solid ${draftErr?'#ff6b6b':'rgba(77,184,255,0.35)'}`,
+              borderRadius:6,padding:'8px 10px',color:'#cfe8f8',fontSize:13,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',
+              boxSizing:'border-box',outline:'none'}}/>
+          {draftErr && <div style={{fontSize:9,color:'#ff6b6b',fontFamily:"'Exo 2',sans-serif",marginTop:4}}>{draftErr}</div>}
+          <div style={{display:'flex',gap:8,marginTop:10}}>
+            {callsign && <button onClick={()=>{setEditMode(false);setDraft(callsign);setDraftErr('');}} style={{
+              flex:1,background:'transparent',border:'1px solid rgba(77,184,255,0.25)',borderRadius:7,
+              padding:'8px 0',cursor:'pointer',color:'#6a98b8',fontSize:10,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>CANCEL</button>}
+            <button onClick={saveCallsign} style={{
+              flex:2,background:CC,border:'none',borderRadius:7,padding:'8px 0',cursor:'pointer',
+              color:'#021018',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.08em'}}>CONFIRM</button>
+          </div>
+        </div>
+      ) : (
+        // Callsign banner
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+          background:'rgba(4,14,36,0.92)',border:`1px solid ${CC}44`,borderRadius:10,
+          padding:'10px 14px',marginBottom:14}}>
+          <div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',marginBottom:2}}>YOUR CALLSIGN</div>
+            <div style={{fontSize:18,color:CC,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.06em'}}>{callsign}</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:22,color:'#ffd700',fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
+              {todayScore.toLocaleString()}</div>
+            <div style={{fontSize:8,color:'#6a98b8',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em',marginTop:2}}>TODAY</div>
+          </div>
+        </div>
+      )}
+
+      {/* Region + refresh header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <div>
+          <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>
+            TODAY · {reg.label.toUpperCase()}</div>
+          {myRank&&<div style={{fontSize:9,color:'#2dffb4',fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.1em',marginTop:2}}>YOUR RANK: #{myRank}</div>}
+        </div>
+        <button onClick={onRefresh} disabled={boardStatus==='loading'} style={{
+          background:'transparent',border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,
+          padding:'5px 10px',cursor:'pointer',color:CC,fontSize:9,
+          fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+          opacity:boardStatus==='loading'?0.5:1}}>
+          {boardStatus==='loading'?'...●':'REFRESH'}
+        </button>
+      </div>
+
+      {/* Board */}
+      {boardStatus==='error' && (
+        <div style={{textAlign:'center',padding:'24px 0',fontSize:11,color:'#ff6b6b',
+          fontFamily:"'Exo 2',sans-serif"}}>
+          Couldn’t reach the leaderboard — check your connection.
+        </div>
+      )}
+      {boardStatus==='loading' && boardData.length===0 && (
+        <div style={{textAlign:'center',padding:'24px 0',fontSize:11,color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif"}}>Loading…</div>
+      )}
+      {(boardStatus==='ok'||boardData.length>0) && boardData.length===0 && (
+        <div style={{textAlign:'center',padding:'32px 16px',fontSize:11,color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif",lineHeight:1.6}}>
+          No scores yet today near {reg.label}.<br/>
+          You could be first! Start catching aircraft.
+        </div>
+      )}
+      {boardData.map((row, i) => {
+        const isMe = row.deviceId === deviceId;
+        const tc = TIER_COLOR(row.score);
+        return (
+          <div key={row.deviceId||i} style={{
+            display:'flex',alignItems:'center',gap:10,
+            background: isMe ? 'rgba(77,184,255,0.08)' : 'rgba(4,14,36,0.7)',
+            border: `1px solid ${isMe ? CC+'66' : 'rgba(77,184,255,0.1)'}`,
+            borderRadius:9,padding:'9px 12px',marginBottom:7,
+            position:'relative',overflow:'hidden'}}>
+            {/* Left rank stripe */}
+            <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,
+              background: i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':tc}}/>
+            <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color: i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'#4a7898',
+              width:22,textAlign:'right',flexShrink:0}}>{i+1}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,color: isMe?CC:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                fontWeight:700,letterSpacing:'.04em',
+                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {row.callsign}{isMe?' ◄':''}</div>
+            </div>
+            <div style={{fontSize:16,color:tc,fontFamily:"'Orbitron',monospace",
+              fontWeight:700,letterSpacing:'.02em',flexShrink:0}}>
+              {row.score.toLocaleString()}</div>
+          </div>
+        );
+      })}
+
+      {/* Change callsign footer */}
+      {callsign && !editMode && (
+        <button onClick={()=>{setEditMode(true);setDraft(callsign);}} style={{
+          marginTop:12,width:'100%',background:'transparent',
+          border:'1px solid rgba(77,184,255,0.15)',borderRadius:7,padding:'8px 0',
+          cursor:'pointer',color:'#3a6878',fontSize:9,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em'}}>CHANGE CALLSIGN</button>
+      )}
+    </div>
+  );
+}
+
+// ── Trophy Case ─────────────────────────────────────────────────
+// Full ICAO checklist (all GLOBAL_RARITY types), grouped by category. Each entry's
+// silhouette is an outline until that type is collected, then filled and colored by
+// the rarity tier of the FIRST catch. A camera glyph fills in once the type is
+// photographed. Shows first-seen date + collect/photo counts per type.
+const TROPHY_CATS = [
+  ['military',    'MILITARY'],
+  ['milTransport','MIL TRANSPORT'],
+  ['helicopter',  'HELICOPTERS'],
+  ['super',       'SUPERJUMBO'],
+  ['jumbo',       'JUMBO'],
+  ['wide',        'WIDEBODY'],
+  ['narrow',      'NARROWBODY'],
+  ['regional',    'REGIONAL'],
+  ['bizjet',      'BUSINESS JETS'],
+  ['piston',      'PISTON / GA'],
+];
+
+const TIER_COLOR = { mythic:'#ef4444', legendary:'#f59e0b', rare:'#fbbf24', uncommon:'#2dffb4', common:'#7a98a8' };
+
+// Build the grouped master list from GLOBAL_RARITY + any caught types not already in it.
+// This runs per-render (cheap — small sets), so every user's Trophy Case automatically
+// includes any ICAO type they've actually caught, even if it's not in the curated table.
+// New types appear in the correct category section with a score derived from their category.
+const buildTrophyGroups = (catches) => {
+  const groups = {};
+  const inTable = new Set();
+  // First: all curated types from GLOBAL_RARITY
+  for(const [type] of GLOBAL_RARITY){
+    const cat = getAircraftCat(type, '');
+    (groups[cat] = groups[cat] || []).push(type);
+    inTable.add(type);
+  }
+  // Then: any caught type NOT already in the table — add to its category
+  for(const type of Object.keys(catches||{})){
+    if(!type || inTable.has(type)) continue;
+    const c = catches[type];
+    if(!c || (c.spotted<=0 && c.captured<=0)) continue; // only caught types
+    const cat = getAircraftCat(type, '');
+    (groups[cat] = groups[cat] || []).push(type);
+    inTable.add(type);
+  }
+  return groups;
+};
+
+function TrophyCase({ catches }){
+  const CC = '#4db8ff';
+  // Build groups dynamically — merges GLOBAL_RARITY with any caught types not in the table
+  const trophyGroups = buildTrophyGroups(catches);
+  const allShown = Object.values(trophyGroups).reduce((s,ts)=>s+ts.length, 0);
+  const collected = Object.keys(catches).filter(t=>catches[t] && (catches[t].spotted>0||catches[t].captured>0)).length;
+  const photographed = Object.keys(catches).filter(t=>catches[t] && catches[t].captured>0).length;
+  const pct = Math.round((collected/allShown)*100);
+
+  const fmtFirst = ts => {
+    if(!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+      +' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  };
+
+  return (
+    <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Progress header */}
+      <div style={{flexShrink:0,padding:'12px 14px 10px',borderBottom:`1px solid ${CC}1a`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+          <div style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,color:'#b8e4ff',letterSpacing:'.14em'}}>TROPHY CASE</div>
+          <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",color:CC}}>{collected}/{allShown} · {pct}%</div>
+        </div>
+        <div style={{height:5,borderRadius:3,background:'rgba(77,184,255,0.12)',overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${CC},#2dffb4)`,borderRadius:3,transition:'width .4s'}}/>
+        </div>
+        <div style={{display:'flex',gap:16,marginTop:7,fontSize:9,fontFamily:"'Orbitron',monospace",color:'#5a8aa8',letterSpacing:'.08em'}}>
+          <span>✈ {collected}/{allShown} COLLECTED</span>
+          <span>📷 {photographed} PHOTOGRAPHED</span>
+        </div>
+      </div>
+
+      {/* Scrollable grouped grid */}
+      <div style={{flex:1,overflowY:'auto',padding:'8px 12px 24px'}}>
+        {TROPHY_CATS.map(([catKey,catLabel])=>{
+          const types = trophyGroups[catKey] || [];
+          if(!types.length) return null;
+          const got = types.filter(t=>catches[t]&&(catches[t].spotted>0||catches[t].captured>0)).length;
+          return (
+            <div key={catKey} style={{marginBottom:18}}>
+              {/* Category header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,
+                paddingBottom:4,borderBottom:'1px solid rgba(77,184,255,0.1)'}}>
+                <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#7aacc8',
+                  letterSpacing:'.16em',fontWeight:700}}>{catLabel}</span>
+                <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#4a7898'}}>{got}/{types.length}</span>
+              </div>
+              {/* Type grid */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:7}}>
+                {types.map(type=>{
+                  const c = catches[type];
+                  const caught = !!(c && (c.spotted>0||c.captured>0));
+                  const shot = !!(c && c.captured>0);
+                  // Color: rarity tier of the FIRST catch (stored in best.tier) → fall back to category color
+                  const tierKey = c?.best?.tier;
+                  const iconColor = caught ? (TIER_COLOR[tierKey] || '#90c8e8') : '#2a4458';
+                  const collectCount = c ? (c.spotted||0)+(c.captured||0) : 0;
+                  return (
+                    <div key={type} style={{
+                      background: caught ? 'rgba(8,20,48,0.85)' : 'rgba(4,11,24,0.5)',
+                      border:`0.5px solid ${caught ? iconColor+'44' : 'rgba(25,55,95,0.4)'}`,
+                      borderRadius:8,padding:'8px 6px 7px',display:'flex',flexDirection:'column',alignItems:'center',
+                      opacity: caught ? 1 : 0.72}}>
+                      {/* Icon row: aircraft silhouette + camera glyph */}
+                      <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4}}>
+                        <svg width="30" height="30" viewBox="-12 -12 24 24" style={{display:'block',overflow:'visible',
+                          filter: caught ? `drop-shadow(0 0 3px ${iconColor}66)` : 'none'}}>
+                          {/* Caught → filled rarity color. Uncaught → muted "ghost" silhouette. */}
+                          <PlaneShape cat={catKey} color={iconColor} fc={1} icao={type}/>
+                        </svg>
+                        {/* Camera — faint grayscale outline until photographed, then full emoji */}
+                        <span style={{fontSize:13,lineHeight:1,opacity: shot?1:0.28,
+                          filter: shot?'none':'grayscale(1) brightness(1.4)'}}>📷</span>
+                      </div>
+                      {/* Type code */}
+                      <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                        color: caught ? '#c8e8ff' : '#4a6878',letterSpacing:'.04em'}}>{type}</div>
+                      {/* First-seen date */}
+                      <div style={{fontSize:7.5,fontFamily:"'Exo 2',sans-serif",color: caught?'#5a8aa8':'#3a5468',marginTop:2,textAlign:'center',lineHeight:1.2}}>
+                        {caught ? fmtFirst(c.first) : 'not collected'}
+                      </div>
+                      {/* Counts */}
+                      {caught && (
+                        <div style={{fontSize:7.5,fontFamily:"'Orbitron',monospace",color:'#6a98b8',marginTop:2,letterSpacing:'.04em'}}>
+                          ✈{collectCount}{shot?` · 📷${c.captured}`:''}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+function CatchDex({ catches, daily, onShare, onClearAll }) {
+  const CC = '#4db8ff';
+  const [detail,    setDetail]    = React.useState(null); // a type's catch entry, for the detail view
+  const [confirmClear, setConfirmClear] = React.useState(false);
+  const [dayDetail, setDayDetail] = React.useState(null); // {date,label} — score breakdown for a day
+  const catNames = {narrow:'Narrowbody',wide:'Widebody',super:'Superjumbo',
+    jumbo:'Jumbo',regional:'Regional Jet',bizjet:'Business Jet',military:'Military',
+    helicopter:'Helicopter',piston:'Piston/GA',milTransport:'Mil Transport','':'Unknown'};
+  const catOrder = ['military','milTransport','super','jumbo','wide','regional',
+    'narrow','bizjet','piston','helicopter',''];
+
+  const TIER = {
+    mythic:{label:'MYTHIC',color:'#ef4444',rank:5},
+    legendary:{label:'LEGENDARY',color:'#f59e0b',rank:4},
+    rare:{label:'RARE',color:'#fbbf24',rank:3},
+    uncommon:{label:'UNCOMMON',color:'#2dffb4',rank:2},
+    common:{label:'COMMON',color:'#7a98a8',rank:1},
+  };
+
+  const list = Object.values(catches||{});
+  const totalCatches = list.reduce((s,c)=>s+c.spotted+c.captured,0);
+  const totalCaptured = list.reduce((s,c)=>s+c.captured,0);
+  const typesCollected = list.length;
+  // Rarest single catch across all types
+  const rarest = list.reduce((best,c)=>
+    (c.rarest && (!best || c.rarest.score>best.score)) ? {...c.rarest,type:c.type} : best, null);
+  const rarestTier = rarest ? Object.values(TIER).find(t=>t.label===(catches[rarest.type]?.best?.label)) : null;
+
+  // Group caught types by category, each sorted by best score desc
+  const byCat = {};
+  list.forEach(c=>{ (byCat[c.cat]=byCat[c.cat]||[]).push(c); });
+  Object.values(byCat).forEach(arr=>arr.sort((a,b)=>(b.best?.score||0)-(a.best?.score||0)));
+  const rows = catOrder.filter(c=>byCat[c]?.length);
+
+  const Big = ({val,label,sub,color}) => (
+    <div style={{flex:1,background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.15)',
+      borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
+      <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+        color:color||'#b8e4ff',letterSpacing:'.02em',lineHeight:1}}>{val}</div>
+      <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
+        letterSpacing:'.12em',marginTop:5}}>{label}</div>
+      {sub&&<div style={{fontSize:8,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+
+  const Card = ({c}) => {
+    const tier = TIER[c.best?.tier] || TIER.common;
+    const total = c.spotted + c.captured;
+    return (
+      <div onClick={()=>setDetail(c)} style={{background:'rgba(4,14,36,0.92)',
+        border:`1px solid ${tier.color}55`,borderRadius:9,padding:'9px 10px',
+        position:'relative',overflow:'hidden',cursor:'pointer'}}>
+        <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:tier.color}}/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginLeft:4}}>
+          <span style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:'#cfe8f8',letterSpacing:'.04em'}}>{c.type}</span>
+          <span style={{fontSize:8,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:tier.color,letterSpacing:'.1em'}}>{tier.label}</span>
+        </div>
+        <div style={{display:'flex',gap:10,marginLeft:4,marginTop:5}}>
+          <span style={{fontSize:9,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+            {total}× caught</span>
+          {c.captured>0&&<span style={{fontSize:9,color:'#2dffb4',fontFamily:"'Exo 2',sans-serif"}}>
+            📸 {c.captured}</span>}
+          <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginLeft:'auto'}}>
+            best {c.best?.score||0}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Date helper ──
+  const tsToDate = ts => {
+    const d=new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  // ── Day detail view: all catches that contributed to a specific day's score ──
+  if(dayDetail){
+    // Collect log entries from the target date. The daily SCORE counts only the
+    // first scoring catch per type per day (matching the dedup in recordCatch),
+    // so we keep one entry per type — the highest-scoring — to mirror the day total.
+    const rawEntries = Object.values(catches||{})
+      .flatMap(c=>(c.log||[]).map(r=>({...r, typeKey:c.type, cat:c.cat})))
+      .filter(r=>tsToDate(r.ts)===dayDetail.date);
+    // Dedup by type: one entry per type (highest score) so the sum matches daily score
+    const byType = new Map();
+    for(const r of rawEntries){
+      const ex = byType.get(r.typeKey);
+      if(!ex || r.score > ex.score) byType.set(r.typeKey, r);
+    }
+    const dayEntries = [...byType.values()].sort((a,b)=>b.score-a.score);
+    // Prefer the authoritative daily total when available; fall back to summing entries
+    const storedTotal = daily?.days?.[dayDetail.date];
+    const dayTotal = storedTotal!=null ? storedTotal : dayEntries.reduce((s,r)=>s+r.score,0);
+    const fmt = ts => new Date(ts).toLocaleString('en-US',
+      {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    return (
+      <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 14px 32px'}}>
+        <button onClick={()=>setDayDetail(null)} style={{background:'transparent',
+          border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,padding:'5px 12px',
+          cursor:'pointer',color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em',marginBottom:14}}>← BACK</button>
+
+        {/* Header */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
+          borderBottom:'1px solid rgba(77,184,255,0.15)',paddingBottom:8,marginBottom:14}}>
+          <div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.14em',marginBottom:2}}>{dayDetail.label}</div>
+            <div style={{fontSize:14,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+              {new Date(dayDetail.date+'T12:00:00').toLocaleDateString('en-US',
+                {weekday:'long',month:'long',day:'numeric'})}
+            </div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:24,color: dayDetail.label==='BEST DAY'?'#ffd700':CC,
+              fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
+              {dayTotal.toLocaleString()}</div>
+            <div style={{fontSize:8,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.12em',marginTop:3}}>
+              {dayEntries.length} CATCH{dayEntries.length!==1?'ES':''}
+            </div>
+          </div>
+        </div>
+
+        {dayEntries.length===0 ? (
+          <div style={{textAlign:'center',padding:'32px 0',fontSize:11,color:'#4a7898',
+            fontFamily:"'Exo 2',sans-serif",lineHeight:1.6}}>
+            No catch records found for this day.<br/>
+            Detailed history is recorded from this version onwards.
+          </div>
+        ) : dayEntries.map((r,i)=>{
+          const rt=TIER[r.tier]||TIER.common;
+          return (
+            <div key={i} style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rt.color}44`,borderRadius:9,padding:'10px 12px',
+              marginBottom:8,position:'relative',overflow:'hidden'}}>
+              <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:rt.color}}/>
+              <div style={{display:'flex',justifyContent:'space-between',
+                alignItems:'baseline',marginLeft:4}}>
+                <div>
+                  <span style={{fontSize:13,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                    fontWeight:700}}>{r.cs||r.typeKey}</span>
+                  {r.reg&&<span style={{fontSize:9,color:'#4a7898',
+                    fontFamily:"'Exo 2',sans-serif",marginLeft:6}}>{r.reg}</span>}
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:9,color:rt.color,fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.08em'}}>{rt.label}</span>
+                  <span style={{fontSize:14,color:rt.color,fontFamily:"'Orbitron',monospace",
+                    fontWeight:700}}>+{r.score}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'2px 12px',
+                marginLeft:4,marginTop:5,fontSize:10,color:'#6a98b8',
+                fontFamily:"'Exo 2',sans-serif"}}>
+                <span style={{color:'#4a7898',fontSize:9}}>{r.typeKey}</span>
+                {r.kind==='captured'&&<span style={{color:'#2dffb4'}}>📸 photo</span>}
+                {r.location&&<span>📍 {r.location}</span>}
+                {r.altFt!=null&&<span>{r.altFt.toLocaleString()} ft</span>}
+                {r.distNmi!=null&&<span>{r.distNmi} nmi</span>}
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',
+                alignItems:'center',marginLeft:4,marginTop:5}}>
+                <div style={{fontSize:9,color:'#3a6878',
+                  fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</div>
+                <AircraftInfoButton typeCode={r.typeKey} style={{
+                  width:'auto',padding:'2px 8px',fontSize:8,
+                  letterSpacing:'.08em',gap:4,borderRadius:4,
+                  border:'1px solid rgba(77,184,255,0.15)',
+                  color:'#3a6878',
+                }}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ── Detail view: every recorded catch of one type, newest first ──
+  if(detail){
+    const tier = TIER[detail.best?.tier] || TIER.common;
+    const fmt = ts => new Date(ts).toLocaleString('en-US',
+      {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+    return (
+      <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 14px 32px'}}>
+        <button onClick={()=>setDetail(null)} style={{background:'transparent',
+          border:'1px solid rgba(77,184,255,0.3)',borderRadius:6,padding:'5px 12px',
+          cursor:'pointer',color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",
+          letterSpacing:'.1em',marginBottom:14}}>← BACK TO DEX</button>
+
+        <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',
+          borderBottom:`1px solid ${tier.color}55`,paddingBottom:8,marginBottom:6}}>
+          <span style={{fontSize:20,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:'#cfe8f8',letterSpacing:'.04em'}}>{detail.type}</span>
+          <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:tier.color,letterSpacing:'.1em'}}>{tier.label} · best {detail.best?.score||0}</span>
+        </div>
+        <div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginBottom:16}}>
+          {detail.spotted+detail.captured}× caught · {detail.captured} photographed ·
+          first {new Date(detail.first).toLocaleDateString()}
+        </div>
+
+        {(detail.log||[]).length===0 ? (
+          <div style={{fontSize:11,color:'#4a7898',fontFamily:"'Exo 2',sans-serif"}}>
+            Older catches of this type were recorded before per-catch history was added.
+          </div>
+        ) : (detail.log||[]).map((r,i)=>{
+          const rt=TIER[r.tier]||TIER.common;
+          return (
+            <div key={i} style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rt.color}44`,borderRadius:9,padding:'10px 12px',
+              marginBottom:8,position:'relative',overflow:'hidden'}}>
+              <div style={{position:'absolute',top:0,left:0,bottom:0,width:3,background:rt.color}}/>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginLeft:4}}>
+                <span style={{fontSize:13,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+                  {r.cs||r.reg||detail.type}</span>
+                <span style={{fontSize:9,color:rt.color,fontFamily:"'Orbitron',monospace",
+                  fontWeight:700,letterSpacing:'.08em'}}>
+                  {r.kind==='captured'?'📸 ':''}{rt.label} · {r.score}</span>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'2px 14px',marginLeft:4,marginTop:6,
+                fontSize:10,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+                {r.location&&<span>📍 {r.location}</span>}
+                {r.altFt!=null&&<span>{r.altFt.toLocaleString()} ft</span>}
+                {r.spdKts!=null&&<span>{r.spdKts} kts</span>}
+                {r.distNmi!=null&&<span>{r.distNmi} nmi</span>}
+                {r.bearDeg!=null&&<span>brg {String(r.bearDeg).padStart(3,'0')}°</span>}
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                marginLeft:4,marginTop:7}}>
+                <span style={{fontSize:9,color:'#3a6878',fontFamily:"'Exo 2',sans-serif"}}>{fmt(r.ts)}</span>
+                <button onClick={()=>onShare&&onShare({
+                  cs:r.cs||r.reg||detail.type, airline:r.airline||'', type:detail.type,
+                  catLabel:r.catLabel||'', altFt:r.altFt, spdKts:r.spdKts,
+                  distNmiVal:r.distNmi, bearDeg:r.bearDeg, location:r.location, timestamp:r.ts,
+                  rarity:{label:r.label,color:r.color,score:r.score,kind:r.kind},
+                })} style={{background:'transparent',border:`1px solid ${rt.color}55`,
+                  borderRadius:5,padding:'4px 10px',cursor:'pointer',color:rt.color,
+                  fontSize:9,fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+                  display:'flex',alignItems:'center',gap:5}}>
+                  <ShareIcon/> SHARE
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{height:'100%',overflowY:'auto',WebkitOverflowScrolling:'touch',
+      padding:'14px 14px 32px'}}>
+      {confirmClear && (
+        <div onClick={()=>setConfirmClear(false)} style={{position:'absolute',inset:0,zIndex:70,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:24,
+          background:'rgba(1,6,18,0.8)'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:300,
+            background:'rgba(3,11,30,0.98)',border:'1.5px solid rgba(255,107,107,0.5)',
+            borderRadius:14,padding:'20px 18px',textAlign:'center'}}>
+            <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#ff6b6b',letterSpacing:'.08em',marginBottom:10}}>CLEAR ALL CATCHES?</div>
+            <div style={{fontSize:11,color:'#90c8e8',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.5,marginBottom:18}}>
+              This permanently deletes your entire collection, per-catch history, and daily score records. This cannot be undone.
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setConfirmClear(false)} style={{flex:1,background:'transparent',
+                border:'1px solid rgba(77,184,255,0.3)',borderRadius:8,padding:'9px 0',cursor:'pointer',
+                color:'#90c8e8',fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>CANCEL</button>
+              <button onClick={()=>{setConfirmClear(false);setDetail(null);onClearAll&&onClearAll();}} style={{flex:1,
+                background:'#ff6b6b',border:'none',borderRadius:8,padding:'9px 0',cursor:'pointer',
+                color:'#1a0606',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                letterSpacing:'.08em'}}>DELETE ALL</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {totalCatches===0 ? (
+        <div style={{textAlign:'center',padding:'48px 24px',color:'#4a7898',
+          fontFamily:"'Exo 2',sans-serif",fontSize:12,lineHeight:1.7}}>
+          <div style={{fontSize:30,marginBottom:12}}>✨</div>
+          No catches yet. Tap an aircraft within 15&nbsp;nm to spot it,
+          or photograph one in camera mode to capture it.
+          Rare finds earn higher rarity scores.
+        </div>
+      ) : (
+        <>
+          {/* Daily score strip */}
+          {daily&&(()=>{
+            const d=new Date();
+            const tk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const today=daily.days?.[tk]||0;
+            const best=daily.best?.score||0;
+            const isRecordToday=daily.best?.date===tk&&best>0;
+            return (
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
+                <div onClick={()=>today>0&&setDayDetail({date:tk,label:'TODAY'})}
+                  style={{flex:1,background:'rgba(4,14,36,0.9)',
+                  border:`1px solid ${isRecordToday?'#ffd700':'rgba(77,184,255,0.15)'}`,
+                  borderRadius:8,padding:'10px 8px',textAlign:'center',
+                  cursor:today>0?'pointer':'default',
+                  opacity: today>0?1:0.5}}>
+                  <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                    color:isRecordToday?'#ffd700':'#b8e4ff',lineHeight:1}}>{today.toLocaleString()}</div>
+                  <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.12em',marginTop:5}}>
+                    TODAY{today>0?' ►':''}</div>
+                </div>
+                <div onClick={()=>daily.best?.date&&setDayDetail({date:daily.best.date,label:'BEST DAY'})}
+                  style={{flex:1,background:'rgba(4,14,36,0.9)',
+                  border:'1px solid rgba(255,215,0,0.3)',borderRadius:8,
+                  padding:'10px 8px',textAlign:'center',
+                  cursor:daily.best?.date?'pointer':'default',
+                  opacity:daily.best?.date?1:0.5}}>
+                  <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                    color:'#ffd700',lineHeight:1}}>{best.toLocaleString()}</div>
+                  <div style={{fontSize:8,color:'#bfa000',fontFamily:"'Orbitron',monospace",
+                    letterSpacing:'.12em',marginTop:5}}>
+                    BEST DAY 🏆{daily.best?.date?' ►':''}</div>
+                </div>
+              </div>
+            );
+          })()}
+          {/* Headline stats */}
+          <div style={{display:'flex',gap:8,marginBottom:14}}>
+            <Big val={typesCollected} label="TYPES"/>
+            <Big val={totalCatches} label="CATCHES"/>
+            <Big val={totalCaptured} label="PHOTOS" sub="captured"/>
+          </div>
+
+          {/* Rarest find banner */}
+          {rarest && (
+            <div style={{background:'rgba(4,14,36,0.92)',
+              border:`1px solid ${rarestTier?.color||CC}`,borderRadius:10,
+              padding:'11px 14px',marginBottom:16,
+              boxShadow:`0 0 16px ${(rarestTier?.color||CC)}33`}}>
+              <div style={{fontSize:8,color:rarestTier?.color||CC,fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.16em',marginBottom:4}}>★ RAREST CATCH</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <span style={{fontSize:15,color:'#cfe8f8',fontFamily:"'Orbitron',monospace",
+                  fontWeight:700}}>{rarest.type}</span>
+                <span style={{fontSize:11,color:'#6a98b8',fontFamily:"'Exo 2',sans-serif"}}>
+                  {rarest.cs}{rarest.reg?` · ${rarest.reg}`:''}</span>
+              </div>
+              <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",marginTop:3}}>
+                rarity {rarest.score} · {new Date(rarest.ts).toLocaleDateString()}</div>
+            </div>
+          )}
+
+          {/* Clear-all control */}
+          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+            <button onClick={()=>setConfirmClear(true)} style={{background:'transparent',
+              border:'1px solid rgba(255,107,107,0.4)',borderRadius:6,padding:'6px 12px',
+              cursor:'pointer',color:'#ff6b6b',fontSize:9,fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em'}}>CLEAR ALL CATCHES</button>
+          </div>
+          {/* Collection by category */}
+          {rows.map(cat=>(
+            <div key={cat} style={{marginBottom:16}}>
+              <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.16em',fontWeight:700,marginBottom:8,paddingBottom:5,
+                borderBottom:'1px solid rgba(77,184,255,0.12)',
+                display:'flex',justifyContent:'space-between'}}>
+                <span>{(catNames[cat]||'Other').toUpperCase()}</span>
+                <span style={{color:'#3a6878'}}>{byCat[cat].length}</span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {byCat[cat].map(c=><Card key={c.type} c={c}/>)}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Logbook({ entries, pos, onClose, onClear }) {
+  const fmt = fmtTime;
+  // filterNmi = max closestNmi (logged distance) to show — historical, NOT current distance
+  const [filterNmi, setFilterNmi] = useState(500);
+  const [selectedTail, setSelectedTail] = useState(null); // {tail, entry}
+  const maxDist = useMemo(()=>
+    Math.max(Math.ceil(Math.max(...entries.flatMap(e=>e.tails.map(t=>t.closestNmi||0)),1)),25)
+  ,[entries]);
+  const filtered=entries
+    .map(e=>({...e,tails:e.tails.filter(t=>t.closestNmi<=filterNmi)}))
+    .filter(e=>e.tails.length>0);
+  const totalTails=filtered.reduce((s,e)=>s+e.tails.length,0);
+  const catLabel=c=>({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+    'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
+    'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[c]||'Aircraft');
+  const distPct=Math.min(100,(filterNmi/maxDist)*100);
+
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{
+      position:'absolute',inset:0,zIndex:60,
+      paddingTop:'env(safe-area-inset-top,0px)',
+      background:'rgba(1,6,18,0.98)',
+      display:'flex',flexDirection:'column',
+      animation:'slideUp 0.3s ease',
+    }}>
+      {/* Header */}
+      <div style={{padding:'14px 16px 10px',borderBottom:'1px solid rgba(77,184,255,0.12)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+          <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,color:'#b8e4ff',letterSpacing:'.18em'}}>LOGBOOK</div>
+          <button onClick={onClose} style={{background:'transparent',border:'1px solid rgba(77,184,255,0.2)',
+            borderRadius:6,color:'#5a8898',fontSize:12,cursor:'pointer',padding:'4px 10px',
+            fontFamily:"'Orbitron',monospace"}}>X CLOSE</button>
+        </div>
+        <div style={{fontSize:10,color:'#5a8898',fontFamily:"'Orbitron',monospace",marginBottom:8}}>
+          {filtered.length} TYPE{filtered.length!==1?'S':''} · {totalTails} TAIL{totalTails!==1?'S':''}
+        </div>
+        <div style={{marginBottom:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+            <span style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>FILTER WITHIN</span>
+            <span style={{fontSize:10,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
+              {filterNmi>=maxDist?'ALL':filterNmi+' nmi'}
+            </span>
+          </div>
+          <input type="range" min={1} max={maxDist} step={1} value={Math.min(filterNmi,maxDist)}
+            onChange={e=>setFilterNmi(+e.target.value)}
+            style={{width:'100%',background:`linear-gradient(to right,#4db8ff 0%,#4db8ff ${distPct}%,#060e1e ${distPct}%,#060e1e 100%)`}}/>
+        </div>
+        {entries.length>0&&(
+          <div onClick={onClear} style={{fontSize:9,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+            cursor:'pointer',textDecoration:'underline',letterSpacing:'.06em',display:'inline-block'}}>CLEAR ALL</div>
+        )}
+      </div>
+
+      {/* Single scrollable area: charts + type list */}
+      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'8px 12px 24px'}}>
+        {entries.length>0&&<LogbookCharts entries={entries} filterNmi={filterNmi} pos={pos}/>}
+        {/* Divider */}
+        {entries.length>0&&<div style={{height:1,background:'rgba(77,184,255,0.08)',margin:'4px 0 8px'}}/>}
+        <div style={{padding:'0'}}>
+        {filtered.length===0?(
+          <div style={{textAlign:'center',padding:'48px 20px',color:'#3a6878',
+            fontSize:11,fontFamily:"'Orbitron',monospace",lineHeight:2,letterSpacing:'.08em'}}>
+            {entries.length===0
+              ?<>NO ENCOUNTERS YET<br/><span style={{fontSize:10,color:'#2a4a58'}}>FLY WITHIN THE LOG RADIUS<br/>TO LOG AN AIRCRAFT</span></>
+              :<>NO ENCOUNTERS WITHIN {filterNmi} NMI<br/><span style={{fontSize:10,color:'#2a4a58'}}>TRY A LARGER RANGE ABOVE</span></>}
+          </div>
+        ):filtered.map(e=>{
+          const cat=e.cat||getAircraftCat(e.type!=='UNKN'?e.type:'');
+          const maxAltM=Math.max(...e.tails.map(t=>t.alt))/3.28084;
+          const col=altColor(maxAltM);
+          return (
+            <div key={e.id} style={{padding:'10px 16px',borderBottom:'0.5px solid rgba(77,184,255,0.07)'}}>
+              {/* Type header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <svg width="26" height="26" viewBox="-12 -12 24 24" style={{flexShrink:0,opacity:0.85}}>
+                    <PlaneShape cat={cat} color={col} fc={0.7} icao={e.type||''}/>
+                  </svg>
+                  <div>
+                    <div style={{fontSize:13,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                      color:col,letterSpacing:'.1em'}}>{e.type==='UNKN'?'????':e.type}</div>
+                    <div style={{fontSize:9,color:'#5a7888',fontFamily:"'Exo 2',sans-serif",marginTop:1}}>
+                      {catLabel(cat)} · {e.tails.length} tail{e.tails.length!==1?'s':''}</div>
+                  </div>
+                </div>
+                <div style={{textAlign:'right',flexShrink:0}}>
+                  {e.tails.length>1&&<>
+                    <div style={{fontSize:11,color:'#6a98b8',fontFamily:"'Orbitron',monospace",fontWeight:600}}>
+                      {e.closestNmi} nmi</div>
+                    <div style={{fontSize:8,color:'#2a4a58',fontFamily:"'Orbitron',monospace",marginTop:2}}>
+                      {fmt(e.lastSeen)}</div>
+                  </>}
+                </div>
+              </div>
+              {/* Tail entries — full-width rows, easy to tap */}
+              <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:4}}>
+                {e.tails.map(t=>{
+                  const rowCol = t.isNew ? '#2dffb4' : '#4db8ff';
+                  return (
+                    <div key={t.key}
+                      onClick={()=>setSelectedTail({tail:{...t,type:e.type,cat:e.cat,airline:t.airline||e.airline},entry:e})}
+                      style={{
+                        display:'flex',alignItems:'center',justifyContent:'space-between',
+                        padding:'8px 10px',borderRadius:6,cursor:'pointer',
+                        background:'rgba(77,184,255,0.04)',
+                        border:`0.5px solid ${t.isNew?'rgba(45,255,180,0.25)':'rgba(77,184,255,0.12)'}`,
+                        WebkitTapHighlightColor:'rgba(77,184,255,0.15)',
+                        touchAction:'manipulation',   // prevents iOS scroll-vs-tap ambiguity
+                        userSelect:'none',
+                      }}>
+                      {/* Left: callsign + city */}
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",
+                          fontWeight:700,color:rowCol,letterSpacing:'.08em'}}>
+                          {t.cs||t.reg||'????'}
+                          {t.isNew&&<span style={{fontSize:8,color:'#2dffb4',marginLeft:6,
+                            fontWeight:400}}>NEW</span>}
+                        </div>
+                        {(t.userCity||t.city)&&(
+                          <div style={{fontSize:9,color:'#2a5068',fontFamily:"'Exo 2',sans-serif",
+                            marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                            📍 {(t.userCity||t.city)}
+                          </div>
+                        )}
+                      </div>
+                      {/* Right: distance + time + chevron */}
+                      <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0,marginLeft:8}}>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+                            fontWeight:600}}>{t.closestNmi} nm</div>
+                          {t.timestamp&&(
+                            <div style={{fontSize:8,color:'#2a4a5a',fontFamily:"'Orbitron',monospace",
+                              marginTop:1}}>{fmtTime(t.timestamp)}</div>
+                          )}
+                        </div>
+                        <div style={{color:'#2a4a5a',fontSize:14,lineHeight:1}}>›</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        </div>{/* end list */}
+      </div>{/* end scroll */}
+
+      {/* Tail detail bottom sheet */}
+      <LogbookTailDetail
+        tail={selectedTail?.tail}
+        entry={selectedTail?.entry}
+        onClose={()=>setSelectedTail(null)}/>
+
+    </div>
+  );
+}
+
+// ── DualSlider — two native <input type="range"> overlaid on one track ──
+// Uses real browser range inputs (iOS-native touch handling, no pointer hacks)
+function DualSlider({ min, max, step, lo, hi, onLo, onHi }) {
+  const loPct = ((lo - min) / (max - min)) * 100;
+  const hiPct = ((hi - min) / (max - min)) * 100;
+  const trackStyle = {
+    position:'absolute',inset:0,
+    WebkitAppearance:'none',appearance:'none',
+    background:'transparent',outline:'none',
+    pointerEvents:'none',cursor:'pointer',
+    height:'100%',width:'100%',margin:0,padding:0,
+  };
+  return (
+    <div style={{position:'relative',height:28,margin:'2px 0 8px'}}>
+      {/* Track background + active fill */}
+      <div style={{position:'absolute',left:0,right:0,top:'50%',transform:'translateY(-50%)',
+        height:4,background:'#060e1e',borderRadius:2,pointerEvents:'none'}}>
+        <div style={{position:'absolute',left:`${loPct}%`,width:`${hiPct-loPct}%`,
+          top:0,bottom:0,background:'#4db8ff',borderRadius:2}}/>
+      </div>
+      {/* Lo handle — only responds to drags below the midpoint */}
+      <input type="range" min={min} max={max} step={step} value={lo}
+        onChange={e=>{const v=+e.target.value; if(v<hi) onLo(v);}}
+        style={{...trackStyle, pointerEvents:'all',
+          zIndex: lo > hi - (max-min)*0.08 ? 2 : 1}}/>
+      {/* Hi handle — sits on top, only responds above midpoint */}
+      <input type="range" min={min} max={max} step={step} value={hi}
+        onChange={e=>{const v=+e.target.value; if(v>lo) onHi(v);}}
+        style={{...trackStyle, pointerEvents:'all', zIndex:1}}/>
+    </div>
+  );
+}
+
+// ── RingRangeControl — circular dial on main screen ──────────────
+// 270° sweep: 12 o'clock = NO LIMIT, 9 o'clock = min range
+// Clockwise drag = reduce range
+function RingRangeControl({ value, min=10, max, onChange }) {
+  const svgRef = React.useRef(null);
+  const S=72, cx=36, cy=36, r=27;
+  const frac = (value-min)/(max-min);
+  // Arc: 10:30 o'clock (SVG 225°) = max range → clockwise 315° → 9 o'clock (SVG 180°) = min range
+  // Dead zone: only 45° from 9→10:30 (upper-left of circle, in the corner away from thumb)
+  const S_DEG=225, E_DEG=180, SWEEP=315;
+  const handleDeg = (S_DEG + (1-frac)*SWEEP) % 360;
+  const hRad = handleDeg*Math.PI/180;
+  const hx = cx + r*Math.cos(hRad);
+  const hy = cy + r*Math.sin(hRad);
+
+  // SVG arc path between two angles (clockwise sweep)
+  const arc = (a1,a2) => {
+    const r1=a1*Math.PI/180, r2=a2*Math.PI/180;
+    const x1=cx+r*Math.cos(r1), y1=cy+r*Math.sin(r1);
+    const x2=cx+r*Math.cos(r2), y2=cy+r*Math.sin(r2);
+    const span=((a2-a1)+360)%360;
+    return `M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r},0,${span>180?1:0},1,${x2.toFixed(2)},${y2.toFixed(2)}`;
+  };
+
+  const angleToValue = angle => {
+    // Clockwise sweep from S_DEG (225°)
+    const sweep = ((angle - S_DEG) + 360) % 360;
+    if(sweep > SWEEP) return sweep < SWEEP+(360-SWEEP)/2 ? min : max; // dead zone snap
+    const f = 1 - sweep/SWEEP;
+    return Math.round(Math.max(min, Math.min(max, min+f*(max-min)))/10)*10;
+  };
+
+  const startDrag = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const move = ev => {
+      if(!svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const cx2 = rect.left+rect.width/2, cy2 = rect.top+rect.height/2;
+      const clientX = ev.clientX??ev.touches?.[0]?.clientX??0;
+      const clientY = ev.clientY??ev.touches?.[0]?.clientY??0;
+      onChange(angleToValue(Math.atan2(clientY-cy2, clientX-cx2)*180/Math.PI));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    move(e);
+  };
+
+  const bgPath     = arc(S_DEG, E_DEG);  // 315° background track
+  // Active arc from handle clockwise to E_DEG (9 o'clock)
+  const activeSpan = ((E_DEG - handleDeg) + 360) % 360;
+  const activePath = activeSpan > 1 ? arc(handleDeg, E_DEG) : null;
+
+  return (
+    <svg ref={svgRef} width={S} height={S} viewBox={`0 0 ${S} ${S}`}
+      onPointerDown={startDrag}
+      style={{cursor:'grab',touchAction:'none',display:'block',overflow:'visible'}}>
+      {/* Track */}
+      <path d={bgPath} fill="none" stroke="rgba(77,184,255,0.12)" strokeWidth="5" strokeLinecap="round"/>
+      {/* Active arc — represents remaining display range */}
+      {activePath&&<path d={activePath} fill="none" stroke="#4db8ff" strokeWidth="5"
+        strokeLinecap="round" opacity="0.82"/>}
+      {/* Handle */}
+      <circle cx={hx} cy={hy} r="6" fill="#4db8ff" stroke="#010a18" strokeWidth="2"/>
+      {/* Center — value */}
+      <text x={cx} y={cy-4} textAnchor="middle" dominantBaseline="middle"
+        fontSize="11" fontWeight="700" fill="#4db8ff"
+        fontFamily="Orbitron,monospace" letterSpacing="-0.5">
+        {value>=max?'∞':value}
+      </text>
+      <text x={cx} y={cy+7} textAnchor="middle" dominantBaseline="middle"
+        fontSize="7" fill="rgba(77,184,255,0.45)" fontFamily="Orbitron,monospace">
+        {value>=max?'FULL':'NMI'}
+      </text>
+      {/* Label below dead-zone gap */}
+      <text x={cx} y={S+3} textAnchor="middle"
+        fontSize="6.5" fill="rgba(77,184,255,0.28)" fontFamily="Orbitron,monospace" letterSpacing=".1em">
+        RANGE
+      </text>
+    </svg>
+  );
+}
+
+// ── FilterPanel ────────────────────────────────────────────────
+const SPD_MAX=700, DIST_MAX=400;
+
+function FilterPanel({
+  altFloor,altCeiling,onFloor,onCeiling,
+  search,onSearch,allFlights,pos,onSelect,
+  typeFilter,onTypeFilter,
+  icaoFilter,onToggleIcao,catches,
+  typeViewMode,onTypeViewMode,
+  minSpeedKts,maxSpeedKts,onMinSpd,onMaxSpd,
+  onResetAll,onClose,
+}) {
+  const [typeGridOpen, setTypeGridOpen] = React.useState(true); // open by default — this IS the filter mechanism
+  // Same grouped list as the Trophy Case — base rarity table + any caught types beyond it.
+  const typeGroups = React.useMemo(()=>buildTrophyGroups(catches||{}), [catches]);
+  const results=search.trim().length>=2
+    ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
+
+  // Compact helpers
+  const Divider = () => <div style={{height:1,background:'rgba(77,184,255,0.07)',margin:'8px 0'}}/>;
+  const Row = ({label,value,reset,onReset}) => (
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+      <span style={{fontSize:9,color:'#60a0c0',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>{label}</span>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {reset&&<span onClick={onReset} style={{fontSize:8,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline'}}>RESET</span>}
+        <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,color:'#4db8ff'}}>{value}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
+      onClick={e=>e.stopPropagation()} style={{
+        position:'absolute',inset:0,zIndex:40,
+        background:'rgba(2,8,22,0.97)',
+        display:'flex',flexDirection:'column',
+      }}>
+      {/* Scrollable body */}
+      <div style={{overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'10px 14px 6px',flex:1}}>
+
+        {/* ── Callsign search ── */}
+        <div style={{position:'relative',marginBottom:results.length||search.trim().length>=2?4:8}}>
+          <input type="text" value={search} onChange={e=>onSearch(e.target.value.toUpperCase())}
+            placeholder="Search callsign…" style={{width:'100%',boxSizing:'border-box',
+              background:'rgba(8,20,44,0.9)',border:'1px solid rgba(77,184,255,0.25)',
+              borderRadius:6,padding:'7px 10px 7px 30px',color:'#b8e4ff',fontSize:12,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',outline:'none'}}/>
+          <svg style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
+            width="12" height="12" viewBox="0 0 13 13">
+            <circle cx="5" cy="5" r="4" stroke="#4a7898" strokeWidth="1.5" fill="none"/>
+            <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="#4a7898" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </div>
+        {results.length>0&&(
+          <div style={{borderRadius:6,overflow:'hidden',border:'0.5px solid rgba(77,184,255,0.12)',marginBottom:6}}>
+            {results.map((f,i)=>{
+              const dist=haversine(pos.lat,pos.lon,f.lat,f.lon);
+              const bear=getBearing(pos.lat,pos.lon,f.lat,f.lon);
+              const elev=getElev(dist,f.alt);
+              return (<div key={f.id} onClick={()=>onSelect({...f,dist,bear,elev})} style={{
+                padding:'7px 10px',cursor:'pointer',
+                background:i%2===0?'rgba(6,16,38,0.95)':'rgba(4,12,30,0.95)',
+                display:'flex',justifyContent:'space-between',alignItems:'center',
+                borderBottom:'0.5px solid rgba(77,184,255,0.06)'}}>
+                <div>
+                  <div style={{fontSize:11,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:700}}>{f.cs}</div>
+                  <div style={{fontSize:10,color:'#5a8898',fontFamily:"'Exo 2',sans-serif"}}>{f.airline}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:10,color:altColor(f.alt),fontFamily:"'Orbitron',monospace",fontWeight:600}}>{mToFt(f.alt)} ft</div>
+                  <div style={{fontSize:9,color:'#4a7888',fontFamily:"'Orbitron',monospace"}}>{distNmi(dist)} nmi</div>
+                </div>
+              </div>);
+            })}
+          </div>
+        )}
+        {search.trim().length>=2&&results.length===0&&
+          <div style={{fontSize:9,color:'#4a6878',fontFamily:"'Orbitron',monospace",marginBottom:6}}>NO MATCH</div>}
+
+        <Divider/>
+
+        {/* ── Aircraft type ── */}
+        <div style={{display:'flex',gap:5,marginBottom:8}}>
+          {[['ALL','all'],['COMMERCIAL','commercial'],['MILITARY','military']].map(([lbl,val])=>(
+            <div key={val} onClick={()=>onTypeFilter(val)} style={{
+              flex:1,textAlign:'center',padding:'5px 0',cursor:'pointer',borderRadius:5,
+              background:typeFilter===val?'rgba(77,184,255,0.18)':'transparent',
+              border:`1px solid ${typeFilter===val?'#4db8ff':'rgba(77,184,255,0.18)'}`,
+              fontSize:9,color:typeFilter===val?'#4db8ff':'#4a7888',
+              fontFamily:"'Orbitron',monospace",fontWeight:typeFilter===val?600:400,
+            }}>{lbl}</div>
+          ))}
+        </div>
+
+        {/* ── Specific aircraft type — multi-select from the Trophy Case list ── */}
+        <div onClick={()=>setTypeGridOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',
+          alignItems:'center',cursor:'pointer',padding:'6px 8px',marginBottom:typeGridOpen?6:0,
+          background:'rgba(77,184,255,0.08)',borderRadius:6,border:'1px solid rgba(77,184,255,0.18)'}}>
+          <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#9ad0f0',letterSpacing:'.1em',fontWeight:600}}>
+            SPECIFIC TYPE {icaoFilter.size>0 && <span style={{color:'#4db8ff'}}>· {icaoFilter.size} SELECTED</span>}
+          </span>
+          <span style={{fontSize:12,color:'#4db8ff',transform:typeGridOpen?'rotate(90deg)':'none',
+            display:'inline-block',transition:'transform .15s'}}>›</span>
+        </div>
+        {typeGridOpen && (
+          <div style={{marginBottom:8}}>
+            {/* Caught-only / all-types shortcut toggle */}
+            <div style={{display:'flex',gap:5,marginBottom:8}}>
+              {[['ALL TYPES','all'],['CAUGHT ONLY','caught'],['NOT CAUGHT','uncaught']].map(([lbl,val])=>(
+                <div key={lbl} onClick={()=>onTypeViewMode(val)} style={{
+                  flex:1,textAlign:'center',padding:'4px 0',cursor:'pointer',borderRadius:5,
+                  background:typeViewMode===val?'rgba(45,255,180,0.14)':'transparent',
+                  border:`1px solid ${typeViewMode===val?'#2dffb4':'rgba(77,184,255,0.18)'}`,
+                  fontSize:8,color:typeViewMode===val?'#2dffb4':'#4a7888',
+                  fontFamily:"'Orbitron',monospace",fontWeight:typeViewMode===val?600:400,
+                }}>{lbl}</div>
+              ))}
+            </div>
+            <div style={{maxHeight:260,overflowY:'auto',paddingRight:2}}>
+              {TROPHY_CATS.map(([catKey,catLabel])=>{
+                let types = typeGroups[catKey]||[];
+                if(typeViewMode==='caught') types = types.filter(t=>{
+                  const c=catches?.[t]; return c && (c.spotted>0||c.captured>0);
+                });
+                else if(typeViewMode==='uncaught') types = types.filter(t=>{
+                  const c=catches?.[t]; return !(c && (c.spotted>0||c.captured>0));
+                });
+                if(!types.length) return null;
+                return (
+                  <div key={catKey} style={{marginBottom:10}}>
+                    <div style={{fontSize:8,fontFamily:"'Orbitron',monospace",color:'#4a7898',
+                      letterSpacing:'.12em',marginBottom:5}}>{catLabel}</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                      {types.map(type=>{
+                        const c = catches?.[type];
+                        const caught = !!(c && (c.spotted>0||c.captured>0));
+                        const tierKey = c?.best?.tier;
+                        const iconColor = caught ? (TIER_COLOR[tierKey] || '#90c8e8') : '#3a5a72';
+                        const selected = icaoFilter.has(type);
+                        return (
+                          <div key={type} onClick={()=>onToggleIcao(type)} style={{
+                            display:'flex',alignItems:'center',gap:4,padding:'3px 7px',
+                            borderRadius:6,cursor:'pointer',
+                            background:selected?'rgba(77,184,255,0.18)':'rgba(8,20,48,0.6)',
+                            border:`1px solid ${selected?'#4db8ff':'rgba(25,55,95,0.6)'}`}}>
+                            <svg width="16" height="16" viewBox="-12 -12 24 24" style={{flexShrink:0}}>
+                              <PlaneShape cat={catKey} color={iconColor} fc={1} icao={type}/>
+                            </svg>
+                            <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",
+                              color:selected?'#4db8ff':'#7aacc8',letterSpacing:'.03em'}}>{type}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+
+        <Divider/>
+
+        {/* ── Altitude — dual handle ── */}
+        <Row label="ALTITUDE"
+          value={`${altFloor===0?'GND':`${(altFloor/1000).toFixed(0)}k`} — ${altCeiling>=ALT_MAX?'∞':`${(altCeiling/1000).toFixed(0)}k`} ft`}
+          reset={altFloor>0||altCeiling<ALT_MAX} onReset={()=>{onFloor(0);onCeiling(ALT_MAX);}}/>
+        <DualSlider min={0} max={ALT_MAX} step={1000}
+          lo={altFloor} hi={altCeiling} onLo={onFloor} onHi={onCeiling}/>
+
+        <Divider/>
+
+        {/* ── Speed — dual handle ── */}
+        <Row label="SPEED"
+          value={`${minSpeedKts===0?'0':minSpeedKts} — ${maxSpeedKts>=SPD_MAX?'∞':maxSpeedKts} kts`}
+          reset={minSpeedKts>0||maxSpeedKts<SPD_MAX} onReset={()=>{onMinSpd(0);onMaxSpd(SPD_MAX);}}/>
+        <DualSlider min={0} max={SPD_MAX} step={10}
+          lo={minSpeedKts} hi={maxSpeedKts} onLo={onMinSpd} onHi={onMaxSpd}/>
+
+
+      </div>{/* end scrollable body */}
+
+      {/* Compact footer */}
+      <div style={{padding:'7px 12px 10px',borderTop:'1px solid rgba(77,184,255,0.08)',display:'flex',gap:6}}>
+        <button onClick={onResetAll} style={{flex:1,background:'transparent',
+          border:'1px solid rgba(255,100,80,0.22)',borderRadius:5,color:'#6a4040',
+          padding:'6px',fontFamily:"'Orbitron',monospace",fontSize:8,cursor:'pointer',letterSpacing:'.08em'}}>
+          RESET ALL
+        </button>
+        <button onClick={onClose} style={{flex:2,background:'transparent',
+          border:'1px solid rgba(77,184,255,0.15)',borderRadius:5,color:'#5a8898',
+          padding:'6px',fontFamily:"'Orbitron',monospace",fontSize:9,cursor:'pointer'}}>
+          DONE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+const STYLES=[
+  /* Google Fonts loaded via index.html <link> — removed from here to avoid render-blocking */
+  "@keyframes ring{0%{transform:translate(-50%,-50%) scale(.7);opacity:.75}100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}}",
+"@keyframes glowRing{0%,100%{opacity:0.4}50%{opacity:1}}",
+  "@keyframes targetPulse{0%,100%{box-shadow:0 0 6px rgba(255,255,255,0.15)}50%{box-shadow:0 0 14px rgba(255,255,255,0.4)}}",
+  "@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}",
+  "@keyframes slideUp{from{transform:translateY(105%)}to{transform:translateY(0)}}",
+  "@keyframes slideUpCentered{from{transform:translateX(-50%) translateY(105%)}to{transform:translateX(-50%) translateY(0)}}",
+  "@keyframes taglineFade{0%{opacity:1}70%{opacity:1}100%{opacity:0}}",
+  "@keyframes slideDown{from{transform:translateY(-8%);opacity:0}to{transform:translateY(0);opacity:1}}",
+  "@keyframes fadeUp{0%{transform:translate(-50%,0);opacity:1}70%{transform:translate(-50%,-22px);opacity:1}100%{transform:translate(-50%,-32px);opacity:0}}",
+  "@keyframes sweep{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}",
+  "@keyframes arPulse{0%,100%{box-shadow:0 0 6px #4db8ff44}50%{box-shadow:0 0 14px #4db8ffaa}}",
+  "@keyframes recordPop{0%{transform:translate(-50%,-50%) scale(.7);opacity:0}55%{transform:translate(-50%,-50%) scale(1.06);opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}",
+  "@keyframes recordGlow{0%,100%{box-shadow:0 0 22px rgba(255,215,0,0.35)}50%{box-shadow:0 0 44px rgba(255,215,0,0.7)}}",
+  "@keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(360px) rotate(540deg);opacity:0}}",
+"@keyframes ping{0%{transform:translate(-50%,-50%) scale(.9);opacity:.85}100%{transform:translate(-50%,-50%) scale(3.2);opacity:0}}",
+  "input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;outline:none;cursor:pointer}",
+  "input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#4db8ff;border:2.5px solid #010a18;cursor:grab;box-shadow:0 0 0 3px rgba(77,184,255,0.14);margin-top:-7px}",
+  "input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#4db8ff;border:2.5px solid #010a18;cursor:grab}",
+  "input[type=range]::-webkit-slider-runnable-track{background:transparent;height:3px}",
+  "input[type=range]::-moz-range-track{background:transparent;height:3px}",
+  "input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#4db8ff;border:2px solid #010a18;cursor:pointer;box-shadow:0 0 6px #4db8ff44}",
+  "input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#4db8ff;border:2px solid #010a18;cursor:pointer}",
+].join("\n");
+
+// ── App ────────────────────────────────────────────────────────
+
+// ── Disclaimer ─────────────────────────────────────────────────
+const DISCLAIMER_KEY = 'soratomo_disclaimer_v3'; // v3 = updated location/camera disclosure // v2 = localStorage (was sessionStorage)
+function Disclaimer({ onAccept }) {
+  return (
+    <div style={{
+      position:'fixed',inset:0,zIndex:999,
+      paddingTop:'env(safe-area-inset-top,0px)',
+      background:'rgba(1,6,18,0.98)',
+      display:'flex',flexDirection:'column',
+      fontFamily:"'Exo 2',sans-serif",
+    }}>
+      {/* Scrollable content area — fills all space above the pinned button */}
+      <div style={{
+        flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch',
+        padding:'28px 20px 16px',
+        display:'flex',flexDirection:'column',alignItems:'center',
+      }}>
+        <div style={{maxWidth:480,width:'100%'}}>
+          {/* Logo */}
+          <div style={{textAlign:'center',marginBottom:18}}>
+            <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#b8e4ff',letterSpacing:'.25em'}}>SORATOMO</div>
+            <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.18em',marginTop:4}}>空友 · SKY COMPANION</div>
+            <div style={{fontSize:13,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
+              fontStyle:'italic',marginTop:8,letterSpacing:'.04em'}}>Skygazing, for aircraft.</div>
+          </div>
+
+          {/* Disclaimer box */}
+          <div style={{
+            border:'1px solid rgba(77,184,255,0.25)',borderRadius:10,
+            padding:'14px 16px',marginBottom:8,
+            background:'rgba(4,14,36,0.9)',
+          }}>
+            <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#e87070',letterSpacing:'.14em',marginBottom:10,textAlign:'center'}}>
+              ⚠ DISCLAIMER — READ BEFORE USE
+            </div>
+            {[
+              ['NOT FOR AVIATION USE',
+               'A hobbyist tool for personal, recreational, and educational use ONLY. Not certified or intended for any aviation safety, navigation, or operational purpose.'],
+              ['NO SAFETY GUARANTEE',
+               'Do NOT use for aircraft separation, collision avoidance, airspace management, or any real-time flight operation. Provides NO safety assurance.'],
+              ['DATA ACCURACY & LATENCY',
+               'ADS-B data from adsb.lol may be delayed, incomplete, or absent. Aircraft without ADS-B transponders will NOT appear. Coverage not guaranteed.'],
+              ['REGULATORY COMPLIANCE',
+               'Users are solely responsible for complying with all applicable aviation regulations. This app does not provide airspace authorization, NOTAMs, weather, or TFR information.'],
+              ['LOCATION & CAMERA',
+               'SoraTomo uses your GPS location to request nearby aircraft from backend proxy services and third-party ADS-B providers. Your coordinates are sent on each data poll — no location history is stored. Camera frames are processed entirely on-device and are never uploaded unless you explicitly use the Share button.'],
+              ['THIRD-PARTY DATA',
+               'Aircraft data is provided by adsb.lol under their terms of service. The developer is not responsible for its accuracy, completeness, or availability.'],
+              ['LIMITATION OF LIABILITY',
+               'The developer assumes NO liability for any injury, damage, or loss arising from use of this application. Use is entirely at your own risk.'],
+              ['NO ENDORSEMENT',
+               'Not affiliated with or endorsed by the FAA, ICAO, or any aviation authority.'],
+            ].map(([title, body]) => (
+              <div key={title} style={{marginBottom:9}}>
+                <div style={{fontSize:9,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                  color:'#4db8ff',letterSpacing:'.1em',marginBottom:2}}>{title}</div>
+                <div style={{fontSize:10,color:'#7a9ab8',lineHeight:1.5}}>{body}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Scroll hint — only visible if content overflows */}
+          <div style={{textAlign:'center',fontSize:9,color:'#2a4050',
+            fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',marginBottom:4}}>
+            ↓ scroll to accept
+          </div>
+        </div>
+      </div>
+
+      {/* Accept button — pinned to bottom, always visible on any screen size */}
+      <div style={{
+        padding:'12px 20px calc(16px + env(safe-area-inset-bottom,0px))',
+        background:'linear-gradient(0deg,rgba(1,6,18,1) 70%,rgba(1,6,18,0) 100%)',
+        flexShrink:0,
+      }}>
+        <button onClick={onAccept} style={{
+          width:'100%',padding:'15px',
+          background:'rgba(77,184,255,0.1)',
+          border:'1.5px solid #4db8ff',
+          borderRadius:8,cursor:'pointer',
+          fontFamily:"'Orbitron',monospace",
+          fontSize:11,fontWeight:700,
+          color:'#4db8ff',letterSpacing:'.15em',
+        }}>
+          I UNDERSTAND — ENTERTAINMENT ONLY
+        </button>
+        <div style={{textAlign:'center',marginTop:8,fontSize:9,color:'#2a4a58',
+          fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
+          Shown once on first launch
+        </div>
+        <div style={{textAlign:'center',marginTop:6}}>
+          <a href="https://soratomo.netlify.app/privacy" target="_blank" rel="noopener"
+            style={{fontSize:9,color:'#2a4a58',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.06em',textDecoration:'underline'}}>
+            PRIVACY POLICY
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Gallery ─────────────────────────────────────────────────────
+function Gallery({ photos, onClose, onDelete, onClear, selected, onSelect }) {
+  const fmt = fmtTime;
+  if(selected) return (
+    <div onClick={()=>onSelect(null)} style={{
+      position:'absolute',inset:0,zIndex:70,
+      background:'#000',
+      display:'flex',flexDirection:'column',
+      animation:'slideUp 0.2s ease',
+    }}>
+      <img src={selected.thumb} alt=""
+        style={{flex:1,width:'100%',objectFit:'contain'}}/>
+      <div style={{padding:'10px 14px',background:'rgba(1,6,18,0.95)',
+        display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+        <div>
+          <div style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#b8e4ff',letterSpacing:'.08em'}}>
+            {selected.heading.toString().padStart(3,'0')}° · {selected.count} A/C
+          </div>
+          <div style={{fontSize:8,color:'#3a6878',fontFamily:"'Orbitron',monospace",marginTop:2}}>
+            {fmt(selected.timestamp)}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={e=>{e.stopPropagation();
+            const a=document.createElement('a');
+            a.download=`soratomo-${selected.id}.jpg`;
+            a.href=selected.thumb;
+            document.body.appendChild(a);a.click();document.body.removeChild(a);
+          }} style={{background:'rgba(77,184,255,0.1)',border:'1px solid rgba(77,184,255,0.3)',
+            borderRadius:6,padding:'6px 12px',cursor:'pointer',color:'#4db8ff',
+            fontSize:9,fontFamily:"'Orbitron',monospace"}}>↓ SAVE</button>
+          <button onClick={e=>{e.stopPropagation();onDelete(selected.id);onSelect(null);}}
+            style={{background:'rgba(255,100,100,0.1)',border:'1px solid rgba(255,100,100,0.3)',
+            borderRadius:6,padding:'6px 12px',cursor:'pointer',color:'#f87171',
+            fontSize:9,fontFamily:"'Orbitron',monospace"}}>DELETE</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{
+      position:'absolute',inset:0,zIndex:60,
+      paddingTop:'env(safe-area-inset-top,0px)',
+      background:'rgba(1,6,18,0.98)',
+      display:'flex',flexDirection:'column',
+      animation:'slideUp 0.3s ease',
+    }}>
+      {/* Header */}
+      <div style={{padding:'14px 16px 10px',borderBottom:'1px solid rgba(77,184,255,0.12)',
+        flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div>
+          <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            color:'#b8e4ff',letterSpacing:'.18em'}}>SNAP GALLERY</div>
+          <div style={{fontSize:9,color:'#3a6878',fontFamily:"'Orbitron',monospace",
+            marginTop:3,letterSpacing:'.06em'}}>{photos.length} PHOTO{photos.length!==1?'S':''} · TAP TO ENLARGE</div>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {photos.length>0&&(
+            <button onClick={onClear} style={{background:'transparent',
+              border:'1px solid rgba(255,100,100,0.3)',borderRadius:6,padding:'4px 10px',
+              cursor:'pointer',color:'#f87171',fontSize:9,fontFamily:"'Orbitron',monospace"}}>
+              CLEAR ALL
+            </button>
+          )}
+          <button onClick={onClose} style={{background:'transparent',
+            border:'1px solid rgba(77,184,255,0.2)',borderRadius:6,padding:'4px 10px',
+            cursor:'pointer',color:'#5a8898',fontSize:12,fontFamily:"'Orbitron',monospace"}}>
+            X CLOSE
+          </button>
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch'}}>
+        {photos.length===0 ? (
+          <div style={{textAlign:'center',padding:'60px 20px',color:'#3a6878',
+            fontSize:11,fontFamily:"'Orbitron',monospace",lineHeight:2,letterSpacing:'.08em'}}>
+            NO PHOTOS YET<br/>
+            <span style={{fontSize:10,color:'#2a4a58'}}>TAP SNAP IN CAMERA MODE</span>
+          </div>
+        ) : (
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:3,padding:3}}>
+            {photos.map(p=>(
+              <div key={p.id} onClick={()=>onSelect(p)} style={{
+                position:'relative',aspectRatio:'16/9',
+                overflow:'hidden',borderRadius:4,cursor:'pointer',
+                background:'#0a1428',
+              }}>
+                <img src={p.thumb} alt={fmt(p.timestamp)}
+                  style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                <div style={{position:'absolute',bottom:0,left:0,right:0,
+                  background:'linear-gradient(transparent,rgba(1,6,18,0.85))',
+                  padding:'8px 4px 3px',
+                  fontSize:6.5,color:'rgba(184,228,255,0.8)',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.03em',textAlign:'right'}}>
+                  {p.heading.toString().padStart(3,'0')}° · {p.count}ac
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+export default function App() {
+  const [pos,         setPos]         = useState({lat:38.9072,lon:-77.0369});
+  const [heading,     setHeading]     = useState(15);
+  const [devicePitch, setDevicePitch] = useState(0);
+  const [flights,     setFlights]     = useState([]);
+  const [apiStatus,   setApiStatus]   = useState('demo'); // 'live'|'demo'|'limited'
+  const [selectedId,  setSelectedId]  = useState(null); // ID only — derive live data from mapped
+  const [showHint,    setShowHint]    = useState(true);
+  const [altFloor,    setAltFloor]    = useState(0);
+  const [altCeiling,  setAltCeiling]  = useState(ALT_MAX);
+  const [search,      setSearch]      = useState('');
+  const [showDisclaimer,setShowDisclaimer]=useState(()=>!localStorage.getItem(DISCLAIMER_KEY));
+  const [taglineOpacity, setTaglineOpacity]=useState(1); // 1→0 after 4s
+  const [showFilters, setShowFilters] = useState(false);
+  const [tiltMode,    setTiltMode]    = useState(false);
+  const [arFov,       setArFov]       = useState(HFOV);
+  const [scanHeading, setScanHeading] = useState(0);   // free-pan heading in scan mode
+  const [scanPitch,   setScanPitch]   = useState(0);   // free-pan pitch in scan mode (-60..60)
+  const [cameraMode,  setCameraMode]  = useState(false);
+  const [captureFlash,setCaptureFlash]= useState(false); // white flash on capture
+  const videoRef        = useRef(null);
+  const streamRef       = useRef(null);
+  // Refs for stale-closure access inside the mount-once mv/pinch handler
+  const cameraModeRef   = useRef(false);
+  const camFovRef       = useRef(77); // suppress zoom poll briefly after pinch // increments each fetch → resets sweep animation
+  const [logbook,     setLogbook]     = useState(()=>loadLog());
+  const [showLog,     setShowLog]     = useState(false);
+  const [showDex,     setShowDex]     = useState(false);
+  const [showTrophy,  setShowTrophy]  = useState(false);
+  const [density] = useState('compact'); // compact|normal (setter unused — fixed value)
+  // Calibrated 1× camera FOV. v2 key — v1 values predate the declination fix and are invalid.
+  // camFovTele was deleted: FOV at any zoom is now derived analytically (see pinch-end handler).
+  const [camFov] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_cam_fov_v2')||'77');}catch{return 77;}}); // setter unused
+  // Landmark calibration removed (tap-to-align replaced it). These stay false
+  // so the camera-view dimming logic that references them remains inert.
+  const calibShow = false, calibPrompt = false;
+  const [showHelp,    setShowHelp]    = useState(false);
+  const [targetsOpen, setTargetsOpen] = useState(true); // Best Targets strip expanded/collapsed
+  // ref so align handler always reads instantaneous compass value at tap time
+  const headingRef = useRef(heading);
+  useEffect(()=>{ headingRef.current = heading; },[heading]);
+  const pitchRef = useRef(devicePitch);
+  useEffect(()=>{ pitchRef.current   = devicePitch;     },[devicePitch]);
+  useEffect(()=>{ cameraModeRef.current = cameraMode; },[cameraMode]);
+  useEffect(()=>{ camFovRef.current = camFov; },[camFov]);
+  // ── Fine-trim calibration (tap-to-align) ──
+  // Declination handles the dominant error in code; these biases are device-specific
+  // residuals solved by tapping a real aircraft. v2 keys — v1 values were solved BEFORE
+  // the declination fix (they contain ~-10.7° of declination) and would double-correct.
+  const [hdgBias,   setHdgBias]   = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_hdg_bias_v2')||'0');}catch{return 0;}});
+  const [pitchBias, setPitchBias] = useState(()=>{try{return parseFloat(localStorage.getItem('soratomo_pitch_bias_v2')||'0');}catch{return 0;}});
+  // Learned vertical-FOV scale. The assumed VFOV (arFov·55/85) is only an estimate of
+  // what the cropped camera feed actually shows vertically. A scale error here is
+  // invisible at 0° pitch (centre maps to centre) but displaces the horizon line
+  // proportionally as the phone pitches — the classic 'horizon sinks when I pitch up'.
+  const [vfovK, setVfovK] = useState(()=>{try{const v=parseFloat(localStorage.getItem('soratomo_vfov_k_v2'));return(v>=0.7&&v<=1.4)?v:1;}catch{return 1;}});
+  // Align-tap sample history for the vertical model regression (last 6 taps)
+  const pitchSamplesRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('soratomo_pitch_samples_v2'))||[];}catch{return [];}})());
+  const [alignMode, setAlignMode] = useState(false); // armed: next tap solves biases
+  const [alignTarget, setAlignTarget] = useState('aircraft'); // 'aircraft' | 'horizon' — explicit, never inferred
+  const [catches,     setCatches]     = useState(()=>loadCatches());
+  const [catchToast,  setCatchToast]  = useState(null); // {cs,type,tier,label,color,score,kind} | null
+  const [daily,       setDaily]       = useState(()=>loadDaily());
+  const [callsign,    setCallsign]    = useState(()=>{try{return localStorage.getItem(CALLSIGN_KEY)||'';}catch{return ''}});
+  const [showBoard,   setShowBoard]   = useState(false);
+  const [boardData,   setBoardData]   = useState([]); // [{callsign,score,deviceId,regionLabel}]
+  const [boardStatus, setBoardStatus] = useState('idle'); // 'idle'|'loading'|'ok'|'error'
+  const [deviceId] = useState(getDeviceId); // stable device id — set once, read during render OK
+  const submitTimer = useRef(null);
+
+  // Auto-fetch leaderboard when BOARD tab opens; auto-refresh every 60s while open
+  useEffect(()=>{
+    if(!showBoard) return;
+    setBoardStatus('loading');
+    const reg = regionFor(pos.lat, pos.lon);
+    fetchLeaderboard({date:todayKey(), region:reg.code})
+      .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+      .catch(()=>setBoardStatus('error'));
+    const interval = setInterval(()=>{
+      fetchLeaderboard({date:todayKey(), region:reg.code})
+        .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+        .catch(()=>{});
+    }, 60000);
+    return ()=>clearInterval(interval);
+  },[showBoard]);
+  const [recordToast, setRecordToast] = useState(null); // {score,prev} | null — new daily high-score celebration
+  const recordToastTimer = useRef(null);
+  const catchToastTimer = useRef(null);
+  const [pointsFlash, setPointsFlash] = useState(null); // {score,color,label}|null — brief +N pts display
+  const pointsFlashTimer  = useRef(null);
+  const [capturePopup, setCapturePopup] = useState(null); // {cs,type,color,label,score,alreadyCaught}|null
+  const capturePopupTimer = useRef(null);
+  // Per-day deduplication.
+  // types: Map<typeKey, {kind:'spotted'|'captured', score:number}>
+  //   — tracks what was FIRST scored for each type today.
+  // ids: Set<aircraftId> — prevents double-tapping the same aircraft.
+  // Tap→Photo upgrade: if first scored as 'spotted', a later 'captured' awards
+  //   the delta bonus (photo_score − tap_score). Reverse (photo→tap) gives nothing.
+  const todayCaughtRef = useRef((()=>{
+    try{
+      const tk=todayKey();
+      const raw=JSON.parse(localStorage.getItem('soratomo_today_caught')||'null');
+      if(raw && raw.date===tk){
+        return {
+          date:tk,
+          types: new Map(Object.entries(raw.types||{})),
+          ids:   new Set(raw.ids||[]),
+        };
+      }
+    }catch{}
+    return {date:todayKey(), types:new Map(), ids:new Set()};
+  })());
+  const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
+  const [sensorDbg, setSensorDbg] = useState(null);  // TEMP: raw sensor diagnostic readout
+  // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
+  useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
+  // Gallery uses IndexedDB (idb.js) — async load on mount
+  const [gallery,     setGallery]     = useState([]);
+  useEffect(()=>{ loadGalleryIDB().then(setGallery); },[]);
+  const [showGallery, setShowGallery] = useState(false);
+  const [galSelected, setGalSelected] = useState(null); // enlarged photo
+  const prevMappedRef = useRef(new Set());
+  const [proximityNmi]= useState(()=>loadProx()); // setter unused
+  const [toasts,      setToasts]      = useState([]);
+  const [typeFilter,  setTypeFilter]  = useState('all');
+  // Specific ICAO type multi-select filter (from the Trophy Case list). Empty set = no filter.
+  const [icaoFilter, setIcaoFilter] = useState(()=>{
+    try{ return new Set(JSON.parse(localStorage.getItem('soratomo_icao_filter_v1')||'[]')); }
+    catch{ return new Set(); }
+  });
+  useEffect(()=>{
+    try{ localStorage.setItem('soratomo_icao_filter_v1', JSON.stringify([...icaoFilter])); }catch{}
+  },[icaoFilter]);
+  const toggleIcaoFilter = useCallback(type=>{
+    setIcaoFilter(prev=>{
+      const next = new Set(prev);
+      if(next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  },[]);
+  // Caught/Not Caught quick-filter — actually restricts visibleFlights (not just the picker list).
+  const [typeViewMode, setTypeViewMode] = useState('all'); // 'all' | 'caught' | 'uncaught'
+  const [minSpeedKts, setMinSpeedKts] = useState(0);
+  const [maxSpeedKts, setMaxSpeedKts] = useState(700);
+  const [maxDisplayNmi,setMaxDisplayNmi]=useState(400);
+  // Refs so the ADS-B poll closure always reads the latest values
+  // without adding them to the effect deps (avoids poll teardown/restart on every GPS update)
+  const maxDisplayNmiRef=useRef(400);
+  useEffect(()=>{ maxDisplayNmiRef.current=maxDisplayNmi; },[maxDisplayNmi]);
+  const posRef=useRef(pos);
+  useEffect(()=>{ posRef.current=pos; },[pos]);
+  const [rangeNote,    setRangeNote]    = useState(null); // auto-range reduction notice
+  const [sensorError,  setSensorError]  = useState(null); // persistent error banner for permissions/hw failures
+  const [showCoords,  setShowCoords]  = useState(false); // lat/lon toggle
+
+  const dragRef          = useRef(null);
+  const orientRef        = useRef(null);
+  const pinchRef         = useRef(null);  // {dist, fov} — pinch-to-zoom state
+  const activeEncounters = useRef(new Map());
+  const historicTails    = useRef(new Set(loadLog().flatMap(e=>e.tails.map(t=>t.key))));
+  const lastLoggedTime   = useRef(new Map());
+  const saveLogTimer     = useRef(null); // debounce logbook writes
+  const lastFetchMs      = useRef(Date.now()); // timestamp of last successful ADS-B fetch
+  const demoAlerted      = useRef(false);       // prevent repeated demo banners
+  const consecFails      = useRef(0);           // consecutive poll failures — only go 'limited' after 3+
+  const [dataFresh, setDataFresh] = useState(false); // drives the DATA confidence dot (re-renders)
+  const hasAutoReduced   = useRef(false);       // one-shot range reduction at sign-on only
+  // Dead-reckoning: extrapolate pos between GPS fixes using last known velocity
+  const drVel           = useRef({speedMs:0, trackDeg:0}); // m/s + true track
+  const drAnchor        = useRef(null);  // {lat,lon,ts} of last real GPS fix
+  const drHeadingRef    = useRef(0);     // mirror of heading state for DR closure
+  // ── Gyro-anchored heading (in-flight, magnetometer-immune) ──────────────
+  // headingSource: 'compass' (magnetometer, default/ground) | 'gyro' (integrated yaw).
+  // In gyro mode the magnetometer is ignored; heading = gyroAnchor + integrated yaw.
+  const [headingSource, setHeadingSource] = useState('compass');
+  const headingSourceRef = useRef('compass');
+  useEffect(()=>{ headingSourceRef.current = headingSource; },[headingSource]);
+  const gyroHeadingRef  = useRef(0);     // current integrated gyro heading (true degrees)
+  const gyroAnchoredRef = useRef(false); // has the user anchored gyro to a known azimuth yet?
+  const gyroLastTsRef   = useRef(0);     // last devicemotion timestamp for dt integration
+  const magDeclRef      = useRef(0);     // magnetic declination at user position (deg, east-positive)
+  const declAnchor      = useRef(null);  // {lat,lon} where declination was last computed
+  const posEMA          = useRef(null);   // EMA-smoothed / averaged user position
+  const fixBuf          = useRef([]);     // rolling buffer of stationary GPS fixes for averaging
+  const speedHist       = useRef([]);     // last 3 GPS speed readings — hysteresis for mode switch
+  const typeCacheRef     = useRef(loadTypeCache()); // hex → {type,reg} | 'pending' | null — persisted to localStorage
+
+  // ── Magnetic declination — converts compass (magnetic-north) heading to true north ──
+  // webkitCompassHeading reports MAGNETIC heading; aircraft bearings are TRUE (lat/lon math).
+  // Without this correction the AR view is rotated by local declination (~10.7°W in DC),
+  // which displaces icons along an aircraft's path — reads as a time shift (~14s on final).
+  // Recomputed only on first GPS fix or after moving >25km (declination varies slowly).
+  useEffect(()=>{
+    if(!pos?.lat) return;
+    if(declAnchor.current &&
+       haversine(declAnchor.current.lat,declAnchor.current.lon,pos.lat,pos.lon) < 25000) return;
+    try{
+      const info = geomagnetism.model().point([pos.lat, pos.lon]);
+      magDeclRef.current = info.decl;   // east-positive: true = magnetic + decl
+      declAnchor.current = {lat:pos.lat, lon:pos.lon};
+    }catch{ /* model failure → leave previous value (0 = uncorrected, same as before) */ }
+  },[pos]);
+
+  // Derived: all logged callsigns including this session
+  const loggedCallsigns = useMemo(()=>new Set(logbook.map(e=>e.cs)),[logbook]);
+  // loggedTypes: ICAO codes of all aircraft types ever logged — for red new-type ring
+  const loggedTypes = useMemo(()=>new Set(logbook.map(e=>e.type)),[logbook]);
+
+  useEffect(()=>{
+    if(!navigator.geolocation) return;
+
+    // Project a lat/lon forward by distance d (metres) along bearing b (degrees)
+    const project = (lat, lon, b, d) => {
+      const R = 6371000;
+      const bR = b * D2R;
+      const la = lat * D2R, lo = lon * D2R;
+      const la2 = Math.asin(Math.sin(la)*Math.cos(d/R) + Math.cos(la)*Math.sin(d/R)*Math.cos(bR));
+      const lo2 = lo + Math.atan2(Math.sin(bR)*Math.sin(d/R)*Math.cos(la), Math.cos(d/R)-Math.sin(la)*Math.sin(la2));
+      return {lat: la2/D2R, lon: lo2/D2R};
+    };
+
+    // Rough distance in metres between two lat/lon points (equirectangular, fast)
+    const roughM = (la1,lo1,la2,lo2) => {
+      const dy=(la2-la1)*111320;
+      const dx=(lo2-lo1)*111320*Math.cos(la1*D2R);
+      return Math.sqrt(dx*dx+dy*dy);
+    };
+
+    // Position update strategy:
+    //   STATIONARY (speed < 5 m/s):
+    //     Buffer up to 12 GPS fixes and display their mean.
+    //     Mean of N fixes reduces noise by √N — 12 fixes ≈ 3.5× better than one.
+    //     Each new fix replaces the oldest, so the displayed position drifts
+    //     by at most 1/12th of one fix per update — effectively frozen.
+    //   MOVING (speed ≥ 5 m/s):
+    //     Flush the buffer, switch to speed-adaptive EMA for responsive tracking.
+    const BUF = 12;
+    // isMoving uses a 3-reading hysteresis to prevent spurious mode switches.
+    // GPS noise can report phantom speeds of 0–8 m/s on a stationary device;
+    // requiring 3 consecutive readings above 12 m/s eliminates that entirely.
+    const isMoving = speedMs => {
+      speedHist.current.push(speedMs);
+      if(speedHist.current.length > 3) speedHist.current.shift();
+      return speedHist.current.length === 3 &&
+             speedHist.current.every(s => s > 12);
+    };
+    const updatePos = (lat, lon, speedMs) => {
+      if(!isMoving(speedMs)) {
+        // Stationary — accumulate fixes; display running mean
+        fixBuf.current.push({lat, lon});
+        if(fixBuf.current.length > BUF) fixBuf.current.shift();
+        const n = fixBuf.current.length;
+        const avg = {
+          lat: fixBuf.current.reduce((s,f)=>s+f.lat, 0)/n,
+          lon: fixBuf.current.reduce((s,f)=>s+f.lon, 0)/n,
+        };
+        posEMA.current = avg;
+        setPos({...avg});
+      } else {
+        // Moving (3 consecutive readings > 12 m/s) — flush buffer, use EMA
+        if(fixBuf.current.length > 0) fixBuf.current = [];
+        speedHist.current = []; // reset so transition back is clean
+        const alpha = Math.min(0.85, Math.max(0.15, speedMs/60));
+        if(!posEMA.current){ posEMA.current={lat,lon}; setPos({lat,lon}); return; }
+        posEMA.current = {
+          lat: posEMA.current.lat + alpha*(lat-posEMA.current.lat),
+          lon: posEMA.current.lon + alpha*(lon-posEMA.current.lon),
+        };
+        setPos({...posEMA.current});
+      }
+    };
+
+    // Called on every real GPS fix — filter bad fixes, update anchor, update pos
+    const onFix = p => {
+      const {latitude:lat, longitude:lon, speed, heading:gpsHdg, accuracy, altitude} = p.coords;
+      // Track observer altitude for elevation math (light EMA — GPS alt is noisy ±10-30m)
+      if(altitude != null && isFinite(altitude)){
+        OBS_ALT_M = OBS_ALT_M === 0 ? altitude : OBS_ALT_M*0.8 + altitude*0.2;
+      }
+      const speedMs  = (speed  != null && speed  >= 0) ? speed  : drVel.current.speedMs;
+      const trackDeg = (gpsHdg != null && gpsHdg >= 0) ? gpsHdg : drHeadingRef.current;
+
+      // Accuracy gate — GPS: 5–20 m; WiFi: 50–500 m; Cell: 500–2000 m.
+      // Reject WiFi/cell fallback fixes. Relaxed to 300 m when airborne: GPS through
+      // a cabin window often reports 50–250 m accuracy, and there is no WiFi/cell
+      // positioning at FL350 to defend against — rejecting these fixes would freeze
+      // the user position entirely.
+      const accLimit = speedMs > 80 ? 300 : 150;
+      if(accuracy != null && accuracy > accLimit) return;
+
+      // Jump gate — speed-proportional: allows for genuine fast movement
+      // but still catches single bad fixes that slip through the accuracy gate
+      const jumpLimit = Math.max(150, speedMs * 25);
+      if(posEMA.current &&
+         roughM(posEMA.current.lat, posEMA.current.lon, lat, lon) > jumpLimit) return;
+
+      drVel.current    = {speedMs, trackDeg};
+      // Use the FIX's own timestamp, not receipt time. The supplemental poll accepts
+      // fixes up to 20s old (maximumAge) — at 250 m/s that is 5 km of position lag if
+      // we pretend a cached fix is current. User DR extrapolates from this ts, so the
+      // staleness is recovered automatically when the ts is honest.
+      drAnchor.current = {lat, lon, ts: Math.min(p.timestamp||Date.now(), Date.now())};
+      updatePos(lat, lon, speedMs);
+    };
+
+    // One-shot first fix — allow slightly stale so GPS (not WiFi) is used
+    navigator.geolocation.getCurrentPosition(
+      onFix, ()=>{}, {enableHighAccuracy:true, timeout:12000, maximumAge:5000}
+    );
+    // OS-driven watch — primary continuous source
+    const onGpsError = e => {
+      if(e.code===1) // PERMISSION_DENIED
+        setSensorError('📍 Location access denied. Open Settings → Safari → Location → Allow, then reload.');
+      // POSITION_UNAVAILABLE (2) and TIMEOUT (3) are transient — don't show persistent error
+    };
+    const wid = navigator.geolocation.watchPosition(
+      onFix, onGpsError, {enableHighAccuracy:true, timeout:20000, maximumAge:10000}
+    );
+    // Supplemental 15s poll — bypasses Safari throttling in flight.
+    // maximumAge:20000 means "use a 20s-old GPS fix rather than fall back
+    // to WiFi", preventing the WiFi-fallback jumps at the cost of slight staleness.
+    const poll = setInterval(()=>{
+      navigator.geolocation.getCurrentPosition(
+        onFix, ()=>{}, {enableHighAccuracy:true, timeout:10000, maximumAge:20000}
+      );
+    }, 15000);
+    // (the 15s GPS interval itself is lightweight — watchPosition
+    //  is hardware-driven; we only suppress DR and ADS-B, not geolocation)
+
+    // 1 Hz dead-reckoning extrapolation between GPS fixes (user position).
+    // Threshold is 12 m/s (~24 kts) — only extrapolate in actual flight. GPS noise on a
+    // stationary/walking device reports spurious 1-5 m/s, which caused on-ground jitter.
+    const dr = setInterval(()=>{
+      if(document.hidden) return;  // skip DR when app not visible — saves CPU
+      const anchor = drAnchor.current;
+      if(!anchor || drVel.current.speedMs < 12) return; // 12 m/s ≈ 24 kts — only DR in actual flight
+      const ageSec = (Date.now() - anchor.ts) / 1000;
+      if(ageSec < 1 || ageSec > 60) return;
+      // GPS track, NOT phone compass: in an aircraft the passenger points the phone
+      // out a side window — compass heading is ~90° off the direction of travel (and
+      // unreliable inside a fuselage anyway). trackDeg already falls back to compass
+      // at fix time if GPS heading was unavailable.
+      const track  = drVel.current.trackDeg;
+      const dist   = drVel.current.speedMs * ageSec;
+      const extrap = project(anchor.lat, anchor.lon, track, dist);
+      // DR positions are computed (not noisy) — apply with high alpha for smooth tracking
+      updatePos(extrap.lat, extrap.lon, Math.max(drVel.current.speedMs, 30));
+    }, 1000);
+
+    return ()=>{
+      navigator.geolocation.clearWatch(wid);
+      clearInterval(poll);
+      clearInterval(dr);
+    };
+  },[]);
+
+  const registerOrientation = useCallback(()=>{
+    if(orientRef.current) return;
+    // ── Shared state ───────────────────────────────────────────────
+    let rafId=null;
+    let alpha=null, beta=null, gamma=null, webkit=null; // heading fields (any event can update)
+    let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
+    let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
+
+    let displayedPitch = 0;          // last value actually sent to React state
+    const process=()=>{
+      rafId=null;
+      // Both webkitCompassHeading (iOS) and deviceorientationabsolute alpha (Android)
+      // are referenced to MAGNETIC north — add declination to get TRUE heading,
+      // matching the true-north bearings computed from aircraft lat/lon.
+      let hdgVal;
+      if(headingSourceRef.current === 'gyro' && gyroAnchoredRef.current){
+        // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
+        hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
+      } else {
+        // Compass mode, smoothed with circular EMA.
+        // CRITICAL iOS/Android difference:
+        //  • iOS webkitCompassHeading is already referenced to TRUE north (Apple applies
+        //    magnetic declination internally) → do NOT add declination again.
+        //  • Android deviceorientationabsolute alpha is MAGNETIC north → add declination.
+        // Adding declination to the iOS value double-corrected it by ~10° (the DC-area
+        // declination), which is why headings read consistently off.
+        let rawHdg;
+        if(webkit!=null && webkit>=0){
+          rawHdg = (webkit + 360) % 360;                       // iOS: already true north
+        } else {
+          rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
+        }
+        if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
+        else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
+        hdgVal = Math.round(smoothHdg*10)/10;
+        // Keep the gyro heading shadowing the compass while in compass mode, so a
+        // later switch to gyro starts from the right place even before an explicit anchor.
+        gyroHeadingRef.current = smoothHdg;
+      }
+      setHeading(hdgVal);
+      drHeadingRef.current = hdgVal; // keep DR closure current
+      // Sensor diagnostic — only computes/updates state when the flag is on (off on the ground).
+      if(SHOW_SENSOR_DIAG){
+        // Tilt-compensated heading from alpha/beta/gamma (Euler → world heading),
+        // for comparison against webkitCompassHeading during in-flight troubleshooting.
+        let tcHdg = 'n/a';
+        if(alpha!=null && beta!=null && gamma!=null){
+          const _x=beta*Math.PI/180, _y=gamma*Math.PI/180, _z=alpha*Math.PI/180;
+          const cZ=Math.cos(_z),sZ=Math.sin(_z),cY=Math.cos(_y),sY=Math.sin(_y),sX=Math.sin(_x);
+          const Vx=-cZ*sY - sZ*sX*cY, Vy=-sZ*sY + cZ*sX*cY;
+          let h=Math.atan2(Vx,Vy)*180/Math.PI;
+          tcHdg=(((h%360)+360)%360).toFixed(1);
+        }
+        setSensorDbg({
+          webkit: webkit==null?'null':webkit.toFixed(1),
+          alpha: alpha==null?'null':alpha.toFixed(1),
+          beta: beta==null?'null':beta.toFixed(1),
+          gamma: gamma==null?'null':gamma.toFixed(1),
+          tcHdg,
+          hdg: hdgVal.toFixed(1),
+          src: headingSourceRef.current,
+        });
+      }
+      if(beta!=null){
+        const raw=Math.max(-60,Math.min(90,beta-90));
+        // EMA (heavier smoothing) — seed on first reading, no snap-from-0
+        smoothPitch = pitchInit ? smoothPitch*0.92 + raw*0.08 : raw;
+        pitchInit   = true;
+        // Dead-band: only push to React state when display value would change
+        // Suppresses 60Hz re-renders from sub-1° noise
+        const display = Math.round(smoothPitch);
+        if(display !== displayedPitch || !pitchInit){
+          displayedPitch = display;
+          setDevicePitch(display);
+        }
+      }
+    };
+
+    // deviceorientation: primary — updates heading AND pitch (beta)
+    // On iOS this fires with webkitCompassHeading (MAGNETIC north — declination applied in process()).
+    const hOrientation = e => {
+      alpha  = e.alpha;
+      beta   = e.beta;           // ONLY this handler may write beta
+      gamma  = e.gamma;
+      webkit = e.webkitCompassHeading ?? null;
+      if(!rafId) rafId = requestAnimationFrame(process);
+    };
+
+    // deviceorientationabsolute: secondary heading fallback for Android only.
+    // NEVER writes beta — prevents competing-event pitch oscillation on iOS.
+    const hAbsolute = e => {
+      if(webkit == null) {       // only useful when iOS webkit compass unavailable
+        alpha = e.alpha;
+        if(!rafId) rafId = requestAnimationFrame(process);
+      }
+    };
+
+    // devicemotion: gyroscope (rotationRate) — used to integrate heading in gyro mode.
+    // Immune to magnetic distortion inside a metal fuselage. We project the device's
+    // angular velocity onto the local vertical (gravity) axis to get the true yaw rate
+    // regardless of how the phone is tilted/held — pure rotationRate.alpha is only
+    // correct when the phone is flat.
+    let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
+    const hMotion = e => {
+      const rr = e.rotationRate;
+      if(!rr) return;
+      // Track gravity direction from accelerationIncludingGravity (low-pass)
+      const ag = e.accelerationIncludingGravity;
+      if(ag && ag.x!=null){
+        gAx = gAx*0.9 + ag.x*0.1;
+        gAy = gAy*0.9 + ag.y*0.1;
+        gAz = gAz*0.9 + ag.z*0.1;
+      }
+      const gm = Math.hypot(gAx,gAy,gAz) || 1;
+      // Angular velocity about device axes (deg/s). Project onto unit gravity vector
+      // → rotation rate about the true vertical = yaw rate (compass change rate).
+      const wx=rr.beta||0, wy=rr.gamma||0, wz=rr.alpha||0;
+      const yawRate = (wx*gAx + wy*gAy + wz*gAz)/gm; // deg/s about vertical
+      const now = e.timeStamp || performance.now();
+      const last = gyroLastTsRef.current;
+      gyroLastTsRef.current = now;
+      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
+      if(!last) return;
+      let dt = (now - last)/1000;
+      if(dt<=0 || dt>0.5) return; // ignore gaps / first sample
+      // Integrate. Sign: device-frame yaw is opposite compass convention → subtract.
+      gyroHeadingRef.current = (((gyroHeadingRef.current - yawRate*dt)%360)+360)%360;
+      if(!rafId) rafId = requestAnimationFrame(process);
+    };
+
+    window.addEventListener('deviceorientation',         hOrientation);
+    window.addEventListener('deviceorientationabsolute', hAbsolute);
+    window.addEventListener('devicemotion',              hMotion);
+    orientRef.current = { hOrientation, hAbsolute, hMotion };
+  },[]);
+
+  useEffect(()=>()=>{
+    if(orientRef.current){
+      window.removeEventListener('deviceorientation',         orientRef.current.hOrientation);
+      window.removeEventListener('deviceorientationabsolute', orientRef.current.hAbsolute);
+      if(orientRef.current.hMotion) window.removeEventListener('devicemotion', orientRef.current.hMotion);
+    }
+  },[]);
+
+  // Attach camera stream to video element whenever cameraMode turns on
+  useEffect(()=>{
+    if(cameraMode && videoRef.current && streamRef.current){
+      videoRef.current.srcObject=streamRef.current;
+    }
+    if(!cameraMode && streamRef.current){
+      streamRef.current.getTracks().forEach(t=>t.stop());
+      streamRef.current=null;
+    }
+  },[cameraMode]);
+
+  // ── Catch recorder ─────────────────────────────────────────────
+  // kind: 'spotted' (tapped in any mode, ≤15 nm) or 'captured' (photographed).
+  // Returns the rarity result so callers can drive a toast / share card.
+  const recordCatch = useCallback((f, kind)=>{
+    const typeKey = f.type||'UNKN';
+    let result=null;
+
+    // ── Daily deduplication gates ──────────────────────────────────────────
+    // 1. Reset cache if day has rolled over
+    const tk0 = todayKey();
+    if(todayCaughtRef.current.date !== tk0){
+      todayCaughtRef.current = {date:tk0, types:new Map(), ids:new Set()};
+      try{localStorage.removeItem('soratomo_today_caught');}catch{}
+    }
+    // 2. Same physical aircraft tapped/photo'd twice → always block.
+    //    Identity prefers ICAO hex, but falls back to registration (tail) then callsign,
+    //    so aircraft broadcasting a tail number but no/unstable hex still dedup correctly.
+    //    (Military & some GA aircraft omit hex or flicker their type code between polls,
+    //     which previously let the same tail be caught repeatedly with decaying rarity.)
+    const acIdent = (f.id || (f.reg ? `reg:${f.reg}` : '') || (f.cs ? `cs:${f.cs}` : '')) || '';
+    if(acIdent && todayCaughtRef.current.ids.has(acIdent)) return null;
+    // 3. Type already scored today:
+    //    - If first was 'captured' and now 'spotted' → block (no extra points)
+    //    - If first was 'spotted' and now 'captured' → allow UPGRADE (delta only)
+    //    - Same kind again → block
+    const priorEntry = todayCaughtRef.current.types.get(typeKey);
+    let upgradeMode = false;
+    if(priorEntry){
+      if(kind==='captured' && priorEntry.kind==='spotted') upgradeMode=true; // tap→photo upgrade
+      else return null;  // photo→tap, or same kind again
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
+    // ── Score computation (outside setCatches so effScore is in scope everywhere) ──
+    const cat0      = getAircraftCat(f.type, f.emitter||'');
+    const distNm0   = f.dist!=null ? f.dist/M_PER_NMI : 0;
+    const proxMult0 = Math.max(0.5, 1.0 - (Math.min(distNm0,10)/10)*0.5);
+    const catLabel0 = ({'narrow':'Narrowbody','wide':'Widebody','super':'Superjumbo',
+      'jumbo':'Jumbo','regional':'Regional Jet','bizjet':'Business Jet','military':'Military',
+      'milTransport':'Mil Transport','helicopter':'Helicopter','piston':'Piston/GA'}[cat0]||'Aircraft');
+    // Rarity is deterministic — a function of the aircraft type's global scarcity only.
+    // The same aircraft always scores the same tier (no decay from prior catches).
+    const rar0      = computeRarity(f.type, cat0);
+    const fullCap0  = Math.min(100, Math.round(rar0.score*1.7*proxMult0));
+    const fullSpt0  = Math.max(1,   Math.round(rar0.score*proxMult0));
+    const effScore  = upgradeMode
+      ? Math.max(1, fullCap0 - (priorEntry?.score||0))
+      : kind==='captured' ? fullCap0 : fullSpt0;
+
+    // Build result SYNCHRONOUSLY here — never inside the setCatches updater, because
+    // React may defer that updater (automatic batching), leaving result=null when the
+    // dedup/daily-score/flash code below checks it. This caused the first few catches
+    // of a session to score nothing until React 'warmed up' and flushed synchronously.
+    result = {...rar0, score:effScore, cs:f.cs, type:typeKey, cat:cat0, kind,
+      card:{
+        cs:f.cs||f.reg, airline:f.airline||'', type:f.type, catLabel:catLabel0,
+        altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
+        distNmiVal:f.dist!=null?parseFloat(distNmi(f.dist)):null,
+        bearDeg:f.bear!=null?Math.round(f.bear):null,
+        location:nearestCity(posRef.current.lat,posRef.current.lon),
+        timestamp:Date.now(),
+        rarity:{label:rar0.label,color:rar0.color,score:effScore,kind},
+      }};
+
+    setCatches(prev=>{
+      const ex = prev[typeKey];
+      const cat = cat0, rar = rar0, catLabel = catLabel0;
+      const e = ex || {type:typeKey, cat, spotted:0, captured:0,
+                       best:null, first:Date.now(), last:Date.now(), rarest:null, log:[]};
+      e[kind] += 1;
+      e.last = Date.now();
+      if(!e.best || effScore > e.best.score)
+        e.best = {score:effScore, tier:rar.key, label:rar.label, color:rar.color};
+      if(!e.rarest || effScore > e.rarest.score)
+        e.rarest = {cs:f.cs, reg:f.reg||'', score:effScore, tier:rar.key, ts:Date.now()};
+      // Per-catch record — the snapshot of conditions when caught, newest first.
+      // Capped at 20 per type to bound storage. Drives the Dex detail view + share.
+      e.log = [{
+        cs:f.cs||'', reg:f.reg||'', kind, score:effScore, tier:rar.key,
+        label:rar.label, color:rar.color, ts:Date.now(),
+        altFt:Math.round((f.alt||0)*3.28084), spdKts:Math.round(msToKts(f.spd||0)),
+        distNmi:f.dist!=null?parseFloat(distNmi(f.dist)):null,
+        bearDeg:f.bear!=null?Math.round(f.bear):null,
+        location:nearestCity(posRef.current.lat,posRef.current.lon),
+        airline:f.airline||'', catLabel,
+      }, ...(e.log||[])].slice(0,20);
+      const next = {...prev, [typeKey]:e};
+      saveCatches(next);
+      return next;
+    });
+
+    // Dedup update — only marks as caught if a score was actually awarded
+    if(result){
+      if(!upgradeMode){
+        todayCaughtRef.current.types.set(typeKey, {kind, score:effScore});
+      } else {
+        todayCaughtRef.current.types.set(typeKey,
+          {kind:'captured', score:(priorEntry?.score||0)+effScore});
+      }
+      if(acIdent) todayCaughtRef.current.ids.add(acIdent);
+      try{
+        localStorage.setItem('soratomo_today_caught', JSON.stringify({
+          date:  todayCaughtRef.current.date,
+          types: Object.fromEntries(todayCaughtRef.current.types),
+          ids:   [...todayCaughtRef.current.ids],
+        }));
+      }catch{}
+    }
+
+    // ── Daily score accrual + lifetime high-score detection ──
+    // Every catch's effective score adds to today's running total. The instant
+    // today crosses the previous lifetime single-day best, fire the celebration once.
+    if(result){
+      setDaily(prev=>{
+        const tk = todayKey();
+        const prevToday = prev.days[tk] || 0;
+        const newToday  = prevToday + result.score;
+        const days = {...prev.days, [tk]: newToday};
+        // Prior best EXCLUDING today, so beating your own earlier-today total isn't a 'record'
+        let priorBest = 0;
+        for(const [d,s] of Object.entries(prev.days)){
+          if(d!==tk && s>priorBest){ priorBest=s; }
+        }
+        const crossed = prevToday <= priorBest && newToday > priorBest && priorBest > 0;
+        const best = newToday >= (prev.best?.score||0) ? {date:tk, score:newToday} : prev.best;
+        const out = {days, best};
+        saveDaily(out);
+        // Debounced leaderboard submit — fires 30s after last catch so we batch rapid activity
+        clearTimeout(submitTimer.current);
+        submitTimer.current = setTimeout(()=>{
+          const cs = localStorage.getItem(CALLSIGN_KEY)||'';
+          if(!cs) return; // user hasn't set a callsign yet — skip
+          const {lat,lon} = posRef.current;
+          const reg = regionFor(lat,lon);
+          submitScore({
+            callsign: cs,
+            score: newToday,
+            region: reg.code,
+            regionLabel: reg.label,
+            date: tk,
+            deviceId: deviceId,
+          }).catch(()=>{}); // silent fail — offline is fine
+        }, 30000);
+        // Celebrate only on a genuine crossing of a non-zero prior record (not the very first day)
+        if(crossed){
+          setRecordToast({score:newToday, prev:priorBest});
+          clearTimeout(recordToastTimer.current);
+          recordToastTimer.current=setTimeout(()=>setRecordToast(null), 6000);
+        }
+        return out;
+      });
+    }
+    // Toast — fire only for genuinely notable catches so common traffic isn't spammy,
+    // but ALWAYS toast a photo capture (the user took deliberate action).
+    if(result && (result.score>=50 || kind==='captured')){
+      setCatchToast(result);
+      clearTimeout(catchToastTimer.current);
+      catchToastTimer.current=setTimeout(()=>setCatchToast(null), 4200);
+    }
+    // Always show a brief +N pts flash so the user knows they scored
+    if(result){
+      setPointsFlash({score:result.score, color:result.color, label:result.label});
+      clearTimeout(pointsFlashTimer.current);
+      pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1600);
+    }
+    return result;
+  },[]);
+
+  const handleAircraftSelect = useCallback(fl=>{
+    // Always compute rarity for display — used whether or not we score
+    const tapCat = getAircraftCat(fl?.type, fl?.emitter||'');
+    const tapRar = fl ? computeRarity(fl.type, tapCat, 0) : null;
+
+    if(fl && fl.dist!=null){
+      if(fl.dist <= 10*M_PER_NMI){
+        // In range — attempt to score
+        const catchResult = recordCatch(fl, 'spotted');
+        if(!catchResult && tapRar){
+          // Dedup blocked (already caught this type or aircraft today) — show feedback
+          setPointsFlash({score:null, color:'#4a7898', label:'CAUGHT TODAY', kind:'dupe'});
+          clearTimeout(pointsFlashTimer.current);
+          pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1400);
+        }
+        // If catchResult non-null, flash was already set inside recordCatch
+      } else if(tapRar){
+        // Out of range — show rarity info, no points
+        const distNm=(fl.dist/M_PER_NMI).toFixed(1);
+        setPointsFlash({score:null, color:tapRar.color, label:`${tapRar.label} · ${distNm} NMI`, kind:'info'});
+        clearTimeout(pointsFlashTimer.current);
+        pointsFlashTimer.current=setTimeout(()=>setPointsFlash(null), 1800);
+      }
+    }
+    if(fl) setSelectedId(prev=>prev===fl.id?null:fl.id);
+  },[recordCatch]);
+
+  // iOS 13+ requires SEPARATE permission for orientation AND motion (gyro). Request both.
+  const requestSensorPerms = () => {
+    const reqs = [];
+    if(typeof window.DeviceOrientationEvent?.requestPermission==='function')
+      reqs.push(window.DeviceOrientationEvent.requestPermission());
+    if(typeof window.DeviceMotionEvent?.requestPermission==='function')
+      reqs.push(window.DeviceMotionEvent.requestPermission());
+    if(!reqs.length) return Promise.resolve('granted'); // non-iOS — no prompt needed
+    // Orientation is the critical one; motion (gyro) is a bonus for in-flight heading.
+    return Promise.all(reqs.map(p=>p.catch(()=>'denied')))
+      .then(results => results[0]==='granted' ? 'granted' : 'denied');
+  };
+
+  const handleARToggle = e => {
+    e.stopPropagation(); setShowFilters(false);
+    if(tiltMode){ setTiltMode(false); return; }
+    const activate=()=>{ registerOrientation(); setTiltMode(true); };
+    requestSensorPerms()
+      .then(p=>{
+        if(p==='granted') activate();
+        else setRangeNote('⚠ Motion sensor permission denied — tap AR again to retry');
+      })
+      .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
+  };
+
+  const handleCamToggle = e => {
+    e.stopPropagation(); setShowFilters(false);
+    if(cameraMode){ setCameraMode(false); setTiltMode(false); return; }
+    const activateCam = () => {
+      navigator.mediaDevices.getUserMedia({
+        video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false
+      }).then(stream=>{
+        streamRef.current=stream;
+        registerOrientation();
+        setArFov(camFov);  // calibrated 1× reference FOV (default 77° uncalibrated)
+        setTiltMode(true);
+        setCameraMode(true);
+        // CALIBRATION PAUSED — prompt + landmark fetch disabled
+        // const isAirborne = (drVel.current.speedMs||0) > 80;
+        // setCalibAirborne(isAirborne); setCalibPrompt(true); setCalibLandmarks([]);
+      }).catch(err=>{
+        const msg={
+          NotAllowedError:'📷 Camera access denied. Open Settings → Safari → Camera → Allow, then reload.',
+          NotFoundError:  '⚠ No camera found on this device',
+          NotReadableError:'⚠ Camera is in use by another app',
+        }[err?.name]||'⚠ Camera unavailable';
+        setSensorError(msg); // persistent — user must act to fix
+        setRangeNote(msg);
+      });
+    };
+    requestSensorPerms()
+      .then(p=>{
+        if(p==='granted') activateCam();
+        else setRangeNote('⚠ Motion sensor permission denied — tap Camera again to retry');
+      })
+      .catch(()=>setRangeNote('⚠ Motion sensors unavailable on this device'));
+  };
+
+  const capturePhoto = e => {
+    e.stopPropagation();
+    const video=videoRef.current;
+    if(!video) return;
+
+    // ── Replicate objectFit:'cover' ──────────────────────────────
+    // The <video> fills the screen by cropping; the canvas must capture
+    // exactly the same visible crop — not the raw (wider) sensor frame.
+    const vW=video.videoWidth||1280, vH=video.videoHeight||720;
+    const sW=window.innerWidth,      sH=window.innerHeight;
+    const scale=Math.max(sW/vW, sH/vH);          // fill scale
+    const srcX=((vW*scale-sW)/2)/scale;           // crop offset in video px
+    const srcY=((vH*scale-sH)/2)/scale;
+    const srcW=sW/scale;                           // visible region in video px
+    const srcH=sH/scale;
+
+    // Cap at 2× device pixel ratio so file size stays sane on Retina screens
+    const dpr=Math.min(window.devicePixelRatio||1, 2);
+    const W=Math.round(sW*dpr), H=Math.round(sH*dpr);
+
+    const canvas=document.createElement('canvas');
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+
+    // Draw only the visible slice (same crop the user sees)
+    ctx.drawImage(video, srcX,srcY,srcW,srcH, 0,0,W,H);
+
+    // Aircraft markers — f.x/f.y are screen-space %, scale up by dpr
+    mapped.forEach(f=>{
+      const px=f.x/100*W, py=f.y/100*H;
+      const col=altColor(f.alt);
+      ctx.beginPath(); ctx.arc(px,py,14*dpr,0,Math.PI*2);
+      ctx.strokeStyle=col; ctx.lineWidth=1.5*dpr; ctx.stroke();
+      ctx.beginPath(); ctx.arc(px,py,3*dpr,0,Math.PI*2);
+      ctx.fillStyle=col; ctx.fill();
+      ctx.font=`bold ${13*dpr}px monospace`; ctx.fillStyle=col;
+      ctx.fillText(f.cs, px+18*dpr, py-2*dpr);
+      ctx.font=`${11*dpr}px monospace`; ctx.fillStyle='rgba(180,220,255,0.75)';
+      ctx.fillText(`${distNmi(f.dist)}nm  ${Math.round(f.alt*3.28084/100)*100}ft`, px+18*dpr, py+14*dpr);
+    });
+
+    // HUD stamp
+    ctx.font=`${12*dpr}px monospace`; ctx.fillStyle='rgba(77,184,255,0.7)';
+    ctx.fillText(`SORATOMO  ${Math.round(heading).toString().padStart(3,'0')}°  ${new Date().toLocaleTimeString()}`,14*dpr,22*dpr);
+
+    // Flash
+    setCaptureFlash(true); setTimeout(()=>setCaptureFlash(false),120);
+
+    // ── 'Captured' catch — priority order ──────────────────────────────────
+    // 1. Explicitly selected aircraft (tapped) — if not already caught today.
+    //    If selected but already caught, fall through to Priority 2 so a
+    //    follow-on photo still credits something new in the frame.
+    // 2. Highest-rarity UNCAUGHT aircraft within 40% of screen centre, ≤10 nm.
+    //    Skips types/IDs already scored today, so each successive photo in the
+    //    same scene automatically credits the next rarest aircraft in view.
+    //    (once all aircraft in frame are caught today, no credit is given.)
+    {
+      let framed = null;
+
+      // Helper: is this aircraft already scored in a way that blocks further credit?
+      // Returns false for 'spotted' types (they can still receive a photo upgrade).
+      const alreadyCaughtToday = f => {
+        const tk0 = todayKey();
+        if(todayCaughtRef.current.date !== tk0) return false;
+        // Same physical aircraft → always blocked (hex, else registration, else callsign)
+        const ident = (f.id || (f.reg ? `reg:${f.reg}` : '') || (f.cs ? `cs:${f.cs}` : '')) || '';
+        if(ident && todayCaughtRef.current.ids.has(ident)) return true;
+        const typeKey = f.type||'UNKN';
+        const prior = todayCaughtRef.current.types.get(typeKey);
+        if(!prior) return false;
+        // Photo can still upgrade a prior spot; spots are blocked if photo already taken
+        return prior.kind === 'captured'; // only block if photo already given
+      };
+
+      // Priority 1: selected aircraft — only if not already caught today
+      if(selectedId){
+        const sel = mapped.find(f=>f.id===selectedId);
+        if(sel && sel.dist<=10*M_PER_NMI && !alreadyCaughtToday(sel))
+          framed = sel;
+        // If selected but already caught → fall through to Priority 2
+      }
+
+      // Priority 2: highest-rarity UNCAUGHT aircraft within screen-centre radius.
+      // Successive photos of the same scene work through the aircraft by rarity.
+      if(!framed){
+        let bestRarity = -1;
+        for(const f of mapped){
+          if(f.dist>10*M_PER_NMI) continue;
+          const d = Math.hypot(f.x-50, f.y-50);
+          if(d>=40) continue;                  // outside 40% screen radius
+          if(alreadyCaughtToday(f)) continue;  // already scored today — skip
+          const cat = getAircraftCat(f.type, f.emitter||'');
+          const rar = computeRarity(f.type, cat, 0);
+          if(rar.score > bestRarity){ bestRarity=rar.score; framed=f; }
+        }
+      }
+
+      if(framed){
+        const catchResult = recordCatch(framed, 'captured');
+        const cat = getAircraftCat(framed.type, framed.emitter||'');
+        const rar = computeRarity(framed.type, cat, 0);
+        const popScore = catchResult ? catchResult.score : null;
+        setCapturePopup({cs:framed.cs||framed.type, type:framed.type,
+          color:rar.color, label:rar.label, score:popScore,
+          alreadyCaught:!catchResult});
+        clearTimeout(capturePopupTimer.current);
+        capturePopupTimer.current = setTimeout(()=>setCapturePopup(null), 3200);
+      } else {
+        // All aircraft in view already caught today — brief feedback
+        setCapturePopup({cs:'ALL CAUGHT', type:'',
+          color:'#4a7898', label:'ALL IN VIEW CAUGHT TODAY',
+          score:null, alreadyCaught:true});
+        clearTimeout(capturePopupTimer.current);
+        capturePopupTimer.current = setTimeout(()=>setCapturePopup(null), 2000);
+      }
+    }
+
+    // Download full-res
+    const ts=Date.now();
+    const a=document.createElement('a');
+    a.download=`soratomo-${ts}.jpg`;
+    a.href=canvas.toDataURL('image/jpeg',0.93);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+
+    // Thumbnail — match screen aspect ratio (not hardcoded 16:9)
+    try{
+      const tW=480, tH=Math.round(480*H/W); // preserve captured aspect
+      const TC=document.createElement('canvas'); TC.width=tW; TC.height=tH;
+      const tx=TC.getContext('2d'); tx.drawImage(canvas,0,0,tW,tH);
+      mapped.forEach(f=>{
+        const px=f.x/100*tW, py=f.y/100*tH;
+        const col=altColor(f.alt);
+        tx.beginPath(); tx.arc(px,py,5,0,Math.PI*2);
+        tx.strokeStyle=col; tx.lineWidth=1; tx.stroke();
+        tx.font='bold 8px monospace'; tx.fillStyle=col;
+        tx.fillText(f.cs, px+7, py+3);
+      });
+      const thumb=TC.toDataURL('image/jpeg',0.65);
+      const entry={id:ts,timestamp:ts,thumb,heading:Math.round(heading),count:mapped.length};
+      setGallery(prev=>{const next=[entry,...prev].slice(0,20);saveGalleryIDB(next);return next;});
+    }catch{}
+  };
+
+  useEffect(()=>{
+    // Dual-source ADS-B: adsb.lol + airplanes.live fired in parallel.
+    // Per-aircraft we keep whichever record has the lower posAge (fresher position).
+    // Promise.allSettled means one source down never kills the other.
+    //
+    // Deps=[] so the effect mounts once and never restarts.
+    // pos and maxDisplayNmi are read via refs — always current, zero timer churn.
+    // AbortController cancels any in-flight fetches on unmount.
+    let timer = null;
+    let cancelled = false;
+    let abortCtrl = null;
+    const INTERVAL  = 2000; // 2s base — halves request rate vs 1s, still live-feeling
+    let backoffDelay = 0;   // exponential backoff on 429 / repeated failures
+    const schedule = (delay) => { if(!cancelled) timer = setTimeout(poll, delay); };
+
+    // Parse a raw ac[] array from either source into our normalised shape.
+    // lagS = pipeline latency (our clock vs the aggregator's response timestamp) —
+    // folded into posAge so DR accounts for the full true age of each position,
+    // not just the age the aggregator reports relative to its own clock.
+    const parseAC = (ac, lagS = 0) => ac
+      .filter(a =>
+        a.lat != null && a.lon != null &&
+        typeof a.alt_baro === 'number' &&
+        a.alt_baro > 0 &&
+        (a.gs ?? 0) > 0
+      )
+      .map(a => ({
+        id:      a.hex,
+        cs:      (a.flight || a.hex || '???').trim(),
+        airline: (a.flight || '???').trim().slice(0, 3),
+        lat:     a.lat,
+        lon:     a.lon,
+        alt:     Math.max(a.alt_baro * 0.3048, 91),
+        spd:     (a.gs ?? 0) * 0.5144,
+        hdg:     a.track ?? 0,
+        posAge:  (a.seen_pos ?? a.seen ?? 0) + lagS,
+        // Vertical rate (ft/min → m/s) — lets DR extrapolate altitude on climbs/descents
+        vr:      (a.baro_rate ?? a.geom_rate ?? 0) * 0.00508,
+        // Turn rate (deg/s, right-positive) — lets DR follow curved paths (e.g. DCA river visual).
+        // Clamped to ±4°/s: standard-rate turn is 3°/s; larger values are sensor noise.
+        trkRate: Math.max(-4, Math.min(4, a.track_rate ?? 0)),
+        type:    a.t ?? '',
+        reg:     a.r ?? '',
+        emitter: a.category ?? '',
+      }));
+
+    // Merge two parsed arrays by hex, keeping the record with the lower posAge
+    const mergeAC = (a, b) => {
+      const map = new Map();
+      for(const f of [...a, ...b]) {
+        const ex = map.get(f.id);
+        if(!ex || f.posAge < ex.posAge) map.set(f.id, f);
+      }
+      return [...map.values()];
+    };
+
+    const poll = async () => {
+      timer = null;
+      if(cancelled) return;
+      // Don't fetch while app is hidden — visibilitychange will resume us
+      if(document.hidden) return;
+      abortCtrl = new AbortController();
+      try {
+        const {lat,lon} = posRef.current;
+        const dist = Math.max(maxDisplayNmiRef.current, LOG_PROX_NMI);
+        const sig  = abortCtrl.signal;
+
+        // Dual-source: adsb.lol + airplanes.live in parallel.
+        // Promise.allSettled means one source down never kills the other.
+        // Each source is hit every 2s (base interval) — half the rate of the old 1s single-source poll.
+        const [res1, res2] = await Promise.allSettled([
+          fetch(`/adsb/v2/lat/${lat}/lon/${lon}/dist/${dist}`, {signal:sig}),
+          fetch(`/airplanes/v2/point/${lat}/${lon}/${dist}`,   {signal:sig}),
+        ]);
+
+        const is429 = r => r.status==='fulfilled' && r.value?.status===429;
+        const lagOf = d => { const ms=(d?.now||0)>1e12?d.now:(d?.now||0)*1000;
+          return ms?Math.min(Math.max((Date.now()-ms)/1000,0),10):0; };
+        const d1 = res1.status==='fulfilled'&&res1.value?.ok ? await res1.value.json() : null;
+        const d2 = res2.status==='fulfilled'&&res2.value?.ok ? await res2.value.json() : null;
+
+        // 429 handling: only back off if BOTH sources failed AND at least one was rate-limited.
+        // If even one source returned usable data, use it — don't discard good data because
+        // the other source happened to be rate-limited this cycle.
+        if(d1===null && d2===null && (is429(res1) || is429(res2))){
+          backoffDelay = Math.min((backoffDelay||2000)*2, 30000); // 2→4→8→16→30s cap
+          setApiStatus('limited');
+          schedule(backoffDelay);
+          return;
+        }
+        const ac1 = d1 ? parseAC(d1.ac||[], lagOf(d1)) : [];
+        const ac2 = d2 ? parseAC(d2.ac||[], lagOf(d2)) : [];
+        const merged = mergeAC(ac1, ac2);
+
+        // Mark feed as live on any successful response — even 0 aircraft means the
+        // connection works; the old code set 'limited' when the sky was clear.
+        const gotResponse = d1 !== null || d2 !== null;
+        if(gotResponse){
+          setApiStatus('live');
+          demoAlerted.current=false;
+          backoffDelay=0;
+          consecFails.current=0; // reset failure counter on any good response
+          lastFetchMs.current = Date.now(); // record successful fetch — even if 0 aircraft in range
+        }
+        if (merged.length > 0) {
+          const parsed = merged; // dual-source merged
+          if(cancelled) return;
+          setFlights(prev=>{
+            const prevMap=new Map(prev.map(p=>[p.id,p]));
+            return parsed.map(f=>{
+              const old=prevMap.get(f.id);
+              // Keep last 4 prev positions → slice(-4) + current = 5 total → 4 trail segments
+              const history=[...(old?.history||[]).slice(-10),{lat:f.lat,lon:f.lon,alt:f.alt}]; // 11 pts = ~55s trail (−12%)
+              // Apply any already-cached type enrichment
+              const c=typeCacheRef.current.get(f.id);
+              const typeFields=(c&&typeof c==='object'&&!f.type)?{type:c.type,reg:c.reg||f.reg}:{};
+              return {...f,...typeFields,history};
+            });
+          });
+          schedule(INTERVAL); // status already set above for any successful response
+
+          // Queue type lookups for aircraft still missing type info (max 5/cycle)
+          // Uses adsbdb.com — returns 200 for all hex codes (empty response for unknowns)
+          const toLookup=parsed
+            .filter(f=>!f.type&&typeCacheRef.current.get(f.id)===undefined)
+            .slice(0,5);
+          if(toLookup.length){
+            toLookup.forEach(f=>typeCacheRef.current.set(f.id,'pending'));
+            Promise.all(toLookup.map(async f=>{
+              try{
+                const r=await fetch(`/adsbdb/v0/aircraft/${f.id.toLowerCase()}`);
+                if(!r.ok) throw new Error();
+                const d=await r.json();
+                const ac=d?.response?.aircraft;
+                if(!ac){ typeCacheRef.current.set(f.id,null); return null; }
+                const result={id:f.id,type:ac.icao_type||'',reg:ac.registration||'',owner:ac.registered_owner||''};
+                typeCacheRef.current.set(f.id,result);
+                return result;
+              }catch{ typeCacheRef.current.set(f.id,null); return null; }
+            })).then(results=>{
+              const hits=results.filter(Boolean);
+              if(!hits.length) return;
+              // Enrich flights — history is preserved via spread
+              setFlights(prev=>prev.map(f=>{
+                const h=hits.find(r=>r.id===f.id);
+                return (h&&!f.type)?{...f,type:h.type,reg:h.reg||f.reg}:f;
+              }));
+              setLogbook(prev=>{
+                let changed=false;
+                const next=prev.map(entry=>{
+                  // Match by type code or by callsign prefix heuristic
+                  const hit=hits.find(h=>
+                    (h.type&&h.type===entry.type) ||
+                    entry.tails.some(t=>t.cs&&t.cs.startsWith(h.id.slice(0,3))));
+                  if(!hit) return entry;
+                  changed=true;
+                  return {...entry,
+                    type:hit.type||entry.type,
+                    owner:hit.owner||entry.owner||'', // registered owner from adsbdb
+                  };
+                });
+                if(changed) saveLog(next);
+                return changed?next:prev;
+              });
+              saveTypeCache(typeCacheRef.current); // persist to localStorage for next session
+            }).catch(()=>{}); // swallow any unhandled rejection from type lookup
+          }
+          return;
+        }
+        // Successful response but 0 aircraft in range — don't clear flights or show limited
+        if(gotResponse){ schedule(INTERVAL); return; }
+      } catch(e) {
+        // AbortError = poll was cancelled (e.g. during photo capture) — NOT a real failure.
+        // Don't clear flights or flip to 'limited'; just reschedule and keep showing data.
+        if(e?.name === 'AbortError'){ schedule(INTERVAL); return; }
+        // Any other transient error (parse, network blip): keep existing flights on screen,
+        // don't go red on a single failure. Only escalate after repeated failures.
+        consecFails.current = (consecFails.current||0) + 1;
+        if(consecFails.current < 3){ schedule(INTERVAL); return; }
+      }
+
+      // Repeated genuine failures (3+ in a row) — clear flights, notify once
+      setFlights([]);
+      setApiStatus('limited');
+      if(!demoAlerted.current){
+        demoAlerted.current=true;
+        setRangeNote('⚠ NO LIVE DATA — check connection or try again');
+      }
+      schedule(INTERVAL);
+    };
+
+    // ── Page Visibility: suspend polling when app is hidden ────────
+    // Stops network fetches + React state updates → no re-renders → major battery saving.
+    // On becoming visible again, fire an immediate fetch so data is fresh instantly.
+    const onVisChange = () => {
+      if(!document.hidden && !timer && !cancelled) {
+        poll(); // immediate refetch when foregrounded
+      }
+    };
+    document.addEventListener('visibilitychange', onVisChange);
+
+    poll();
+    return () => {
+      cancelled = true;
+      if(timer) clearTimeout(timer);
+      if(abortCtrl) abortCtrl.abort();
+      document.removeEventListener('visibilitychange', onVisChange);
+    };
+  },[]);  // mount-once — pos and maxDisplayNmi read via refs
+
+  // Proximity / logbook tracking — grouped by aircraft type
+  useEffect(()=>{
+    const COOLDOWN=4*60*60*1000;
+    const threshM=Math.min(proximityNmi,LOG_PROX_NMI)*M_PER_NMI; // hard cap: never log beyond LOG_PROX_NMI
+    const currentlyNear=new Set();
+
+    flights.forEach(f=>{
+      if(msToKts(f.spd)<100) return;
+      if(f.alt*3.28084<500) return;
+      const dist=haversine(pos.lat,pos.lon,f.lat,f.lon);
+      if(dist>threshM) return;
+
+      const tailKey=f.reg||f.cs;        // unique per aircraft
+      const typeKey=f.type||'UNKN';     // grouping key
+      currentlyNear.add(tailKey);
+
+      const lastTime=lastLoggedTime.current.get(tailKey)||0;
+      if(Date.now()-lastTime<COOLDOWN){
+        // Cooldown active — only update closest approach
+        const enc=activeEncounters.current.get(tailKey);
+        if(enc&&dist<enc.minDist){
+          activeEncounters.current.set(tailKey,{...enc,minDist:dist});
+          const newNmi=parseFloat(distNmi(dist));
+          setLogbook(prev=>{
+            const next=prev.map(e=>{
+              if(e.type!==typeKey) return e;
+              const newTails=e.tails.map(t=>
+                t.key===tailKey?{...t,closestNmi:Math.min(t.closestNmi,newNmi)}:t);
+              return {...e,tails:newTails,closestNmi:Math.min(...newTails.map(t=>t.closestNmi))};
+            });
+            // Debounce: closest-approach updates fire every 5s — write at most every 30s
+            clearTimeout(saveLogTimer.current);
+            saveLogTimer.current=setTimeout(()=>saveLog(next),30000);
+            return next;
+          });
+        }
+        return;
+      }
+
+      if(!activeEncounters.current.has(tailKey)){
+        // Fresh encounter
+        const isNew=!historicTails.current.has(tailKey);
+        const tailEntry={
+          key:tailKey, reg:f.reg||'', cs:f.cs,
+          airline:f.airline||f.cs.slice(0,3),
+          // Aircraft position + city
+          city:nearestCity(f.lat,f.lon),
+          lat:parseFloat(f.lat.toFixed(4)),
+          lon:parseFloat(f.lon.toFixed(4)),
+          // User position at time of logging
+          userLat:parseFloat(pos.lat.toFixed(4)),
+          userLon:parseFloat(pos.lon.toFixed(4)),
+          userCity:nearestCity(pos.lat,pos.lon),
+          // Distance from user to aircraft at logging
+          closestNmi:parseFloat(distNmi(dist)),
+          alt:Math.round(f.alt*3.28084/100)*100,
+          hdg:Math.round(f.hdg),
+          spd:Math.round(msToKts(f.spd)),
+          isNew, timestamp:Date.now(),
+        };
+        activeEncounters.current.set(tailKey,{minDist:dist,typeKey});
+        lastLoggedTime.current.set(tailKey,Date.now());
+        historicTails.current.add(tailKey);
+
+        setLogbook(prev=>{
+          const idx=prev.findIndex(e=>e.type===typeKey);
+          let next;
+          if(idx>=0){
+            const entry=prev[idx];
+            if(entry.tails.some(t=>t.key===tailKey)) return prev; // duplicate guard
+            const newTails=[...entry.tails,tailEntry];
+            const updated={...entry,tails:newTails,
+              closestNmi:Math.min(entry.closestNmi,tailEntry.closestNmi),
+              lastSeen:Date.now()};
+            next=[...prev.slice(0,idx),updated,...prev.slice(idx+1)];
+          } else {
+            next=[{
+              id:typeKey+'-'+Date.now(),
+              type:typeKey,
+              cat:getAircraftCat(typeKey!=='UNKN'?typeKey:'', f.emitter||''),
+              tails:[tailEntry],
+              closestNmi:tailEntry.closestNmi,
+              lastSeen:Date.now(),
+            },...prev].slice(0,200);
+          }
+          saveLog(next); return next;
+        });
+
+        const nid=Date.now()+Math.random();
+        const toast={nid,cs:f.cs,airline:f.airline||f.cs.slice(0,3),closestNmi:distNmi(dist),isNew};
+        setToasts(prev=>[...prev.slice(-2),toast]);
+        setTimeout(()=>setToasts(prev=>prev.filter(t=>t.nid!==nid)),4500);
+      } else {
+        const enc=activeEncounters.current.get(tailKey);
+        if(dist<enc.minDist){
+          activeEncounters.current.set(tailKey,{...enc,minDist:dist});
+          const newNmi=parseFloat(distNmi(dist));
+          setLogbook(prev=>{
+            const next=prev.map(e=>{
+              if(e.type!==enc.typeKey) return e;
+              const newTails=e.tails.map(t=>
+                t.key===tailKey?{...t,closestNmi:Math.min(t.closestNmi,newNmi)}:t);
+              return {...e,tails:newTails,closestNmi:Math.min(...newTails.map(t=>t.closestNmi))};
+            });
+            clearTimeout(saveLogTimer.current);
+            saveLogTimer.current=setTimeout(()=>saveLog(next),30000);
+            return next;
+          });
+        }
+      }
+    });
+
+    for(const [tk] of activeEncounters.current){
+      if(!currentlyNear.has(tk)) activeEncounters.current.delete(tk);
+    }
+  },[flights,pos,proximityNmi]);
+
+    const handleResetAllFilters = () => {
+    setAltFloor(0); setAltCeiling(ALT_MAX);
+    setTypeFilter('all');
+    setIcaoFilter(new Set());
+    setTypeViewMode('all');
+    setMinSpeedKts(0); setMaxSpeedKts(700);
+    // NOTE: deliberately does NOT touch maxDisplayNmi — range is controlled by the
+    // on-screen ring control, not anything in the filter tab, so clearing filters
+    // must never change it.
+  };
+
+  useEffect(()=>{const t=setTimeout(()=>setShowHint(false),5000);return()=>clearTimeout(t);},[]);
+
+
+  const onDown=useCallback(e=>{
+    if(e.touches?.length===2){
+      // Pinch start — works in both modes
+      const dx=e.touches[1].clientX-e.touches[0].clientX;
+      const dy=e.touches[1].clientY-e.touches[0].clientY;
+      pinchRef.current={dist:Math.hypot(dx,dy), fov:arFov};
+      return;
+    }
+    if(tiltMode) return; // single-finger ignored in AR mode (device sensor drives view)
+    const x=e.touches?e.touches[0].clientX:e.clientX;
+    const y=e.touches?e.touches[0].clientY:e.clientY;
+    // Store sensitivity at drag-start (degrees per pixel), used in mv closure
+    const sens=arFov/window.innerWidth;
+    dragRef.current={x, y, h:scanHeading, p:scanPitch, sens};
+  },[scanHeading,scanPitch,tiltMode,arFov]);
+
+  useEffect(()=>{
+    const mv=e=>{
+      // Pinch zoom — two fingers
+      if(e.touches?.length===2 && pinchRef.current){
+        const dx=e.touches[1].clientX-e.touches[0].clientX;
+        const dy=e.touches[1].clientY-e.touches[0].clientY;
+        const dist=Math.hypot(dx,dy);
+        // Spread fingers → smaller FOV (zoom in); pinch → larger FOV (zoom out)
+        const newFov=Math.max(20,Math.min(120, pinchRef.current.fov*(pinchRef.current.dist/dist)));
+        setArFov(newFov);
+        pinchRef.current.lastFov=newFov; // track for hardware sync on touchend
+        return;
+      }
+      // Single-finger drag — pan scanHeading (H) and scanPitch (V)
+      if(!dragRef.current) return;
+      const x=e.touches?e.touches[0]?.clientX:e.clientX;
+      const y=e.touches?e.touches[0]?.clientY:e.clientY;
+      if(x==null||y==null) return;
+      const {sens}=dragRef.current;
+      setScanHeading((((dragRef.current.h-(x-dragRef.current.x)*sens)%360)+360)%360);
+      setScanPitch(Math.max(-60,Math.min(60, dragRef.current.p+(y-dragRef.current.y)*sens)));
+    };
+    const up=()=>{
+      dragRef.current=null;
+      // After pinch ends in camera mode: sync hardware zoom to match arFov so the
+      // HRZ line stays aligned with the actual camera horizon at any zoom level.
+      // One applyConstraints per gesture (not continuous) — avoids the snap-back
+      // problem of a continuous poll while still keeping optical FOV and arFov in sync.
+      const lastFov=pinchRef.current?.lastFov;
+      if(lastFov&&cameraModeRef.current){
+        try{
+          const track=videoRef.current?.srcObject?.getVideoTracks?.()?.[0];
+          const cap=track?.getCapabilities?.();
+          if(cap?.zoom){
+            const zMin=cap.zoom.min, zMax=cap.zoom.max;
+            // Exact: digital zoom is a centre crop, so tan(fov/2) scales as 1/zoom.
+            // Zoom needed for a target FOV: z = zMin · tan(camFov/2) / tan(targetFov/2).
+            // This replaces the old tele-calibration interpolation entirely — one known
+            // wide FOV derives every zoom level analytically, no Phase-3 calibration needed.
+            const targetZ = zMin * Math.tan(camFovRef.current/2*D2R) / Math.tan(lastFov/2*D2R);
+            track.applyConstraints({advanced:[{zoom:Math.max(zMin,Math.min(zMax,targetZ))}]}).catch(()=>{});
+          }
+        }catch{}
+      }
+      pinchRef.current=null;
+    };
+    window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up);
+    window.addEventListener('touchmove',mv,{passive:true}); window.addEventListener('touchend',up);
+    return ()=>{
+      window.removeEventListener('mousemove',mv); window.removeEventListener('mouseup',up);
+      window.removeEventListener('touchmove',mv); window.removeEventListener('touchend',up);
+    };
+  },[]);
+
+  const activeFov  = arFov;                     // both modes use arFov; default = HFOV
+  const activeVFov = arFov*(VFOV/HFOV)*vfovK;  // vfovK = vertical scale learned from align taps
+
+
+  const zoomLevel  = (HFOV/activeFov).toFixed(1); // 1.0x at default, higher when zoomed
+
+  // Unified view direction — AR uses device sensors, scan uses free-pan state
+  // Apply heading & pitch trim biases in tilt/camera mode for AR alignment
+  // heading already includes magnetic declination; hdgBias/pitchBias are device residuals
+  const viewHdg   = tiltMode ? (heading + hdgBias + 360) % 360 : scanHeading;
+  const viewPitch = tiltMode ? (devicePitch + pitchBias) : scanPitch;
+
+  // Military-category check — includes mil helos (UH/AH/MH/HH/CH/OH/SH/TH)
+  // which correctly categorise as 'helicopter' not 'military'
+  const isMilCat=(cat,type='')=>{
+    if(cat==='military'||cat==='milTransport') return true;
+    if(cat==='helicopter'){
+      const t=(type||'').toUpperCase();
+      return /^UH|^AH|^MH|^HH|^CH[3-5]|^OH|^SH[36]|^TH/.test(t);
+    }
+    return false;
+  };
+
+  const visibleFlights=flights.filter(f=>{
+    const ft=f.alt*3.28084;
+    if(ft<altFloor||ft>altCeiling) return false;
+    const kts=msToKts(f.spd);
+    if(kts<minSpeedKts||kts>maxSpeedKts) return false;
+    const distM=haversine(pos.lat,pos.lon,f.lat,f.lon);
+    if(distM>maxDisplayNmi*1852) return false;
+    const cat=getAircraftCat(f.type);
+    if(typeFilter==='commercial'&&isMilCat(cat,f.type)) return false;
+    if(typeFilter==='military'&&!isMilCat(cat,f.type)) return false;
+    // Specific ICAO type multi-select — empty set means no restriction (show all types)
+    if(icaoFilter.size>0 && !icaoFilter.has((f.type||'').toUpperCase())) return false;
+    // Caught/Not-Caught quick filter
+    if(typeViewMode!=='all'){
+      const c = catches[(f.type||'').toUpperCase()];
+      const isCaught = !!(c && (c.spotted>0||c.captured>0));
+      if(typeViewMode==='caught' && !isCaught) return false;
+      if(typeViewMode==='uncaught' && isCaught) return false;
+    }
+    return true;
+  });
+  // DR cap as a CONTINUOUS function of altitude — piecewise-linear interpolation.
+  // The old hard bands (45/15/5/2s) made icons teleport backward when an aircraft
+  // descended across a band edge with stale data (e.g. cap 45→15 at 10k ft could
+  // snap the icon back several hundred meters in one frame).
+  //   ≤1k ft: 2s · 1k–5k: 2→5s · 5k–10k: 5→15s · 10k–20k: 15→45s · ≥20k: 45s
+  const drCapForAlt = ft =>
+    ft <= 1000  ? 2 :
+    ft <= 5000  ? 2  + (ft-1000) /4000 *3  :
+    ft <= 10000 ? 5  + (ft-5000) /5000 *10 :
+    ft <= 20000 ? 15 + (ft-10000)/10000*30 : 45;
+
+  const mapped=visibleFlights.map(f=>{
+    // Dead reckoning: project ADS-B position forward to now using reported track,
+    // groundspeed, turn rate, and vertical rate.
+    // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
+    // add time elapsed since our fetch completed.
+    const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
+    const altFt  = f.alt * 3.28084;
+    const drCapS = drCapForAlt(altFt);
+    const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
+    const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
+    const hdgRad = f.hdg * (Math.PI/180);
+    const R = 6371000;
+    // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
+    // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
+    // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
+    // This follows curved approaches (DCA river visual) instead of flying off tangent.
+    let dN, dE; // meters north / east
+    const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
+    if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
+      const Rt     = f.spd / w;                     // signed turn radius
+      const dAlong = Rt * Math.sin(w*tEff);
+      const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
+      dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
+      dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
+    } else {
+      dN = Math.cos(hdgRad)*extraM;
+      dE = Math.sin(hdgRad)*extraM;
+    }
+    const rLat = f.lat + (dN/R)*(180/Math.PI);
+    const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
+    // ── Vertical: extrapolate altitude with reported vertical rate ──
+    // Without this, a descending aircraft is drawn ahead horizontally but at its
+    // old (higher) altitude — visibly above the real aircraft on approach.
+    const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
+    const dist=haversine(pos.lat,pos.lon,rLat,rLon);
+    const bear=getBearing(pos.lat,pos.lon,rLat,rLon);
+    const elev=getElev(dist,drAlt);
+    const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
+    // Project historical positions — no FOV clipping so trail persists near edges
+    // SVG overflow:hidden clips lines at viewport boundary naturally
+    const trail=(f.history||[]).slice(0,-1).map(h=>{
+      const hd=haversine(pos.lat,pos.lon,h.lat,h.lon);
+      const hb=getBearing(pos.lat,pos.lon,h.lat,h.lon);
+      const he=getElev(hd,h.alt);
+      const hDiff=((hb-viewHdg+540)%360)-180;
+      const vDiff=he-viewPitch;
+      return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
+    });
+    // ── Uncertainty bubble radius (vw units) ──
+    // Icon is already at the DR position. Bubble = residual error AROUND that estimate.
+    //   drErrM      : error IN the DR (not the DR distance itself).
+    //                 ~12% of extraM covers heading/speed uncertainty + turns.
+    //                 +30 m covers ADS-B GPS accuracy floor.
+    //   userUncertM : how far our own position may be off (user speed × DR age).
+    //   compassUncertM : ~2° phone compass error projected at aircraft distance.
+    // Old approach used full extraM — ~10× too conservative (modelled offset as error).
+    const compassUncertM  = dist * Math.sin(2 * D2R);
+    const drAgeSec2       = drAnchor.current ? Math.min((Date.now()-drAnchor.current.ts)/1000, DR_MAX_AGE_S) : 0;
+    const userUncertM     = drVel.current.speedMs * drAgeSec2;
+    const drErrM          = extraM * 0.12 + 30;
+    const totalUncertM    = Math.sqrt(drErrM**2 + userUncertM**2 + compassUncertM**2);
+    const angUncertDeg    = 2 * Math.atan2(totalUncertM, Math.max(dist, 500)) * (180/Math.PI);
+    // Floor: 3° = minimum AR pointing + display uncertainty (ensures visible bubble)
+    const uncertRadiusVw  = Math.max(9, Math.min(28, (Math.max(angUncertDeg, 3)/activeFov)*50));
+    // Confidence = how fresh this aircraft's ADS-B data is.
+    // posAge varies per aircraft (fast broadcasters vs slow); totalAgeSec adds
+    // time elapsed since our last poll, so it ticks up between fetches.
+    //   < 5s  → HIGH  (fresh broadcast, position is current)
+    //   5–15s → MED   (aging — DR is accumulating some error)
+    //   > 15s → LOW   (stale — DR extrapolation may be significantly off)
+    const confidence = totalAgeSec < 5 ? 'HIGH' : totalAgeSec < 15 ? 'MED' : 'LOW';
+    return {...f,dist,bear,elev,...sc,trail,uncertRadiusVw,confidence};
+  }).filter(f=>f.on && (!cameraMode || f.dist<=CAM_MAX_DIST_M)); // 55560m = 30 nmi in cam mode
+
+  // ── Align-mode candidate filtering ──
+  // While ALIGN is armed the view declutters to unambiguous targets: only aircraft
+  // within 5 nm, max 2 per bearing quadrant (closest first). Whichever direction the
+  // user turns, they see at most two candidates instead of 25 nm of background traffic.
+  // Airborne (>80 m/s ≈ 155 kts): widen to 25 nm — at cruise the nearest visible
+  // traffic is rarely within 5 nm, and distant targets move slowly across the sky
+  // so tap precision is preserved.
+  const alignRadiusNmi = (drVel.current.speedMs||0) > 80 ? 25 : 5;
+  const alignCandidates = (alignMode && cameraMode) ? (()=>{
+    const sectors=[[],[],[],[]];   // bearing quadrants: 0-90, 90-180, 180-270, 270-360
+    for(const f of mapped){
+      if(f.dist > alignRadiusNmi*M_PER_NMI) continue;
+      sectors[Math.floor((((f.bear%360)+360)%360)/90)].push(f);
+    }
+    return sectors.flatMap(s=>s.sort((a,b)=>a.dist-b.dist).slice(0,2));
+  })() : null;
+  // What the AR layers actually render — candidates only while aligning
+  const displayed = alignCandidates ?? mapped;
+
+  // ── Tap-to-align calibration ──
+  // The aircraft themselves are the calibration landmarks: their true bearing/elevation
+  // are known from ADS-B far more precisely than any visual landmark. One tap on the REAL
+  // aircraft in the camera view solves both hdgBias and pitchBias — the offset between
+  // where we drew the icon and where the plane actually is IS the residual sensor error.
+  // Works at any zoom (equations use activeFov/activeVFov); zoomed-in taps are MORE precise
+  // because the same pixel error spans a smaller angle.
+  const handleAlignTap = e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const xPct = (e.clientX - r.left)/r.width*100;
+    const yPct = (e.clientY - r.top)/r.height*100;
+    const baseV = arFov*(VFOV/HFOV);
+    const xS = (50-yPct)*baseV/100;          // tap offset from centre, base-vfov degrees
+
+    // ── Progressive vertical model — shared by aircraft taps and horizon taps ──
+    // Per-tap equation: (target elevation − devicePitch) = pitchBias + dyDeg·k
+    //   dyDeg = tap offset from screen centre in BASE (unscaled) vfov degrees
+    //   k     = true vertical FOV ÷ assumed vertical FOV
+    // Slope (k) only updates when samples span ≥10° of screen height — fitting a
+    // slope through a tight cluster of noisy taps corrupts the intercept (pb),
+    // which is exactly what makes the horizon line sit off the real horizon.
+    const updatePitchModel = (xNew, tNew) => {
+      const samples=[...pitchSamplesRef.current,{x:xNew,t:tNew}].slice(-6);
+      pitchSamplesRef.current=samples;
+      let k=vfovK, pb;
+      const xs=samples.map(s=>s.x);
+      if(samples.length>=2 && Math.max(...xs)-Math.min(...xs)>=10){
+        const n=samples.length;
+        const sx=xs.reduce((a,b)=>a+b,0);
+        const st=samples.reduce((a,s)=>a+s.t,0);
+        const sxx=samples.reduce((a,s)=>a+s.x*s.x,0);
+        const sxt=samples.reduce((a,s)=>a+s.x*s.t,0);
+        const den=n*sxx-sx*sx;
+        if(Math.abs(den)>1e-6){
+          k =Math.max(0.7,Math.min(1.4,(n*sxt-sx*st)/den));
+          pb=Math.max(-30,Math.min(30,(st-k*sx)/n));
+        }
+      }
+      if(pb===undefined) pb=Math.max(-30,Math.min(30, tNew - xNew*k)); // offset-only
+      try{
+        localStorage.setItem('soratomo_pitch_bias_v2',   String(pb));
+        localStorage.setItem('soratomo_vfov_k_v2',       String(k));
+        localStorage.setItem('soratomo_pitch_samples_v2',JSON.stringify(samples));
+        localStorage.setItem('soratomo_calib_ts_v2',     String(Date.now()));
+      }catch{}
+      setPitchBias(pb); setVfovK(k);
+      return {pb,k};
+    };
+
+    // ── HORIZON target — explicitly selected via the HORIZON pill, never inferred,
+    // so an aircraft sitting right on the horizon can never be confused with the
+    // horizon itself. Target elevation = −dip (true horizon). No heading info.
+    if(alignTarget==='horizon'){
+      const tH = -getHorizonDipDeg() - pitchRef.current;
+      if(Math.abs(tH - xS*vfovK) > 12){
+        setAlignNote('Tap on the visible horizon line');
+        setTimeout(()=>setAlignNote(null),2200);
+        return;
+      }
+      const {pb,k}=updatePitchModel(xS, tH);
+      setAlignMode(false);
+      const kNote=Math.abs(k-1)>0.02?` · vFOV ×${k.toFixed(2)}`:'';
+      setAlignNote(`\u2713 Horizon set \u2014 pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
+      setTimeout(()=>setAlignNote(null),2800);
+      return;
+    }
+
+    // ── SUN target — anchors gyro heading to the computed solar azimuth ──────────
+    // The sun's TRUE azimuth is exact for our GPS position + time. The horizontal
+    // offset of the tap from screen centre tells us where the sun sits relative to
+    // our view, so: trueHeadingAtScreenCentre = sunAzimuth − tapHorizontalOffset.
+    // This sets the gyro anchor with zero reliance on the (fuselage-distorted) compass.
+    if(alignTarget==='sun'){
+      const sun = getSunPosition(posRef.current.lat, posRef.current.lon, new Date());
+      if(sun.elevation < -2){
+        setAlignNote('Sun is below the horizon — use AIRCRAFT or TRACK');
+        setTimeout(()=>setAlignNote(null),2600);
+        return;
+      }
+      const hOff = (xPct-50)*activeFov/100;       // tap offset from centre (deg, +right)
+      const centreHdg = ((sun.azimuth - hOff)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+      // Also set pitch from the sun's known elevation (bonus vertical calibration)
+      const tS = sun.elevation - pitchRef.current;
+      if(Math.abs(tS - xS*vfovK) < 25) updatePitchModel(xS, tS);
+      setAlignMode(false);
+      setAlignNote(`\u2713 Sun lock \u2014 heading anchored to ${Math.round(centreHdg)}\u00b0 (gyro)`);
+      setTimeout(()=>setAlignNote(null),3000);
+      return;
+    }
+
+    // ── TRACK target — anchors gyro heading to GPS course-over-ground ────────────
+    // In steady flight the GPS track is a reliable TRUE direction. Point the phone
+    // straight down the aircraft's nose and tap centre: phone-forward = GPS track.
+    if(alignTarget==='track'){
+      const spd = drVel.current.speedMs||0;
+      if(spd < 30){
+        setAlignNote('TRACK needs steady flight (>60 kts) — use SUN or AIRCRAFT');
+        setTimeout(()=>setAlignNote(null),2800);
+        return;
+      }
+      const trk = drVel.current.trackDeg;
+      const hOff = (xPct-50)*activeFov/100;
+      const centreHdg = ((trk - hOff)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+      setAlignMode(false);
+      setAlignNote(`\u2713 Track lock \u2014 heading anchored to ${Math.round(centreHdg)}\u00b0 (gyro)`);
+      setTimeout(()=>setAlignNote(null),3000);
+      return;
+    }
+
+    // ── AIRCRAFT target: implied-correction matching ──
+    // DON'T match by distance to the drawn icon: the icon position embeds the broken
+    // calibration we're trying to fix. For each candidate compute the bias correction
+    // this tap WOULD imply, pick the candidate requiring the smallest correction.
+    const hDiffTap = (xPct-50)*activeFov/100;
+    const vDiffTap = (50-yPct)*activeVFov/100;
+    const scored = (alignCandidates||mapped).map(f=>{
+      const inb  = ((f.bear - headingRef.current - hDiffTap + 540)%360)-180;
+      const inpb = f.elev - pitchRef.current - vDiffTap;
+      return {f, nb:inb, npb:inpb, score:Math.hypot(inb, inpb)};
+    }).sort((a,b)=>a.score-b.score);
+    if(!scored.length){
+      setAlignNote('No aircraft available \u2014 switch to HORIZON to set pitch');
+      setTimeout(()=>setAlignNote(null),2200);
+      return;
+    }
+    const pick = scored[0];
+    if(scored.length>1 && scored[1].score - pick.score < 3){
+      setAlignNote('Two aircraft could match \u2014 zoom in and tap again');
+      setTimeout(()=>setAlignNote(null),2600);
+      return;
+    }
+    const {f:best, nb, npb} = pick;
+    // Sanity bounds — generous on the ground (real device residuals of 20-40° exist),
+    // unbounded heading airborne (magnetometer inside a fuselage can be wrong by any amount).
+    const airborne = (drVel.current.speedMs||0) > 80;
+    const hdgLim = airborne ? 180 : 45, pitchLim = airborne ? 35 : 30;
+    if(Math.abs(nb)>hdgLim || Math.abs(npb)>pitchLim){
+      setAlignNote('Tap doesn\u2019t fit any aircraft \u2014 try the closest plane');
+      setTimeout(()=>setAlignNote(null),2600);
+      return;
+    }
+    const tS = best.elev - pitchRef.current;
+    const {pb,k}=updatePitchModel(xS, tS);
+    setHdgBias(nb);
+    try{ localStorage.setItem('soratomo_hdg_bias_v2', String(nb)); }catch{}
+    // Airborne: also anchor the gyro to this known aircraft bearing so heading holds
+    // without the magnetometer. centreHdg = aircraft true bearing − tap offset.
+    if(airborne){
+      const centreHdg = ((best.bear - hDiffTap)%360+360)%360;
+      gyroHeadingRef.current = centreHdg;
+      gyroAnchoredRef.current = true;
+      setHeadingSource('gyro');
+    }
+    setAlignMode(false);
+    const kNote=Math.abs(k-1)>0.02?` · vFOV ×${k.toFixed(2)}`:'';
+    setAlignNote(`\u2713 Aligned on ${best.cs} \u2014 hdg ${nb>=0?'+':''}${nb.toFixed(1)}\u00b0, pitch ${pb>=0?'+':''}${pb.toFixed(1)}\u00b0${kNote}`);
+    setTimeout(()=>setAlignNote(null),2800);
+  };
+
+
+  // One-shot range reduction at sign-on — fires once if >80 aircraft load immediately.
+  // After that the user controls range freely; we never touch it again.
+  useEffect(()=>{
+    if(hasAutoReduced.current) return;   // already fired once — hands off
+    if(mapped.length<=80) return;
+    const sorted=[...flights]
+      .filter(f=>{
+        const ft=f.alt*3.28084;
+        return ft>=altFloor&&ft<=altCeiling&&msToKts(f.spd)>=minSpeedKts&&msToKts(f.spd)<=maxSpeedKts;
+      })
+      .map(f=>({...f,_d:haversine(pos.lat,pos.lon,f.lat,f.lon)}))
+      .sort((a,b)=>a._d-b._d);
+    if(sorted.length<=80) return;
+    const newNmi=Math.max(10,Math.ceil(sorted[79]._d/1852));
+    if(newNmi>=maxDisplayNmi) return;
+    hasAutoReduced.current=true;          // lock — never reduce again this session
+    setMaxDisplayNmi(newNmi);
+    setRangeNote(`Range set to ${newNmi} nmi for your area`);
+  },[mapped.length]);
+
+  // Separate effect: dismiss rangeNote after 3 s (avoids cleanup race)
+  useEffect(()=>{
+    if(!rangeNote) return;
+    // Demo alerts stay longer so the user definitely sees them
+    const ms = rangeNote.startsWith('⚠') ? 8000 : 3000;
+    const t=setTimeout(()=>setRangeNote(null),ms);
+    return ()=>clearTimeout(t);
+  },[rangeNote]);
+
+  // DATA confidence dot — re-evaluates every 2s so it doesn't read a stale ref at render.
+  // Fresh = last successful fetch <6s ago AND status is live.
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      setDataFresh((Date.now()-lastFetchMs.current)<6000 && apiStatus==='live');
+    },2000);
+    return ()=>clearInterval(t);
+  },[apiStatus]);
+
+  // Track first-appearance aircraft for ping animation.
+  // Keyed off `flights` (the ADS-B data feed, updates every 2s) NOT `mapped`,
+  // which recomputes on every orientation change in AR mode — that caused the
+  // entry ping to flash for a single frame each time an aircraft re-entered the FOV.
+  const displayNewIds=useMemo(()=>new Set(
+    flights.filter(f=>!prevMappedRef.current.has(f.id)).map(f=>f.id)
+  ),[flights]);
+  useEffect(()=>{
+    prevMappedRef.current=new Set(flights.map(f=>f.id));
+  },[flights]);
+
+  const isFilterActive=altFloor>0||altCeiling<ALT_MAX||typeFilter!=='all'||icaoFilter.size>0||typeViewMode!=='all'||minSpeedKts>0||maxSpeedKts<700;
+  // With beta-90 fix: positive pitch = looking up → horizon is below center (larger y%)
+  // horizonY uses viewPitch (= devicePitch + pitchBias) so the digital horizon
+  // line always aligns with the real camera horizon after pitch calibration.
+  // True horizon dips √(2h/R) below 0° elevation at altitude (~3.2° at FL350)
+  const horizonY=tiltMode?Math.max(5,Math.min(92,50+((viewPitch+getHorizonDipDeg())/(activeVFov/2))*50)):58;
+  // Memoize — only recomputes when user position changes (once per session)
+  const cityData=useMemo(()=>CITIES.map(c=>({
+    ...c,
+    dist:haversine(pos.lat,pos.lon,c.lat,c.lon),
+    bear:getBearing(pos.lat,pos.lon,c.lat,c.lon),
+  })),[pos]);
+  const apData=useMemo(()=>AIRPORTS.map(a=>({
+    ...a,
+    dist:haversine(pos.lat,pos.lon,a.lat,a.lon),
+    bear:getBearing(pos.lat,pos.lon,a.lat,a.lon),
+  })),[pos]);
+
+  // Auto-center on selected aircraft only in 2D SCAN mode (non-tilt), where `heading`
+  // is a manual pan control. In tilt/AR mode `heading` is driven LIVE by the compass —
+  // overwriting it here froze the heading on the selected aircraft's bearing (the
+  // "hdg won't move once it sees a plane" bug). Never touch heading in tilt mode.
+  const handleSelectFlight=flight=>{
+    setSelectedId(flight.id);
+    if(!tiltMode && mapped.length<=3) setHeading(flight.bear);
+    setSearch('');
+    setShowFilters(false);
+  };
+  // Derive live selected flight from mapped every render — auto-updates on each ADS-B fetch
+  const selected = selectedId ? mapped.find(f=>f.id===selectedId)||null : null;
+  const proximityM=proximityNmi*1852;
+
+  // ── Best Targets — a glanceable shortlist of aircraft worth chasing ──────────
+  // Computed from `mapped` (live feed). Four distinct targets; deduped so the same
+  // aircraft never fills two cards (highest-priority label wins: rarity > photo >
+  // new > closest). Recomputed each render but cheap (single pass over mapped).
+  const bestTargets = useMemo(()=>{
+    if(!mapped.length) return [];
+    const within = mapped.filter(f=>f.type && f.type!=='UNKN');
+    if(!within.length) return [];
+    const rarOf = f => computeRarity(f.type, getAircraftCat(f.type,f.emitter||''), 0);
+    const used = new Set();
+    const out = [];
+    const pick = (label, emoji, cand) => {
+      if(!cand || used.has(cand.id)) return;
+      used.add(cand.id);
+      const r = rarOf(cand);
+      const mil = isMilCat(getAircraftCat(cand.type,cand.emitter||''), cand.type);
+      out.push({label, emoji, f:cand, rar:r, mil,
+        hot: mil || r.key==='mythic' || r.key==='legendary'});
+    };
+    // 1. RAREST — highest rarity score in range
+    const rarest = [...within].sort((a,b)=>rarOf(b).score-rarOf(a).score)[0];
+    pick('RAREST','\u2b50', rarest);
+    // 2. NEW — nearest aircraft whose type isn't in the CatchDex yet
+    const newCands = within.filter(f=>!loggedTypes.has(f.type)).sort((a,b)=>a.dist-b.dist);
+    pick('NEW','\ud83c\udd95', newCands[0]);
+    // 4. CLOSEST — nearest aircraft overall
+    const closest = [...within].sort((a,b)=>a.dist-b.dist)[0];
+    pick('CLOSEST','\u2708\ufe0f', closest);
+    return out;
+  },[mapped, loggedTypes]);
+
+  return (
+    <div onMouseDown={onDown} onTouchStart={onDown}
+      onClick={()=>{setSelectedId(null);setShowFilters(false);}}
+      style={{position:'fixed',top:0,left:0,right:0,bottom:0,
+        background:cameraMode?'transparent':'linear-gradient(175deg,#010a18 0%,#020e24 55%,#031330 100%)',
+        overflow:'hidden',cursor:(tiltMode||cameraMode)?'default':'grab',
+        userSelect:'none',fontFamily:"'Exo 2',sans-serif",touchAction:'none',
+        zoom:density==='normal'?1.15:1}}>
+      <style>{STYLES}</style>
+
+      {/* Camera feed — behind everything */}
+      {/* Calibration prompt — shown first so user can skip if recently calibrated */}
+      
+      
+      {cameraMode&&<video ref={videoRef} autoPlay playsInline muted
+        style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',zIndex:0}}/>}
+      {/* Tap-to-align: full-screen capture layer while armed */}
+      {cameraMode&&alignMode&&(
+        <div onClick={handleAlignTap} style={{position:'absolute',inset:0,zIndex:85,cursor:'crosshair'}}>
+          <div onClick={e=>e.stopPropagation()} style={{position:'absolute',top:'11%',left:'50%',
+            transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+            <div style={{background:'rgba(3,11,30,0.85)',border:'1px solid rgba(77,184,255,0.35)',borderRadius:10,
+              padding:'8px 14px',fontSize:12,color:'#4db8ff',whiteSpace:'nowrap',fontFamily:"'Exo 2',sans-serif"}}>
+              {alignTarget==='horizon' ? 'Tap the true horizon'
+                : alignTarget==='sun' ? '\u2600 Tap the centre of the sun'
+                : alignTarget==='track' ? 'Point down the aircraft nose, tap centre'
+                : (alignCandidates&&alignCandidates.length
+                    ? `Showing ${alignCandidates.length} aircraft within ${alignRadiusNmi} nm \u2014 tap the real one`
+                    : `No aircraft within ${alignRadiusNmi} nm \u2014 switch to SUN or HORIZON`)}
+            </div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'center',maxWidth:340}}>
+              {[['aircraft','\u2708 AIRCRAFT'],['sun','\u2600 SUN'],['track','\u2191 TRACK'],['horizon','\u2014 HORIZON']].map(([t,label])=>(
+                <button key={t} onClick={e=>{e.stopPropagation();setAlignTarget(t);setAlignNote(null);}} style={{
+                  background:alignTarget===t?'rgba(77,184,255,0.2)':'rgba(3,11,30,0.85)',
+                  border:`1.5px solid ${alignTarget===t?'#4db8ff':'rgba(77,184,255,0.3)'}`,
+                  borderRadius:7,padding:'6px 10px',cursor:'pointer'}}>
+                  <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",
+                    color:alignTarget===t?'#4db8ff':'#4a7898',letterSpacing:'.06em'}}>
+                    {label}
+                  </span>
+                </button>
+              ))}
+              <button onClick={e=>{e.stopPropagation();setAlignMode(false);setAlignNote(null);}} style={{
+                background:'rgba(3,11,30,0.85)',border:'1.5px solid rgba(255,107,107,0.4)',
+                borderRadius:7,padding:'6px 12px',cursor:'pointer'}}>
+                <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",color:'#ff6b6b',
+                  letterSpacing:'.08em'}}>✕ CANCEL</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Sensor diagnostic overlay — gated by SHOW_SENSOR_DIAG (off on the ground) */}
+      {SHOW_SENSOR_DIAG && tiltMode && sensorDbg && (
+        <div style={{position:'absolute',bottom:170,left:10,zIndex:90,
+          background:'rgba(0,0,0,0.8)',border:'1px solid #2dffb4',borderRadius:6,
+          padding:'6px 9px',fontSize:10,color:'#2dffb4',fontFamily:'monospace',
+          lineHeight:1.5,pointerEvents:'none'}}>
+          <div>webkit: {sensorDbg.webkit}</div>
+          <div>alpha: {sensorDbg.alpha}</div>
+          <div>beta: {sensorDbg.beta}</div>
+          <div>gamma: {sensorDbg.gamma}</div>
+          <div style={{color:'#ffd700'}}>tcHdg: {sensorDbg.tcHdg}</div>
+          <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
+        </div>
+      )}
+      {alignNote&&(
+        <div style={{position:'absolute',top:'21%',left:'50%',transform:'translateX(-50%)',zIndex:86,
+          background:'rgba(3,11,30,0.9)',border:'1px solid rgba(45,255,180,0.35)',borderRadius:10,
+          padding:'8px 14px',fontSize:12,color:'#2dffb4',whiteSpace:'nowrap',
+          fontFamily:"'Exo 2',sans-serif"}}>{alignNote}</div>
+      )}
+      {/* Daily high-score celebration */}
+      {recordToast&&(
+        <div onClick={()=>setRecordToast(null)} style={{position:'absolute',inset:0,zIndex:95,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          background:'rgba(1,6,18,0.55)'}}>
+          {/* confetti */}
+          {Array.from({length:14}).map((_,i)=>(
+            <div key={i} style={{position:'absolute',top:'30%',left:`${8+i*6.2}%`,
+              width:7,height:7,borderRadius:1,
+              background:['#ffd700','#ef4444','#4db8ff','#2dffb4','#f59e0b'][i%5],
+              animation:`confettiFall ${1.4+(i%5)*0.25}s ease-in ${(i%7)*0.1}s infinite`}}/>
+          ))}
+          <div style={{position:'absolute',top:'50%',left:'50%',
+            transform:'translate(-50%,-50%)',width:'82%',maxWidth:340,
+            background:'rgba(3,11,30,0.97)',border:'2px solid #ffd700',borderRadius:16,
+            padding:'26px 22px',textAlign:'center',
+            animation:'recordPop 0.5s cubic-bezier(0.2,0,0.2,1), recordGlow 2.2s ease-in-out infinite'}}>
+            <div style={{fontSize:38,marginBottom:6}}>🏆</div>
+            <div style={{fontSize:14,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#ffd700',letterSpacing:'.12em',marginBottom:10}}>NEW DAILY RECORD!</div>
+            <div style={{fontSize:44,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#fff',lineHeight:1,letterSpacing:'.02em'}}>{recordToast.score.toLocaleString()}</div>
+            <div style={{fontSize:10,color:'#7a98a8',fontFamily:"'Orbitron',monospace",
+              letterSpacing:'.1em',marginTop:6}}>POINTS TODAY</div>
+            <div style={{fontSize:11,color:'#90c8e8',fontFamily:"'Exo 2',sans-serif",
+              marginTop:14,lineHeight:1.5}}>
+              You beat your previous best of {recordToast.prev.toLocaleString()}. Keep spotting to stretch the lead!
+            </div>
+            <button onClick={()=>setRecordToast(null)} style={{marginTop:16,
+              background:'#ffd700',border:'none',borderRadius:8,padding:'9px 22px',cursor:'pointer',
+              color:'#1a1400',fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.1em'}}>NICE!</button>
+          </div>
+        </div>
+      )}
+
+      {/* Persistent sensor error banner — permission/hardware failures needing user action */}
+      {sensorError&&(
+        <div style={{position:'absolute',top:52,left:'50%',transform:'translateX(-50%)',
+          zIndex:88,width:'92%',maxWidth:380,pointerEvents:'auto',
+          background:'rgba(30,8,8,0.97)',border:'1.5px solid #ef4444',
+          borderRadius:10,padding:'10px 14px',
+          display:'flex',alignItems:'flex-start',gap:10}}>
+          <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:'#ef4444',fontFamily:"'Orbitron',monospace",
+              fontWeight:700,letterSpacing:'.1em',marginBottom:3}}>PERMISSION REQUIRED</div>
+            <div style={{fontSize:11,color:'#ffb8b8',fontFamily:"'Exo 2',sans-serif",
+              lineHeight:1.5}}>{sensorError}</div>
+          </div>
+          <span onClick={()=>setSensorError(null)}
+            style={{fontSize:14,color:'#ef4444',cursor:'pointer',flexShrink:0}}>✕</span>
+        </div>
+      )}
+      {/* Best Targets strip — glanceable shortlist; tap a card to select + AR-guide */}
+      {!showFilters && !showHelp && bestTargets.length>0 && (
+        <div style={{position:'absolute',top:'calc(78px + env(safe-area-inset-top,0px))',left:0,right:0,zIndex:40,
+          pointerEvents:'none',padding:'0 14px'}}>
+          {targetsOpen ? (
+            <div style={{display:'flex',gap:6,overflowX:'auto',pointerEvents:'auto',
+              WebkitOverflowScrolling:'touch',paddingBottom:2,
+              scrollbarWidth:'none',alignItems:'stretch'}}>
+              {/* Collapse handle */}
+              <div onClick={e=>{e.stopPropagation();setTargetsOpen(false);}} style={{flexShrink:0,display:'flex',
+                flexDirection:'column',alignItems:'center',justifyContent:'center',
+                background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.25)',
+                borderRadius:8,padding:'0 7px',cursor:'pointer'}}>
+                <span style={{fontSize:7,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.08em',writingMode:'vertical-rl',transform:'rotate(180deg)'}}>TARGETS</span>
+              </div>
+              {bestTargets.map(t=>(
+                <div key={t.label} onClick={e=>{ e.stopPropagation();
+                    if(selectedId===t.f.id){ setSelectedId(null); } else { handleSelectFlight(t.f); } }}
+                  style={{flexShrink:0,minWidth:96,maxWidth:120,cursor:'pointer',
+                    background:selectedId===t.f.id?'rgba(12,32,60,0.97)':'rgba(4,14,36,0.94)',
+                    border:`1.5px solid ${selectedId===t.f.id?'#4db8ff':t.hot?t.rar.color:'rgba(77,184,255,0.22)'}`,
+                    borderRadius:8,padding:'5px 8px',position:'relative',
+                    boxShadow:selectedId===t.f.id?'0 0 10px rgba(77,184,255,0.5)':t.hot?`0 0 8px ${t.rar.color}55`:'none',
+                    animation:t.hot&&selectedId!==t.f.id?'targetPulse 2.4s ease-in-out infinite':'none'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:2}}>
+                    <span style={{fontSize:9}}>{t.emoji}</span>
+                    <span style={{fontSize:7,color:t.hot?t.rar.color:'#4db8ff',
+                      fontFamily:"'Orbitron',monospace",fontWeight:700,
+                      letterSpacing:'.08em'}}>{t.label}</span>
+                    {t.mil&&<span style={{fontSize:6,color:'#ff8c00',
+                      fontFamily:"'Orbitron',monospace",fontWeight:700,marginLeft:'auto'}}>MIL</span>}
+                  </div>
+                  <div style={{fontSize:11,color:'#e8f4ff',fontFamily:"'Orbitron',monospace",
+                    fontWeight:700,letterSpacing:'.02em',whiteSpace:'nowrap',
+                    overflow:'hidden',textOverflow:'ellipsis'}}>{t.f.cs||t.f.type}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
+                    <span style={{width:5,height:5,borderRadius:'50%',
+                      background:t.rar.color,flexShrink:0}}/>
+                    <span style={{fontSize:8,color:'#7a9ab8',
+                      fontFamily:"'Exo 2',sans-serif"}}>{t.f.type}</span>
+                    <span style={{fontSize:8,color:'#4a7898',marginLeft:'auto',
+                      fontFamily:"'Orbitron',monospace"}}>{distNmi(t.f.dist)}nm</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div onClick={e=>{e.stopPropagation();setTargetsOpen(true);}} style={{display:'inline-flex',
+              alignItems:'center',gap:5,pointerEvents:'auto',cursor:'pointer',
+              background:'rgba(4,14,36,0.92)',border:'1px solid rgba(77,184,255,0.3)',
+              borderRadius:8,padding:'4px 10px'}}>
+              <span style={{fontSize:9}}>\ud83c\udfaf</span>
+              <span style={{fontSize:8,color:'#4db8ff',fontFamily:"'Orbitron',monospace",
+                fontWeight:700,letterSpacing:'.1em'}}>TARGETS</span>
+              <span style={{fontSize:8,color:'#e8f4ff',fontFamily:"'Orbitron',monospace",
+                fontWeight:700}}>{bestTargets.length}</span>
+              {bestTargets.some(t=>t.hot)&&<span style={{width:5,height:5,borderRadius:'50%',
+                background:'#ef4444',boxShadow:'0 0 5px #ef4444'}}/>}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Tap feedback flash — points scored / already caught / rarity info */}
+      {pointsFlash&&(
+        <div style={{position:'absolute',top:'18%',left:'50%',zIndex:91,pointerEvents:'none',
+          animation:`fadeUp ${pointsFlash.kind==='info'?'1.8s':'1.6s'} ease forwards`}}>
+          <div style={{
+            background: pointsFlash.kind==='dupe' ? 'rgba(4,14,36,0.85)' : `${pointsFlash.color}22`,
+            border:`1.5px solid ${pointsFlash.color}`,borderRadius:20,
+            padding:'5px 14px',display:'flex',alignItems:'center',gap:6,
+            whiteSpace:'nowrap'}}>
+            {pointsFlash.score!=null ? (
+              // Points scored
+              <>
+                <span style={{fontSize:15,fontFamily:"'Orbitron',monospace",fontWeight:700,
+                  color:pointsFlash.color,letterSpacing:'.04em'}}>+{pointsFlash.score}</span>
+                <span style={{fontSize:8,color:pointsFlash.color,fontFamily:"'Orbitron',monospace",
+                  letterSpacing:'.12em',opacity:0.8}}>{pointsFlash.label}</span>
+              </>
+            ) : (
+              // No points (dupe or out-of-range info)
+              <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,
+                color:pointsFlash.color,letterSpacing:'.1em'}}>{pointsFlash.label}</span>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Capture popup — shows what was just photographed + rarity */}
+      {capturePopup&&(
+        <div onClick={()=>setCapturePopup(null)}
+          style={{position:'absolute',top:'50%',left:'50%',
+            transform:'translate(-50%,-60%)',zIndex:93,
+            width:'72%',maxWidth:260,pointerEvents:'auto',
+            animation:'recordPop 0.4s cubic-bezier(0.2,0,0.2,1)'}}>
+          <div style={{
+            background:'rgba(3,11,30,0.97)',
+            border:`2px solid ${capturePopup.color}`,
+            borderRadius:14,padding:'18px 16px',textAlign:'center',
+            boxShadow:`0 0 28px ${capturePopup.color}44`}}>
+            <div style={{fontSize:26,marginBottom:6}}>📸</div>
+            <div style={{fontSize:9,color:capturePopup.color,
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
+              fontWeight:700,marginBottom:6}}>
+              {capturePopup.alreadyCaught ? 'ALREADY CAUGHT TODAY' : 'CAPTURED!'}
+            </div>
+            <div style={{fontSize:20,color:'#cfe8f8',
+              fontFamily:"'Orbitron',monospace",fontWeight:700,
+              letterSpacing:'.06em',lineHeight:1.1,marginBottom:4}}>
+              {capturePopup.cs}
+            </div>
+            <div style={{fontSize:10,color:'#6a98b8',
+              fontFamily:"'Exo 2',sans-serif",marginBottom:10}}>
+              {capturePopup.type}
+            </div>
+            <div style={{
+              display:'inline-flex',alignItems:'center',gap:8,
+              background:`${capturePopup.color}18`,
+              border:`1px solid ${capturePopup.color}55`,
+              borderRadius:20,padding:'5px 14px'}}>
+              <span style={{fontSize:11,color:capturePopup.color,
+                fontFamily:"'Orbitron',monospace",fontWeight:700,
+                letterSpacing:'.1em'}}>{capturePopup.label}</span>
+              {capturePopup.score!=null&&(
+                <span style={{fontSize:13,color:'#cfe8f8',
+                  fontFamily:"'Orbitron',monospace",fontWeight:700}}>
+                  +{capturePopup.score}
+                </span>
+              )}
+            </div>
+            <div style={{fontSize:8,color:'#3a6878',
+              fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',
+              marginTop:10}}>TAP TO DISMISS</div>
+          </div>
+        </div>
+      )}
+      {/* Rare-catch toast — tap SHARE to generate a catch card */}
+      {catchToast&&(
+        <div style={{position:'absolute',top:'7%',left:'50%',transform:'translateX(-50%)',zIndex:90,
+          display:'flex',alignItems:'center',gap:12,
+          background:'rgba(3,11,30,0.94)',border:`1.5px solid ${catchToast.color}`,
+          borderRadius:12,padding:'10px 14px',boxShadow:`0 0 20px ${catchToast.color}55`,
+          animation:'slideUp 0.3s ease'}}>
+          <span style={{fontSize:18}}>{catchToast.kind==='captured'?'📸':'✨'}</span>
+          <div>
+            <div style={{fontSize:11,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:catchToast.color,letterSpacing:'.1em'}}>
+              {catchToast.label} {catchToast.kind==='captured'?'CAPTURE':'CATCH'}
+            </div>
+            <div style={{fontSize:12,color:'#cfe8f8',fontFamily:"'Exo 2',sans-serif",marginTop:1}}>
+              {catchToast.cs} · {catchToast.type} · rarity {catchToast.score}
+            </div>
+          </div>
+          <button onClick={e=>{e.stopPropagation();
+            if(catchToast.card) shareAircraft(catchToast.card);
+            setCatchToast(null);
+          }} style={{background:catchToast.color,border:'none',borderRadius:7,
+            padding:'7px 12px',cursor:'pointer',display:'flex',alignItems:'center',gap:5,
+            color:'#021018',fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:700,
+            letterSpacing:'.08em'}}>
+            <ShareIcon/> SHARE
+          </button>
+        </div>
+      )}
+      {/* Capture flash overlay */}
+      {captureFlash&&<div style={{position:'absolute',inset:0,background:'#fff',opacity:0.6,zIndex:99,pointerEvents:'none'}}/>}
+
+      {!cameraMode&&<div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:1,
+        background:'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,12,35,.14) 3px)'}}/> }
+      {!cameraMode&&<div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:1,
+        backgroundImage:'linear-gradient(rgba(77,184,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(77,184,255,.022) 1px,transparent 1px)',
+        backgroundSize:'50px 50px'}}/> }
+      {!cameraMode&&<div style={{position:'absolute',width:1600,height:1600,top:'50%',left:'50%',
+        background:'conic-gradient(from 0deg,rgba(77,184,255,0) 330deg,rgba(77,184,255,.04) 360deg)',
+        borderRadius:'50%',animation:'sweep 1s linear infinite',pointerEvents:'none',zIndex:1}}/> }
+      {!cameraMode&&<div style={{position:'absolute',bottom:0,left:0,right:0,height:'50%',pointerEvents:'none',zIndex:1,
+        background:'radial-gradient(ellipse 90% 40% at 50% 100%,rgba(18,70,160,.07) 0%,transparent 70%)'}}/> }
+      <div style={{position:'absolute',left:'3%',top:'4%',bottom:'14%',width:1,background:'rgba(77,184,255,.18)',zIndex:2,pointerEvents:'none'}}/>
+      <div style={{position:'absolute',right:'3%',top:'4%',bottom:'14%',width:1,background:'rgba(77,184,255,.18)',zIndex:2,pointerEvents:'none'}}/>
+
+      {/* Above/below horizon tint — subtle sky vs ground calibration cue */}
+      {!cameraMode&&<>
+        <div style={{position:'absolute',top:0,left:0,right:0,height:`${horizonY}%`,
+          background:'rgba(10,30,70,0.18)',pointerEvents:'none',zIndex:2,
+          transition:'height 0.12s linear'}}/>
+        <div style={{position:'absolute',bottom:0,left:0,right:0,height:`${100-horizonY}%`,
+          background:'rgba(5,12,5,0.22)',pointerEvents:'none',zIndex:2,
+          transition:'height 0.12s linear'}}/>
+      </>}
+
+      {/* Horizon */}
+      <div style={{position:'absolute',top:`${horizonY}%`,left:'4%',right:'4%',height:1,
+        background:'rgba(77,184,255,.25)',zIndex:2,pointerEvents:'none'}}>
+        <span style={{position:'absolute',right:4,top:-9,fontSize:9,color:'rgba(77,184,255,.55)',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>HRZ</span>
+        <span style={{position:'absolute',left:4,top:-9,fontSize:9,color:'rgba(77,184,255,.55)',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em'}}>HRZ</span>
+      </div>
+
+      {/* Crosshair */}
+      <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:2,pointerEvents:'none',opacity:tiltMode?1:0.7}}>
+        <svg width="44" height="44" viewBox="0 0 44 44">
+          {[
+            [18,2,18,16],[18,28,18,42],
+            [2,22,16,22],[28,22,42,22],
+          ].map(([x1,y1,x2,y2],i)=>(
+            <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke="rgba(77,184,255,.55)" strokeWidth="1.5"/>
+          ))}
+          <circle cx="22" cy="22" r="4" stroke="rgba(77,184,255,.55)" strokeWidth="1.5" fill="none"/>
+          {tiltMode&&<circle cx="22" cy="22" r="9" stroke="rgba(77,184,255,.2)" strokeWidth="1" fill="none"/>}
+        </svg>
+      </div>
+
+      {(()=>{
+        // Cities + airports pinned at horizon — only x moves as you pan
+        const pinY    = horizonY + 2.5;
+        const halfFov = activeFov / 2;
+        const project = (item, type, maxDist) => {
+          if(item.dist > maxDist) return null;
+          const diff    = ((item.bear - viewHdg + 540) % 360) - 180;
+          if(Math.abs(diff) >= halfFov * 0.95) return null;
+          const x       = 50 + (diff / halfFov) * 50;
+          const fade    = Math.max(0, 1 - Math.abs(diff) / halfFov);
+          const dFade   = Math.min(1, item.dist / 80000);
+          const opacity = fade * 0.82 * Math.min(1, dFade + 0.3);
+          return {...item, x, opacity, type};
+        };
+        // Airports visible up to 250 nmi; cities up to 100 nmi
+        const pts = [
+          ...apData.map(a  => project(a, 'ap',   463000)).filter(Boolean),
+          ...cityData.map(c => project(c, 'city', 185200)).filter(Boolean),
+        ].sort((a,b) => a.dist - b.dist);
+        // De-overlap across both types combined
+        const MIN_GAP_X = 9;
+        const accepted = [];
+        for(const p of pts){
+          if(!accepted.some(a => Math.abs(p.x - a.x) < MIN_GAP_X))
+            accepted.push(p);
+        }
+        return accepted.map(p => p.type === 'ap' ? (
+          // ── Airport label ──────────────────────────────────────
+          <div key={`ap-${p.id}`} style={{
+            position:'absolute', left:`${p.x}%`, top:`${pinY}%`,
+            transform:'translate(-50%,0)', textAlign:'center',
+            pointerEvents:'none', zIndex:3, opacity:p.opacity,
+            transition:'left 0.1s linear'}}>
+            <div style={{fontSize:9,color:'rgba(252,211,77,0.75)',
+              lineHeight:1,marginBottom:2}}>✈</div>
+            <div style={{fontSize:9,color:'#fcd34d',
+              fontFamily:"'Orbitron',monospace",whiteSpace:'nowrap',
+              fontWeight:700,letterSpacing:'.06em',
+              textShadow:'0 0 6px rgba(252,180,0,0.45)'}}>{p.id}</div>
+            <div style={{fontSize:8,color:'rgba(252,211,77,0.55)',
+              fontFamily:"'Orbitron',monospace"}}>{distNmi(p.dist)} nmi</div>
+          </div>
+        ) : (
+          // ── City label ─────────────────────────────────────────
+          <div key={`city-${p.name}-${p.st}`} style={{
+            position:'absolute', left:`${p.x}%`, top:`${pinY}%`,
+            transform:'translate(-50%,0)', textAlign:'center',
+            pointerEvents:'none', zIndex:3, opacity:p.opacity,
+            transition:'left 0.1s linear'}}>
+            <div style={{width:3,height:3,background:'rgba(160,210,240,0.65)',
+              borderRadius:'50%',margin:'0 auto 3px'}}/>
+            <div style={{fontSize:9,color:'#c8eaf8',
+              fontFamily:"'Orbitron',monospace",whiteSpace:'nowrap',
+              letterSpacing:'.05em',textShadow:'0 0 6px rgba(77,184,255,0.4)'}}>{p.name}</div>
+            <div style={{fontSize:8,color:'rgba(160,210,240,0.6)',
+              fontFamily:"'Orbitron',monospace"}}>{distNmi(p.dist)} nmi</div>
+          </div>
+        ));
+      })()}
+
+      {/* Tilt overlays */}
+      {tiltMode&&(
+        <div style={{position:'absolute',right:12,top:'15%',bottom:'25%',zIndex:5,
+          display:'flex',flexDirection:'column',justifyContent:'space-between',
+          alignItems:'flex-end',pointerEvents:'none'}}>
+          {[90,60,45,30,15,0,-10].map(deg=>(
+            <div key={deg} style={{display:'flex',alignItems:'center',gap:4}}>
+              <div style={{fontSize:9,fontFamily:"'Orbitron',monospace",transition:'color 0.2s',
+                color:Math.abs(deg-Math.round(devicePitch))<8?'#4db8ff':'#3a6878'}}>{deg}&deg;</div>
+              <div style={{width:deg===0?8:4,height:1,background:deg===0?'rgba(77,184,255,.5)':'rgba(77,184,255,.2)'}}/>
+            </div>
+          ))}
+        </div>
+      )}
+      {tiltMode&&(
+        <div style={{position:'absolute',left:12,top:'43%',zIndex:5,pointerEvents:'none'}}>
+          <div style={{fontSize:9,color:'#4a7898',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:2}}>AIM</div>
+          <div style={{fontSize:19,color:'#4db8ff',fontFamily:"'Orbitron',monospace",fontWeight:700,lineHeight:1}}>
+            {Math.round(viewPitch)}&deg;
+          </div>
+          <div style={{fontSize:10,color:'#3a6878',fontFamily:"'Orbitron',monospace",marginTop:6,letterSpacing:'.06em'}}>{zoomLevel}x ZOOM</div>
+          <div style={{fontSize:9,color:'#254558',fontFamily:"'Orbitron',monospace",marginTop:1}}>FOV {Math.round(activeFov)}&deg;</div>
+          {parseFloat(zoomLevel)>1.05&&(
+            <div onClick={()=>setArFov(cameraMode?camFov:HFOV)} style={{
+              fontSize:9,color:'#3a7888',fontFamily:"'Orbitron',monospace",
+              marginTop:6,cursor:'pointer',textDecoration:'underline',
+              pointerEvents:'auto',
+            }}>RESET ZOOM</div>
+          )}
+        </div>
+      )}
+
+      {/* ── TOP HUD ── */}
+      {/* top uses env(safe-area-inset-top) directly — absolutely-positioned children ignore
+          a parent's padding (they align to the outer edge of the padding box per CSS spec),
+          so the safe-area offset must be applied here, not on the fixed root container. */}
+      <div style={{position:'absolute',top:'env(safe-area-inset-top,0px)',left:0,right:0,zIndex:10,
+        background:'linear-gradient(180deg,rgba(1,7,18,.93) 0%,transparent 100%)',
+        padding:'12px 16px 28px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div>
+            <div style={{fontSize:12,fontFamily:"'Orbitron',monospace",fontWeight:700,
+              color:'#b8e4ff',letterSpacing:'.22em',lineHeight:1}}>SORATOMO</div>
+            {/* Tagline — stays in DOM, fades to 0 after 4s */}
+            <div style={{
+              fontSize:11,color:'#7aacc8',fontFamily:"'Exo 2',sans-serif",
+              fontStyle:'italic',marginTop:3,letterSpacing:'.03em',
+              transition:'opacity 1.5s ease',
+              opacity:taglineOpacity,
+              pointerEvents:'none',
+            }}>Skygazing, for aircraft.</div>
+            {/* Location icon — tap to toggle coords */}
+            <div onClick={e=>{e.stopPropagation();setShowCoords(v=>!v);}} style={{
+              marginTop:5,display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
+              <svg width='11' height='13' viewBox='0 0 11 13'>
+                <circle cx='5.5' cy='5' r='3.2' fill='none'
+                  stroke={showCoords?'#4db8ff':'#2a4a58'} strokeWidth='1.3'/>
+                <circle cx='5.5' cy='5' r='1.2'
+                  fill={showCoords?'#4db8ff':'#2a4a58'}/>
+                <path d='M5.5 8.5 L5.5 12' stroke={showCoords?'#4db8ff':'#2a4a58'}
+                  strokeWidth='1.3' strokeLinecap='round'/>
+              </svg>
+              {showCoords&&(
+                <span style={{fontSize:10,color:'#4db8ff',
+                  fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>
+                  {pos.lat.toFixed(4)}N {Math.abs(pos.lon).toFixed(4)}{pos.lon<0?'W':'E'}
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
+            {/* AR confidence indicator — 4 sensor signals, horizontal, above the LIVE/AR/cam row */}
+            {tiltMode&&(
+              <div style={{display:'flex',alignItems:'center',gap:9}}>
+                {[['GPS',  pos.lat!==0&&(!pos.accuracy||pos.accuracy<=60)],
+                  ['HDG',  pos.lat!==0],  // heading reference valid once we have a position fix
+                  ['DATA', dataFresh],
+                  ['CAL',  !(vfovK===1&&hdgBias===0&&pitchBias===0)],
+                ].map(([label,good])=>(
+                  <div key={label} style={{display:'flex',alignItems:'center',gap:3}}>
+                    <div style={{width:6,height:6,borderRadius:'50%',
+                      background:good?'#2dffb4':'#ef4444',
+                      boxShadow:good?'0 0 4px #2dffb488':'0 0 4px #ef444488'}}/>
+                    <span style={{fontSize:7,color:good?'#2dffb4':'#4a7898',
+                      fontFamily:"'Orbitron',monospace",letterSpacing:'.08em'}}>{label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Heading-source badge — GYRO (in-flight, magnetometer-free) vs COMPASS. */}
+            {/* Tap to toggle back to compass; gyro is set by SUN/TRACK/aircraft align. */}
+            {tiltMode&&(
+              <div onClick={()=>{
+                  if(headingSource==='gyro'){ setHeadingSource('compass'); gyroAnchoredRef.current=false; }
+                }}
+                style={{display:'flex',alignItems:'center',gap:4,cursor:headingSource==='gyro'?'pointer':'default',
+                  pointerEvents:'auto',background:headingSource==='gyro'?'rgba(45,255,180,0.12)':'transparent',
+                  border:headingSource==='gyro'?'1px solid rgba(45,255,180,0.4)':'1px solid transparent',
+                  borderRadius:6,padding:'2px 7px'}}>
+                <span style={{fontSize:8,color:headingSource==='gyro'?'#2dffb4':'#4a7898',
+                  fontFamily:"'Orbitron',monospace",fontWeight:700,letterSpacing:'.1em'}}>
+                  {headingSource==='gyro'?'\u25c9 GYRO':'\u25cb COMPASS'}
+                </span>
+                {headingSource==='gyro'&&(
+                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap\u2192mag</span>
+                )}
+              </div>
+            )}
+            <div style={{display:'flex',alignItems:'center',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
+              <div style={{display:'flex',alignItems:'center',gap:4}}>
+                <div style={{width:6,height:6,borderRadius:'50%',
+                  background:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
+                  animation:`pulse ${apiStatus==='limited'?'0.8s':'1.6s'} ease-in-out infinite`}}/>
+                <span style={{
+                  fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.12em',
+                  fontWeight:apiStatus==='limited'?700:400,
+                  color:apiStatus==='live'?'#2dffb4':apiStatus==='limited'?'#f59e0b':'#ff4444',
+                }}>
+                  {apiStatus==='live'?'LIVE':apiStatus==='limited'?'RATE LIMITED':'⚠ DEMO'}
+                </span>
+              </div>
+              {/* Aa density toggle removed */}
+
+              <button onClick={handleARToggle} style={{background:tiltMode&&!cameraMode?'rgba(77,184,255,0.12)':'transparent',
+                border:`1px solid ${tiltMode&&!cameraMode?'#4db8ff':'rgba(77,184,255,0.25)'}`,
+                borderRadius:5,padding:'5px 6px',cursor:'pointer',
+                display:'flex',alignItems:'center',
+                animation:tiltMode&&!cameraMode?'arPulse 2s ease-in-out infinite':'none'}}>
+                <svg width="11" height="11" viewBox="0 0 11 11">
+                  <circle cx="5.5" cy="5.5" r="4.5" stroke={tiltMode&&!cameraMode?'#4db8ff':'#4a7898'} strokeWidth="1.5" fill="none"/>
+                  <circle cx="5.5" cy="5.5" r="1.5" fill={tiltMode&&!cameraMode?'#4db8ff':'#4a7898'}/>
+                </svg>
+              </button>
+              {/* Camera mode button */}
+              <button onClick={handleCamToggle} style={{background:cameraMode?'rgba(45,255,180,0.12)':'transparent',
+                border:`1px solid ${cameraMode?'#2dffb4':'rgba(77,184,255,0.25)'}`,
+                borderRadius:5,padding:'5px 6px',cursor:'pointer',
+                display:'flex',alignItems:'center',
+                animation:cameraMode?'arPulse 2s ease-in-out infinite':'none'}}>
+                <svg width="13" height="11" viewBox="0 0 13 11">
+                  <rect x="1" y="2" width="11" height="8" rx="1.5"
+                    stroke={cameraMode?'#2dffb4':'#4a7898'} strokeWidth="1.2" fill="none"/>
+                  <circle cx="6.5" cy="6" r="2.2"
+                    stroke={cameraMode?'#2dffb4':'#4a7898'} strokeWidth="1.2" fill="none"/>
+                  <rect x="4.5" y="0.5" width="4" height="2" rx="0.8"
+                    fill={cameraMode?'#2dffb4':'#4a7898'}/>
+                </svg>
+              </button>
+              {/* Shutter button — only in camera mode */}
+              {cameraMode&&(
+                <>
+                <button onClick={capturePhoto} style={{background:'rgba(255,255,255,0.1)',
+                  border:'1.5px solid rgba(255,255,255,0.7)',borderRadius:5,padding:'5px 6px',
+                  cursor:'pointer',display:'flex',alignItems:'center'}}>
+                  <svg width="13" height="13" viewBox="0 0 13 13">
+                    <circle cx="6.5" cy="6.5" r="5.5" stroke="rgba(255,255,255,0.9)" strokeWidth="1.5" fill="none"/>
+                    <circle cx="6.5" cy="6.5" r="3"   fill="rgba(255,255,255,0.9)"/>
+                  </svg>
+                </button>
+                <button onClick={e=>{e.stopPropagation();setAlignMode(v=>!v);setAlignTarget('aircraft');setAlignNote(null);}} style={{
+                  background:alignMode?'rgba(77,184,255,0.18)':'transparent',
+                  border:`1.5px solid ${alignMode?'#4db8ff':'rgba(77,184,255,0.4)'}`,
+                  borderRadius:5,padding:'4px 8px',cursor:'pointer',
+                  display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:9,fontFamily:"'Orbitron',monospace",color:'#4db8ff',letterSpacing:'.08em'}}>ALIGN</span>
+                </button>
+                <button onClick={e=>{e.stopPropagation();setShowGallery(v=>!v);}} style={{
+                  background:showGallery?'rgba(45,255,180,0.15)':'transparent',
+                  border:`1.5px solid ${showGallery?'#2dffb4':'rgba(45,255,180,0.35)'}`,
+                  borderRadius:5,padding:'5px 6px',cursor:'pointer',
+                  display:'flex',alignItems:'center',position:'relative'}}>
+                  <svg width='12' height='12' viewBox='0 0 12 12'>
+                    <rect x='0.5' y='0.5' width='4.5' height='4.5' rx='0.8' fill={showGallery?'#2dffb4':'#4a9878'}/>
+                    <rect x='7'   y='0.5' width='4.5' height='4.5' rx='0.8' fill={showGallery?'#2dffb4':'#4a9878'}/>
+                    <rect x='0.5' y='7'   width='4.5' height='4.5' rx='0.8' fill={showGallery?'#2dffb4':'#4a9878'}/>
+                    <rect x='7'   y='7'   width='4.5' height='4.5' rx='0.8' fill={showGallery?'#2dffb4':'#4a9878'}/>
+                  </svg>
+                  {gallery.length>0&&<div style={{position:'absolute',top:-3,right:-3,
+                    background:'#2dffb4',borderRadius:'50%',width:10,height:10,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontSize:7,color:'#010a18',fontFamily:"'Orbitron',monospace",fontWeight:700,
+                    border:'1px solid #010a18'}}>{Math.min(gallery.length,99)}</div>}
+                </button>
+                </>
+              )}
+              {/* Combined DEX / LOG / STATS / FILTER button — opens tabbed panel on DEX */}
+              <button onClick={e=>{e.stopPropagation();
+                if(showLog||showFilters||showDex||showBoard||showTrophy){setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);setShowTrophy(false);}
+                else{setShowTrophy(true);setShowDex(false);setShowLog(false);setShowFilters(false);}
+              }} style={{
+                background:(showLog||showFilters||showDex||showTrophy)?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${(showLog||showFilters||showDex||showTrophy||isFilterActive)?'rgba(77,184,255,0.45)':'rgba(77,184,255,0.2)'}`,
+                borderRadius:5,padding:'5px 6px',cursor:'pointer',
+                display:'flex',alignItems:'center',gap:4,position:'relative'}}>
+                {/* Lines icon */}
+                <svg width="11" height="10" viewBox="0 0 11 10">
+                  <rect x="0" y="0" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="4" width="11" height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
+                  <rect x="0" y="8" width="7"  height="1.5" rx="0.75" fill={(showLog||showFilters||showDex)?'#4db8ff':'#4a7898'}/>
+                </svg>
+                {/* Filter dot when active */}
+                {isFilterActive&&<div style={{width:5,height:5,borderRadius:'50%',
+                  background:'#4db8ff',border:'1px solid #010a18',flexShrink:0}}/>}
+                {/* Tail count badge */}
+                {logbook.length>0&&<div style={{position:'absolute',top:-4,right:-4,
+                  background:'#4db8ff',borderRadius:'50%',width:14,height:14,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:9,color:'#010a18',fontFamily:"'Orbitron',monospace",fontWeight:700,
+                  border:'1.5px solid #010a18'}}>{Math.min(logbook.reduce((s,e)=>s+(e.tails?.length||1),0),99)}</div>}
+              </button>
+              {/* Help / Info button */}
+              <button onClick={e=>{e.stopPropagation();setShowHelp(v=>!v);
+                setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);}} style={{
+                background:showHelp?'rgba(77,184,255,0.1)':'transparent',
+                border:`1px solid ${showHelp?'rgba(77,184,255,0.4)':'rgba(77,184,255,0.2)'}`,
+                borderRadius:5,padding:'5px 7px',cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="11" height="11" viewBox="0 0 11 11">
+                  <circle cx="5.5" cy="5.5" r="4.8" stroke={showHelp?'#4db8ff':'#4a7898'}
+                    strokeWidth="1.2" fill="none"/>
+                  <text x="5.5" y="8.2" textAnchor="middle" fontSize="6.5"
+                    fill={showHelp?'#4db8ff':'#4a7898'} fontFamily="serif"
+                    fontWeight="bold">i</text>
+                </svg>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      {/* Help panel */}
+      {showHelp&&<HelpPanel onClose={()=>setShowHelp(false)}/>}
+
+      {/* Combined DEX / STATS / LOG / FILTER / BOARD tabbed panel */}
+      {(showLog||showFilters||showDex||showBoard||showTrophy)&&(
+        <div onClick={e=>e.stopPropagation()} style={{
+          position:'absolute',inset:0,zIndex:60,display:'flex',flexDirection:'column',
+          paddingTop:'env(safe-area-inset-top,0px)',
+          background:'rgba(1,6,18,0.98)',animation:'slideUp 0.28s ease'}}>
+          {/* Tab bar */}
+          <div style={{display:'flex',alignItems:'stretch',flexShrink:0,
+            borderBottom:'1px solid rgba(77,184,255,0.14)',background:'rgba(1,6,18,0.99)'}}>
+            {[['trophy','TROPHY'],['dex','DEX'],['board','BOARD'],['log','LOG'],['filter','FILTER']].map(([t,label])=>{
+              const active=(t==='log'&&showLog)||(t==='filter'&&showFilters)||(t==='dex'&&showDex)||(t==='board'&&showBoard)||(t==='trophy'&&showTrophy);
+              return (
+              <button key={t} onClick={()=>{
+                setShowLog(t==='log'); setShowFilters(t==='filter'); setShowDex(t==='dex'); setShowBoard(t==='board'); setShowTrophy(t==='trophy');
+              }} style={{
+                flex:1,padding:'11px 0',background:'transparent',border:'none',
+                borderBottom:`2px solid ${active?'#4db8ff':'transparent'}`,
+                cursor:'pointer',
+                fontSize:10,fontFamily:"'Orbitron',monospace",letterSpacing:'.14em',
+                color:active?'#b8e4ff':'#3a6878',
+                fontWeight:active?700:400,
+              }}>
+                {label}
+                {t==='filter'&&isFilterActive&&(
+                  <span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',
+                    background:'#4db8ff',marginLeft:5,verticalAlign:'middle',
+                    position:'relative',top:-1}}/>
+                )}
+              </button>
+            );})}
+            <button onClick={()=>{setShowLog(false);setShowFilters(false);setShowDex(false);setShowBoard(false);setShowTrophy(false);}} style={{
+              background:'transparent',border:'none',borderLeft:'1px solid rgba(77,184,255,0.12)',
+              color:'#3a6878',fontSize:16,cursor:'pointer',padding:'0 16px',
+              fontFamily:"'Orbitron',monospace"}}>✕</button>
+          </div>
+          {/* Content — each component fills remaining space */}
+          <div style={{flex:1,overflow:'hidden',position:'relative'}}>
+            {showFilters&&<FilterPanel altFloor={altFloor} altCeiling={altCeiling}
+              onFloor={setAltFloor} onCeiling={setAltCeiling}
+              search={search} onSearch={setSearch} allFlights={flights} pos={pos}
+              onSelect={handleSelectFlight}
+              typeFilter={typeFilter} onTypeFilter={setTypeFilter}
+              icaoFilter={icaoFilter} onToggleIcao={toggleIcaoFilter} catches={catches}
+              typeViewMode={typeViewMode} onTypeViewMode={setTypeViewMode}
+              minSpeedKts={minSpeedKts} maxSpeedKts={maxSpeedKts}
+              onMinSpd={setMinSpeedKts} onMaxSpd={setMaxSpeedKts}
+              onResetAll={handleResetAllFilters}
+              onClose={()=>{setShowLog(false);setShowFilters(false);}}/>}
+            {showBoard&&<LeaderboardPanel
+              callsign={callsign}
+              deviceId={deviceId}
+              daily={daily}
+              pos={pos}
+              boardData={boardData}
+              boardStatus={boardStatus}
+              onSetCallsign={async cs=>{
+                // Submit to the server FIRST so a rejected callsign (profanity/format)
+                // never gets persisted locally. The server validates server-side; if it
+                // throws, we propagate so the panel can show the inline error and NOT save.
+                const tk=todayKey();
+                const score=daily.days?.[tk]||0;
+                const reg=regionFor(pos.lat,pos.lon);
+                // Submit even at score 0 so the server can validate the callsign up front.
+                await submitScore({callsign:cs,score:Math.max(score,0),region:reg.code,
+                  regionLabel:reg.label,date:tk,deviceId:deviceId});
+                // Only reached if submitScore resolved (server accepted) — now persist.
+                setCallsign(cs);
+                try{localStorage.setItem(CALLSIGN_KEY,cs);}catch{}
+              }}
+              onRefresh={()=>{
+                setBoardStatus('loading');
+                const reg=regionFor(pos.lat,pos.lon);
+                fetchLeaderboard({date:todayKey(),region:reg.code})
+                  .then(rows=>{ setBoardData(rows); setBoardStatus('ok'); })
+                  .catch(()=>setBoardStatus('error'));
+              }}
+            />}
+            {showTrophy&&<TrophyCase catches={catches}/>}
+            {showDex&&<CatchDex catches={catches} daily={daily} onShare={shareAircraft}
+              onClearAll={()=>{
+                // Clear catch store and daily scores
+                saveCatches({}); setCatches({});
+                const fresh={days:{},best:{date:null,score:0}}; saveDaily(fresh); setDaily(fresh);
+                // Also reset today's dedup so scoring works immediately after clearing
+                todayCaughtRef.current={date:todayKey(),types:new Map(),ids:new Set()};
+                try{localStorage.removeItem('soratomo_today_caught');}catch{}
+              }}/>}
+            {showLog&&<Logbook entries={logbook} pos={pos}
+              onClose={()=>{setShowLog(false);setShowFilters(false);}}
+              onClear={()=>{saveLog([]);setLogbook([]);historicTails.current=new Set();
+                activeEncounters.current.clear();lastLoggedTime.current.clear();}}/>}
+          </div>
+        </div>
+      )}
+
+      {/* North indicator — scan mode only, fixed true-north arrow */}
+      {!tiltMode&&!cameraMode&&(
+        <div style={{position:'absolute',right:12,bottom:'calc(140px + env(safe-area-inset-bottom,0px))',zIndex:10,pointerEvents:'none'}}>
+          <div style={{width:38,height:38,borderRadius:'50%',
+            background:'rgba(1,8,20,0.78)',
+            border:'1px solid rgba(77,184,255,0.22)',
+            display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="28" height="28" viewBox="-14 -14 28 28"
+              style={{transform:`rotate(${-scanHeading}deg)`,transition:'transform 0.25s ease'}}>
+              {/* North (red) needle half */}
+              <polygon points="0,-10 2.8,-2 0,-5 -2.8,-2" fill="#e87070"/>
+              {/* South (blue) needle half */}
+              <polygon points="0,10 2.8,2 0,5 -2.8,2" fill="rgba(77,184,255,0.45)"/>
+              {/* Center pivot */}
+              <circle cx="0" cy="0" r="1.5" fill="rgba(255,255,255,0.5)"/>
+              {/* N label */}
+              <text x="0" y="-11.5" textAnchor="middle" fontSize="5"
+                fill="#e87070" fontFamily="Orbitron,monospace" fontWeight="700">N</text>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-range notification banner */}
+      {rangeNote&&(
+        <div style={{position:'absolute',top:58,left:'50%',transform:'translateX(-50%)',
+          zIndex:40,background:'rgba(255,185,50,0.92)',borderRadius:6,
+          padding:'5px 14px',pointerEvents:'none',
+          animation:'slideDown 0.3s ease',
+          fontSize:9,fontFamily:"'Orbitron',monospace",color:'#1a0800',
+          fontWeight:700,letterSpacing:'.06em',whiteSpace:'nowrap'}}>
+          ⚠ {rangeNote}
+        </div>
+      )}
+
+      {/* Trail lines — draw behind markers */}
+      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:3,overflow:'hidden'}}>
+        {displayed.map(f=>{
+          if(!f.trail?.length) return null;
+          const col=altColor(f.alt);
+          // pts: [oldest_prev, ..., prev, current]
+          const pts=[...f.trail,{x:f.x,y:f.y}];
+          const n=pts.length-1; // number of segments
+          return pts.slice(1).map((pt,i)=>(
+            <line key={`${f.id}-t${i}`}
+              x1={`${pts[i].x}%`} y1={`${pts[i].y}%`}
+              x2={`${pt.x}%`}     y2={`${pt.y}%`}
+              stroke={col}
+              strokeWidth={1.5 + (i/n)*1.5}
+              strokeLinecap='round'
+              opacity={0.28 + (i/n)*0.42}
+            />
+          ));
+        })}
+      </svg>
+
+      {/* Aircraft markers — dimmed and non-interactive during calibration */}
+      <div style={{
+        opacity:(calibShow||calibPrompt)?0.12:1,
+        pointerEvents:(calibShow||calibPrompt)?'none':'auto',
+        transition:'opacity 0.3s ease',
+      }}>
+        {displayed.map(f=>(
+          <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
+            dimmed={selectedId!==null&&selectedId!==f.id}
+            tiltMode={tiltMode}
+            onSelect={handleAircraftSelect}
+            loggedTypes={loggedTypes}
+            proximityM={proximityM}
+            isCatchable={f.dist<=10*M_PER_NMI}
+            isDisplayNew={displayNewIds.has(f.id)}/>
+        ))}
+      </div>
+
+      <div style={{position:'absolute',left:10,bottom:'calc(118px + env(safe-area-inset-bottom,0px))',zIndex:10,
+        background:'rgba(1,9,22,.8)',borderRadius:8,padding:'7px 10px',
+        border:'0.5px solid rgba(77,184,255,.12)'}}>
+        {[
+          ['45k+','#e879f9',47000],
+          ['38k', '#a855f7',39500],
+          ['32k', '#e8f4ff',34000],
+          ['25k', '#b8e4ff',28000],
+          ['18k', '#4db8ff',21000],
+          ['10k', '#2b9de0',13000],
+          ['<10k','#0ea5e9', 4500],
+        ].map(([lbl,col,bft])=>(
+          <div key={lbl} style={{display:'flex',alignItems:'center',gap:5,marginBottom:4,
+            opacity:bft<altFloor||bft>altCeiling?0.22:1,transition:'opacity 0.3s'}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:col,flexShrink:0}}/>
+            <span style={{fontSize:10,color:'#5a98b0',fontFamily:"'Orbitron',monospace",letterSpacing:'.05em'}}>{lbl} ft</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Toast notifications */}
+      <Toasts items={toasts}/>
+
+      {showHint&&!tiltMode&&(
+        <div style={{position:'absolute',top:'44%',left:'50%',transform:'translateX(-50%)',
+          zIndex:5,pointerEvents:'none',textAlign:'center'}}>
+          <div style={{fontSize:11,color:'rgba(77,184,255,.5)',fontFamily:"'Orbitron',monospace",
+            letterSpacing:'.12em',whiteSpace:'nowrap'}}>TAP AIRCRAFT FOR DETAILS</div>
+        </div>
+      )}
+
+      {/* ── BOTTOM HUD ── */}
+      {/* bottom padding reserves the home-indicator safe area explicitly (rather than a flat
+          8px) so the swipe-up gesture zone is respected on notched iPhones; the extra vertical
+          rhythm above is spread across the readout row so the block doesn't feel cramped with
+          a dead gap below it. */}
+      <div style={{position:'absolute',bottom:0,left:0,right:0,zIndex:10,
+        background:'linear-gradient(0deg,rgba(1,7,18,.97) 0%,transparent 100%)',
+        padding:'18px 16px calc(10px + env(safe-area-inset-bottom,0px))'}}>
+        <CompassStrip heading={viewHdg}/>
+        <div style={{display:'flex',justifyContent:'space-between',padding:'12px 6px 6px'}}>
+          <div style={{display:'flex',gap:24,alignItems:'center'}}>
+            {[
+              ['HEADING',(Math.round(heading)%360).toString().padStart(3,'0')+'\u00b0'],
+              ['IN VIEW',String(mapped.length)],
+            ].map(([lbl,val])=>(
+              <div key={lbl} style={{textAlign:'center'}}>
+                <div style={{fontSize:9,color:'#4a7888',fontFamily:"'Orbitron',monospace",letterSpacing:'.1em',marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:13,color:'#8ac4e0',fontFamily:"'Orbitron',monospace",fontWeight:600}}>{val}</div>
+              </div>
+            ))}
+          </div>
+          {/* Range ring — bottom right, replaces AIM ELEV text */}
+          <div style={{position:'absolute',right:8,bottom:'calc(28px + env(safe-area-inset-bottom,0px))',zIndex:11,
+            background:'rgba(1,8,22,0.78)',borderRadius:'50%',
+            border:'0.5px solid rgba(77,184,255,0.12)',
+            boxShadow:'0 0 10px rgba(0,0,0,0.5)'}}>
+            <RingRangeControl value={maxDisplayNmi} min={10} max={DIST_MAX}
+              onChange={setMaxDisplayNmi}/>
+          </div>
+          {/* Small clear-filters pill — immediately left of the range ring, only when a filter is active */}
+          {isFilterActive && (
+            <button onClick={e=>{e.stopPropagation();handleResetAllFilters();}} style={{
+              position:'absolute',right:90,bottom:'calc(44px + env(safe-area-inset-bottom,0px))',zIndex:11,
+              background:'rgba(1,8,22,0.78)',border:'0.5px solid rgba(255,100,80,0.35)',
+              borderRadius:14,padding:'4px 9px',cursor:'pointer',
+              display:'flex',alignItems:'center',gap:3,
+              boxShadow:'0 0 8px rgba(0,0,0,0.4)'}}>
+              <span style={{fontSize:9,color:'#ff6450',lineHeight:1}}>✕</span>
+              <span style={{fontSize:8,color:'#c87868',fontFamily:"'Orbitron',monospace",
+                letterSpacing:'.06em'}}>FILTERS</span>
+            </button>
+          )}
+        </div>
+        <div style={{textAlign:'center',fontSize:9,color:'rgba(77,184,255,.3)',fontFamily:"'Orbitron',monospace",letterSpacing:'.08em',marginTop:2}}>
+          {tiltMode?'TILT PHONE TO AIM · TAP AIRCRAFT FOR DETAILS':'DRAG TO SCAN · TAP AIRCRAFT FOR DETAILS'}
+        </div>
+      </div>
+
+      {selected&&<FlightCard f={selected} onClose={()=>setSelectedId(null)} loggedCallsigns={loggedCallsigns}/>}
+      {/* FOV calibration panel — slides up from bottom when open */}
+      {showGallery&&<Gallery
+        photos={gallery} selected={galSelected} onSelect={setGalSelected}
+        onClose={()=>{setShowGallery(false);setGalSelected(null);}}
+        onDelete={id=>{deletePhotoIDB(id);setGallery(prev=>prev.filter(p=>p.id!==id));}}
+        onClear={()=>{clearGalleryIDB();setGallery([]);}}
+      />}
+
+      {/* Disclaimer — shown once per session, must be acknowledged */}
+      {showDisclaimer&&<Disclaimer onAccept={()=>{
+        localStorage.setItem(DISCLAIMER_KEY,'1');
+        setShowDisclaimer(false);
+        // Hold tagline for 4s, then fade over 1.5s, then hide
+        setTimeout(()=>setTaglineOpacity(0), 4000);
+      }}/>}
+    </div>
+  );
+}
