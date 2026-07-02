@@ -5859,7 +5859,9 @@ export default function App() {
         const coherent = Math.abs(cmpDelta-gDelta) < Math.max(10, 0.35*Math.abs(gDelta));
         if(headingSourceRef.current!=='gyro'){
           // Phone clearly rotated (>10°) this window but compass didn't follow → decoupled.
-          if(Math.abs(gDelta)>10 && !coherent){
+          // Speed gate: compass decoupling only happens inside moving vehicles/aircraft —
+          // never auto-engage below ~15 m/s (≈30 kts) so ground use can't false-trigger.
+          if(Math.abs(gDelta)>10 && !coherent && (drVel.current?.speedMs||0)>15){
             wdAuto=true; wdCoh=0; gyroAnchoredRef.current=true; // gyro shadows compass → seamless
             setHeadingSource('gyro');
           }
@@ -6000,14 +6002,16 @@ export default function App() {
       if(!last) return;
       let dt = (now - last)/1000;
       if(dt<=0 || dt>0.5) return; // ignore gaps / first sample
-      // Watchdog: accumulate signed rotation (compass convention: -yawRate, matching
-      // the gyro integrator below) in ALL modes, evaluate each window.
-      wdG   += -yawRate*dt;
+      // Watchdog: accumulate signed rotation (compass convention: +yawRate = rotation
+      // about the down axis = heading increase, matching the integrator below).
+      wdG   += yawRate*dt;
       wdRot += Math.abs(yawRate)*dt;
       wdEval(now);
       if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
-      // Integrate. Sign: device-frame yaw is opposite compass convention → subtract.
-      gyroHeadingRef.current = (((gyroHeadingRef.current - yawRate*dt)%360)+360)%360;
+      // Integrate. yawRate is rotation about the DOWN (gravity) axis: positive =
+      // clockwise viewed from above = heading increasing → ADD. (The previous
+      // subtraction was inverted — gyro mode tracked opposite to phone rotation.)
+      gyroHeadingRef.current = (((gyroHeadingRef.current + yawRate*dt)%360)+360)%360;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
 
