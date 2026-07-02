@@ -5835,29 +5835,43 @@ export default function App() {
     // compass starts moving again AND re-agrees with the gyro. Manual alignments
     // (wdAuto=false) are never auto-reverted.
     let wdRot=0;          // deg of physical rotation accumulated this window (from gyro)
-    let wdCmp=0;          // deg of compass movement accumulated this window
+    let wdRef=null;       // window's reference compass heading (first sample)
+    let wdMin=0, wdMax=0; // circular deviation range from wdRef within the window
     let wdLastRaw=null;   // last raw compass heading seen
     let wdT0=performance.now();
     let wdAuto=false;     // true iff the CURRENT gyro mode was watchdog-initiated
+    let wdDbg={rot:0,rng:0,auto:false}; // last window's stats — surfaced in diag overlay
     const WD_WIN=2500;    // evaluation window (ms)
+    // Track compass movement as the circular RANGE of headings within the window,
+    // NOT cumulative per-sample deltas — a frozen compass with ±0.3° jitter at 60 Hz
+    // racks up ~30°/window of phantom path length, which defeated the stuck test.
+    const wdTrack=(raw)=>{
+      wdLastRaw=raw;
+      if(wdRef==null){ wdRef=raw; wdMin=0; wdMax=0; return; }
+      const d=((raw-wdRef+540)%360)-180;   // circular delta from window reference
+      if(d<wdMin) wdMin=d;
+      if(d>wdMax) wdMax=d;
+    };
     const wdEval=(now)=>{
       if(now-wdT0 < WD_WIN) return;
+      const cmpRange = wdMax-wdMin;        // true spread of compass readings this window
+      wdDbg={rot:Math.round(wdRot), rng:Math.round(cmpRange*10)/10, auto:wdAuto};
       if(headingSourceRef.current!=='gyro'){
-        // Compass mode: phone rotated >30° this window but compass moved <6° → stuck.
-        if(wdRot>30 && wdCmp<6 && wdLastRaw!=null){
+        // Compass mode: phone rotated >30° this window but compass spread <5° → stuck.
+        if(wdRot>30 && cmpRange<5 && wdLastRaw!=null){
           wdAuto=true; gyroAnchoredRef.current=true;   // gyroHeadingRef already shadows compass
           setHeadingSource('gyro');
         }
       } else if(wdAuto && wdLastRaw!=null){
-        // Auto-gyro active: compass moving again AND within 20° of gyro → trust it again.
+        // Auto-gyro active: compass sweeping again AND within 20° of gyro → trust it again.
         const diff=Math.abs(((wdLastRaw-gyroHeadingRef.current+540)%360)-180);
-        if(wdCmp>15 && diff<20){
+        if(cmpRange>15 && diff<20){
           wdAuto=false; gyroAnchoredRef.current=false;
           smoothHdg=gyroHeadingRef.current; hdgInit=true; // seamless hand-back, no EMA glide
           setHeadingSource('compass');
         }
       }
-      wdRot=0; wdCmp=0; wdT0=now;
+      wdRot=0; wdRef=null; wdMin=0; wdMax=0; wdT0=now;
     };
 
     let displayedPitch = 0;          // last value actually sent to React state
@@ -5871,11 +5885,7 @@ export default function App() {
         // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
         hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
         // Watchdog bookkeeping continues in gyro mode so recovery can be detected.
-        if(webkit!=null && webkit>=0){
-          const raw=(webkit+360)%360;
-          if(wdLastRaw!=null) wdCmp += Math.abs(((raw-wdLastRaw+540)%360)-180);
-          wdLastRaw = raw;
-        }
+        if(webkit!=null && webkit>=0) wdTrack((webkit+360)%360);
       } else {
         // Compass mode, smoothed with circular EMA.
         // CRITICAL iOS/Android difference:
@@ -5891,8 +5901,7 @@ export default function App() {
           rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
         }
         // Watchdog bookkeeping: how much is the compass actually moving?
-        if(wdLastRaw!=null) wdCmp += Math.abs(((rawHdg-wdLastRaw+540)%360)-180);
-        wdLastRaw = rawHdg;
+        wdTrack(rawHdg);
         if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
         else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
         hdgVal = Math.round(smoothHdg*10)/10;
@@ -5922,6 +5931,7 @@ export default function App() {
           tcHdg,
           hdg: hdgVal.toFixed(1),
           src: headingSourceRef.current,
+          wd: `rot ${wdDbg.rot}\u00b0 rng ${wdDbg.rng}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
         });
       }
       if(beta!=null){
@@ -7320,6 +7330,7 @@ export default function App() {
           <div>gamma: {sensorDbg.gamma}</div>
           <div style={{color:'#ffd700'}}>tcHdg: {sensorDbg.tcHdg}</div>
           <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
+          <div style={{color:'#ff8c00'}}>wd: {sensorDbg.wd}</div>
         </div>
       )}
       {alignNote&&(
