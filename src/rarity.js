@@ -69,6 +69,8 @@ export const GLOBAL_RARITY = [
   ['MOR2',34],
   ['OSCR',20],
   ['C680',42],
+  ['GA7C',54],
+  ['A30B',60],
   ['CL35',44],
   ['AJET',58],
   ['CV22',84],
