@@ -120,7 +120,7 @@ const getAircraftCat = (icao, emitter='') => {
   // ^A10[A-Z]?$ : A-10 Warthog    (NOT A109 AgustaWestland helicopter)
   // ^F[012][0-9] : F-15/16/18/22 etc. (NOT F50/F70 Fokker)
   // Military transports, tankers, patrol: C-17, C-5, C-130, KC-135, E-3, P-8, V-22
-  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^V22|^MV22|^CV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1|^C146/.test(t)) return 'milTransport';
+  if(/^C17[A-Z]?$|^C5[AM]|^C5$|^C130|^V22|^MV22|^CV22|^C40[A-Z]?$|^C32[A-Z]?$|^C37[A-Z]?$|^C12[A-Z]?$|^C20[A-Z]?$|^C21[A-Z]?$|^C2[A-Z]?$|^C27[A-Z]?$|^C146|^RC1|^WC1|^OC1/.test(t)) return 'milTransport';
   // Military fighters/attack/bombers: F-series, A-10, B-52/1/2, SR-71, U-2
   // Fighters/attack/bombers — ^FA18 only (was ^FA[0-9] which caught Dassault Falcons)
   if(/^AJET|^E2[A-Z]?$|^E3[A-Z]?$|^E6[A-Z]?$|^E8[A-Z]?$|^P3[A-Z]?$|^KC[0-9]|^P8[A-Z]?$|^F[012][0-9]|^F35|^FA18|^B52|^B1[AB]|^B1$|^B2A|^B2$|^A10[A-Z]?$|^U2[A-Z]?$|^SR7|^F4[A-Z]?$|^F5[A-Z]?$|^A4[A-Z]?$|^EA18|^AV8|^T38|^T45|^RQ4|^MQ9|^RQ1|^MQ1/.test(t)) return 'military';
@@ -3837,40 +3837,72 @@ function LogbookTailDetail({ tail, entry, onClose }) {
 }
 
 
+// ── Shared panel UI atoms ─────────────────────────────────────────
+// Hoisted to module scope so React keeps stable component identities across
+// renders. Defining these inside a component recreates them every render,
+// which remounts their DOM subtree (react-hooks/static-components).
+const PANEL_CC = '#4db8ff';
+
+const HelpSection = ({title, children}) => (
+  <div style={{marginBottom:20}}>
+    <div style={{fontSize:9,color:PANEL_CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
+      fontWeight:700,marginBottom:8,paddingBottom:5,
+      borderBottom:'1px solid rgba(77,184,255,0.12)'}}>{title}</div>
+    {children}
+  </div>
+);
+
+const HelpRow = ({icon,label,desc,color}) => (
+  <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:7}}>
+    <div style={{flexShrink:0,width:20,textAlign:'center',marginTop:1}}>{icon}</div>
+    <div>
+      <span style={{fontSize:10,color:color||'#90c8e8',fontFamily:"'Orbitron',monospace",
+        fontWeight:600,letterSpacing:'.04em'}}>{label}</span>
+      {desc&&<div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
+        marginTop:1,lineHeight:1.45}}>{desc}</div>}
+    </div>
+  </div>
+);
+
+const HelpDot = ({col}) => (
+  <span style={{display:'inline-block',width:9,height:9,borderRadius:'50%',
+    background:col,border:'1.5px solid #010a18',verticalAlign:'middle',marginRight:6}}/>
+);
+
+const HelpRing = ({col}) => (
+  <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',
+    border:`2px solid ${col}`,verticalAlign:'middle',marginRight:6}}/>
+);
+
+const StatBig = ({val,label,sub,color}) => (
+  <div style={{flex:1,background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.15)',
+    borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
+    <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
+      color:color||'#b8e4ff',letterSpacing:'.02em',lineHeight:1}}>{val}</div>
+    <div style={{fontSize:8,color:PANEL_CC,fontFamily:"'Orbitron',monospace",
+      letterSpacing:'.12em',marginTop:5}}>{label}</div>
+    {sub&&<div style={{fontSize:8,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{sub}</div>}
+  </div>
+);
+
+const FilterDivider = () => <div style={{height:1,background:'rgba(77,184,255,0.07)',margin:'8px 0'}}/>;
+
+const FilterRow = ({label,value,reset,onReset}) => (
+  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+    <span style={{fontSize:9,color:'#60a0c0',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>{label}</span>
+    <div style={{display:'flex',alignItems:'center',gap:8}}>
+      {reset&&<span onClick={onReset} style={{fontSize:8,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline'}}>RESET</span>}
+      <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,color:'#4db8ff'}}>{value}</span>
+    </div>
+  </div>
+);
+
 // ── Help / Info Panel ─────────────────────────────────────────────
 function HelpPanel({ onClose }) {
   const CC = '#4db8ff';
 
-  const Section = ({title, children}) => (
-    <div style={{marginBottom:20}}>
-      <div style={{fontSize:9,color:CC,fontFamily:"'Orbitron',monospace",letterSpacing:'.16em',
-        fontWeight:700,marginBottom:8,paddingBottom:5,
-        borderBottom:'1px solid rgba(77,184,255,0.12)'}}>{title}</div>
-      {children}
-    </div>
-  );
-
-  const Row = ({icon,label,desc,color}) => (
-    <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:7}}>
-      <div style={{flexShrink:0,width:20,textAlign:'center',marginTop:1}}>{icon}</div>
-      <div>
-        <span style={{fontSize:10,color:color||'#90c8e8',fontFamily:"'Orbitron',monospace",
-          fontWeight:600,letterSpacing:'.04em'}}>{label}</span>
-        {desc&&<div style={{fontSize:10,color:'#4a7898',fontFamily:"'Exo 2',sans-serif",
-          marginTop:1,lineHeight:1.45}}>{desc}</div>}
-      </div>
-    </div>
-  );
-
-  const Dot = ({col}) => (
-    <span style={{display:'inline-block',width:9,height:9,borderRadius:'50%',
-      background:col,border:'1.5px solid #010a18',verticalAlign:'middle',marginRight:6}}/>
-  );
-
-  const Ring = ({col}) => (
-    <span style={{display:'inline-block',width:12,height:12,borderRadius:'50%',
-      border:`2px solid ${col}`,verticalAlign:'middle',marginRight:6}}/>
-  );
+  // Stable module-scope components — aliased so existing JSX below is unchanged.
+  const Section = HelpSection, Row = HelpRow, Dot = HelpDot, Ring = HelpRing;
 
   return (
     <div onClick={onClose} style={{position:'absolute',inset:0,zIndex:62,
@@ -4382,16 +4414,7 @@ function CatchDex({ catches, daily, onShare, onClearAll }) {
   Object.values(byCat).forEach(arr=>arr.sort((a,b)=>(b.best?.score||0)-(a.best?.score||0)));
   const rows = catOrder.filter(c=>byCat[c]?.length);
 
-  const Big = ({val,label,sub,color}) => (
-    <div style={{flex:1,background:'rgba(4,14,36,0.9)',border:'1px solid rgba(77,184,255,0.15)',
-      borderRadius:8,padding:'10px 8px',textAlign:'center'}}>
-      <div style={{fontSize:22,fontFamily:"'Orbitron',monospace",fontWeight:700,
-        color:color||'#b8e4ff',letterSpacing:'.02em',lineHeight:1}}>{val}</div>
-      <div style={{fontSize:8,color:CC,fontFamily:"'Orbitron',monospace",
-        letterSpacing:'.12em',marginTop:5}}>{label}</div>
-      {sub&&<div style={{fontSize:8,color:'#3a6878',fontFamily:"'Exo 2',sans-serif",marginTop:2}}>{sub}</div>}
-    </div>
-  );
+  const Big = StatBig; // stable module-scope component
 
   const Card = ({c}) => {
     const tier = TIER[c.best?.tier] || TIER.common;
@@ -5025,16 +5048,7 @@ function FilterPanel({
     ?allFlights.filter(f=>f.cs.toUpperCase().includes(search.toUpperCase())).slice(0,5):[];
 
   // Compact helpers
-  const Divider = () => <div style={{height:1,background:'rgba(77,184,255,0.07)',margin:'8px 0'}}/>;
-  const Row = ({label,value,reset,onReset}) => (
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-      <span style={{fontSize:9,color:'#60a0c0',fontFamily:"'Orbitron',monospace",letterSpacing:'.12em'}}>{label}</span>
-      <div style={{display:'flex',alignItems:'center',gap:8}}>
-        {reset&&<span onClick={onReset} style={{fontSize:8,color:'#4a9ab8',fontFamily:"'Orbitron',monospace",cursor:'pointer',textDecoration:'underline'}}>RESET</span>}
-        <span style={{fontSize:10,fontFamily:"'Orbitron',monospace",fontWeight:600,color:'#4db8ff'}}>{value}</span>
-      </div>
-    </div>
-  );
+  const Divider = FilterDivider, Row = FilterRow; // stable module-scope components
 
   return (
     <div onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
@@ -5813,6 +5827,39 @@ export default function App() {
     let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
     let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
 
+    // ── Compass-stuck watchdog ─────────────────────────────────────
+    // In a moving vehicle/aircraft, iOS freezes webkitCompassHeading when it loses
+    // magnetic confidence (metal fuselage + acceleration corrupt the fusion), while
+    // gyro + orientation events keep flowing. Detect "phone clearly rotating but
+    // compass not moving" and auto-switch to gyro dead-reckoning; revert when the
+    // compass starts moving again AND re-agrees with the gyro. Manual alignments
+    // (wdAuto=false) are never auto-reverted.
+    let wdRot=0;          // deg of physical rotation accumulated this window (from gyro)
+    let wdCmp=0;          // deg of compass movement accumulated this window
+    let wdLastRaw=null;   // last raw compass heading seen
+    let wdT0=performance.now();
+    let wdAuto=false;     // true iff the CURRENT gyro mode was watchdog-initiated
+    const WD_WIN=2500;    // evaluation window (ms)
+    const wdEval=(now)=>{
+      if(now-wdT0 < WD_WIN) return;
+      if(headingSourceRef.current!=='gyro'){
+        // Compass mode: phone rotated >30° this window but compass moved <6° → stuck.
+        if(wdRot>30 && wdCmp<6 && wdLastRaw!=null){
+          wdAuto=true; gyroAnchoredRef.current=true;   // gyroHeadingRef already shadows compass
+          setHeadingSource('gyro');
+        }
+      } else if(wdAuto && wdLastRaw!=null){
+        // Auto-gyro active: compass moving again AND within 20° of gyro → trust it again.
+        const diff=Math.abs(((wdLastRaw-gyroHeadingRef.current+540)%360)-180);
+        if(wdCmp>15 && diff<20){
+          wdAuto=false; gyroAnchoredRef.current=false;
+          smoothHdg=gyroHeadingRef.current; hdgInit=true; // seamless hand-back, no EMA glide
+          setHeadingSource('compass');
+        }
+      }
+      wdRot=0; wdCmp=0; wdT0=now;
+    };
+
     let displayedPitch = 0;          // last value actually sent to React state
     const process=()=>{
       rafId=null;
@@ -5823,6 +5870,12 @@ export default function App() {
       if(headingSourceRef.current === 'gyro' && gyroAnchoredRef.current){
         // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
         hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
+        // Watchdog bookkeeping continues in gyro mode so recovery can be detected.
+        if(webkit!=null && webkit>=0){
+          const raw=(webkit+360)%360;
+          if(wdLastRaw!=null) wdCmp += Math.abs(((raw-wdLastRaw+540)%360)-180);
+          wdLastRaw = raw;
+        }
       } else {
         // Compass mode, smoothed with circular EMA.
         // CRITICAL iOS/Android difference:
@@ -5837,6 +5890,9 @@ export default function App() {
         } else {
           rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
         }
+        // Watchdog bookkeeping: how much is the compass actually moving?
+        if(wdLastRaw!=null) wdCmp += Math.abs(((rawHdg-wdLastRaw+540)%360)-180);
+        wdLastRaw = rawHdg;
         if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
         else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
         hdgVal = Math.round(smoothHdg*10)/10;
@@ -5926,10 +5982,13 @@ export default function App() {
       const now = e.timeStamp || performance.now();
       const last = gyroLastTsRef.current;
       gyroLastTsRef.current = now;
-      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
       if(!last) return;
       let dt = (now - last)/1000;
       if(dt<=0 || dt>0.5) return; // ignore gaps / first sample
+      // Watchdog: accumulate physical rotation in ALL modes, evaluate each window.
+      wdRot += Math.abs(yawRate)*dt;
+      wdEval(now);
+      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
       // Integrate. Sign: device-frame yaw is opposite compass convention → subtract.
       gyroHeadingRef.current = (((gyroHeadingRef.current - yawRate*dt)%360)+360)%360;
       if(!rafId) rafId = requestAnimationFrame(process);
@@ -5938,7 +5997,9 @@ export default function App() {
     window.addEventListener('deviceorientation',         hOrientation);
     window.addEventListener('deviceorientationabsolute', hAbsolute);
     window.addEventListener('devicemotion',              hMotion);
-    orientRef.current = { hOrientation, hAbsolute, hMotion };
+    // cancelRaf lets the unmount cleanup cancel any frame scheduled after the
+    // listeners detach (prevents one stray process() call on a dead component).
+    orientRef.current = { hOrientation, hAbsolute, hMotion, cancelRaf: ()=>{ if(rafId){ cancelAnimationFrame(rafId); rafId=null; } } };
   },[]);
 
   useEffect(()=>()=>{
@@ -5946,6 +6007,7 @@ export default function App() {
       window.removeEventListener('deviceorientation',         orientRef.current.hOrientation);
       window.removeEventListener('deviceorientationabsolute', orientRef.current.hAbsolute);
       if(orientRef.current.hMotion) window.removeEventListener('devicemotion', orientRef.current.hMotion);
+      if(orientRef.current.cancelRaf) orientRef.current.cancelRaf();
     }
   },[]);
 
