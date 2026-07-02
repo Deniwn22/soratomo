@@ -5,8 +5,11 @@
   <!-- viewport-fit=cover lets the app extend edge-to-edge; safe-area CSS handles the notch/island -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 
-  <!-- PWA manifest (Android/Chrome install + Safari standalone mode) -->
-  <link rel="manifest" href="/manifest.json">
+  <!-- PWA manifest is injected by vite-plugin-pwa at build time (/manifest.webmanifest).
+       Do NOT add a manual <link rel="manifest"> here — browsers honor the FIRST manifest
+       link only, and a manual one would shadow the richer generated manifest
+       (maskable icons, app id, categories). public/manifest.json is deleted for the
+       same reason. -->
 
   <!-- iOS PWA — required for fullscreen home-screen launch on Safari -->
   <meta name="apple-mobile-web-app-capable" content="yes">
