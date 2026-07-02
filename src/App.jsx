@@ -65,7 +65,7 @@ const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
 // Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
 // Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
-const SHOW_SENSOR_DIAG = true;
+const SHOW_SENSOR_DIAG = false;
 const altColor = altM => {
   const ft=altM*3.28084;
   if(ft>45000) return '#e879f9'; // lavender:       extreme altitude
