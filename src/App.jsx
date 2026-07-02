@@ -5827,51 +5827,56 @@ export default function App() {
     let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
     let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
 
-    // ── Compass-stuck watchdog ─────────────────────────────────────
-    // In a moving vehicle/aircraft, iOS freezes webkitCompassHeading when it loses
-    // magnetic confidence (metal fuselage + acceleration corrupt the fusion), while
-    // gyro + orientation events keep flowing. Detect "phone clearly rotating but
-    // compass not moving" and auto-switch to gyro dead-reckoning; revert when the
-    // compass starts moving again AND re-agrees with the gyro. Manual alignments
-    // (wdAuto=false) are never auto-reverted.
-    let wdRot=0;          // deg of physical rotation accumulated this window (from gyro)
-    let wdRef=null;       // window's reference compass heading (first sample)
-    let wdMin=0, wdMax=0; // circular deviation range from wdRef within the window
-    let wdLastRaw=null;   // last raw compass heading seen
+    // ── Compass-coherence watchdog ─────────────────────────────────
+    // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
+    // fuselage make webkitCompassHeading wander on its own (often tracking the
+    // airframe), ignoring how the user actually turns the phone. A frozen-compass
+    // test (small range) misses this — the garbage moves. The correct test is
+    // COHERENCE: over each window, signed compass movement should match signed
+    // gyro-measured rotation. When they diverge while the phone is clearly
+    // rotating → switch to gyro dead-reckoning. Manual alignments (wdAuto=false)
+    // are never auto-reverted.
+    let wdG=0;            // signed gyro heading change this window (compass convention)
+    let wdRot=0;          // unsigned rotation this window (diag only)
+    let wdFirstRaw=null, wdLastRaw=null; // window's first/last raw compass headings
     let wdT0=performance.now();
     let wdAuto=false;     // true iff the CURRENT gyro mode was watchdog-initiated
-    let wdDbg={rot:0,rng:0,auto:false}; // last window's stats — surfaced in diag overlay
+    let wdCoh=0;          // consecutive coherent windows while in auto-gyro (recovery)
+    let wdDbg={g:0,c:0,auto:false};
     const WD_WIN=2500;    // evaluation window (ms)
-    // Track compass movement as the circular RANGE of headings within the window,
-    // NOT cumulative per-sample deltas — a frozen compass with ±0.3° jitter at 60 Hz
-    // racks up ~30°/window of phantom path length, which defeated the stuck test.
     const wdTrack=(raw)=>{
+      if(wdFirstRaw==null) wdFirstRaw=raw;
       wdLastRaw=raw;
-      if(wdRef==null){ wdRef=raw; wdMin=0; wdMax=0; return; }
-      const d=((raw-wdRef+540)%360)-180;   // circular delta from window reference
-      if(d<wdMin) wdMin=d;
-      if(d>wdMax) wdMax=d;
     };
     const wdEval=(now)=>{
       if(now-wdT0 < WD_WIN) return;
-      const cmpRange = wdMax-wdMin;        // true spread of compass readings this window
-      wdDbg={rot:Math.round(wdRot), rng:Math.round(cmpRange*10)/10, auto:wdAuto};
-      if(headingSourceRef.current!=='gyro'){
-        // Compass mode: phone rotated >30° this window but compass spread <5° → stuck.
-        if(wdRot>30 && cmpRange<5 && wdLastRaw!=null){
-          wdAuto=true; gyroAnchoredRef.current=true;   // gyroHeadingRef already shadows compass
-          setHeadingSource('gyro');
-        }
-      } else if(wdAuto && wdLastRaw!=null){
-        // Auto-gyro active: compass sweeping again AND within 20° of gyro → trust it again.
-        const diff=Math.abs(((wdLastRaw-gyroHeadingRef.current+540)%360)-180);
-        if(cmpRange>15 && diff<20){
-          wdAuto=false; gyroAnchoredRef.current=false;
-          smoothHdg=gyroHeadingRef.current; hdgInit=true; // seamless hand-back, no EMA glide
-          setHeadingSource('compass');
+      if(wdFirstRaw!=null && wdLastRaw!=null){
+        const cmpDelta = ((wdLastRaw-wdFirstRaw+540)%360)-180; // signed compass movement
+        const gDelta   = wdG;                                  // signed gyro movement
+        wdDbg={g:Math.round(gDelta), c:Math.round(cmpDelta), auto:wdAuto};
+        // Coherent = compass tracked the gyro within 10° or 35% of the turn, whichever
+        // is larger (handheld jitter + compass lag tolerance).
+        const coherent = Math.abs(cmpDelta-gDelta) < Math.max(10, 0.35*Math.abs(gDelta));
+        if(headingSourceRef.current!=='gyro'){
+          // Phone clearly rotated (>10°) this window but compass didn't follow → decoupled.
+          if(Math.abs(gDelta)>10 && !coherent){
+            wdAuto=true; wdCoh=0; gyroAnchoredRef.current=true; // gyro shadows compass → seamless
+            setHeadingSource('gyro');
+          }
+        } else if(wdAuto){
+          // Recovery: compass must track the gyro through real rotation for 2 consecutive
+          // windows AND land near the gyro heading (rules out coherent-but-offset garbage).
+          const diff=Math.abs(((wdLastRaw-gyroHeadingRef.current+540)%360)-180);
+          if(Math.abs(gDelta)>10 && coherent && diff<20) wdCoh++;
+          else if(Math.abs(gDelta)>10) wdCoh=0;   // rotated but incoherent → reset streak
+          if(wdCoh>=2){
+            wdAuto=false; wdCoh=0; gyroAnchoredRef.current=false;
+            smoothHdg=gyroHeadingRef.current; hdgInit=true; // seamless hand-back
+            setHeadingSource('compass');
+          }
         }
       }
-      wdRot=0; wdRef=null; wdMin=0; wdMax=0; wdT0=now;
+      wdG=0; wdRot=0; wdFirstRaw=null; wdLastRaw=null; wdT0=now;
     };
 
     let displayedPitch = 0;          // last value actually sent to React state
@@ -5931,7 +5936,7 @@ export default function App() {
           tcHdg,
           hdg: hdgVal.toFixed(1),
           src: headingSourceRef.current,
-          wd: `rot ${wdDbg.rot}\u00b0 rng ${wdDbg.rng}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
+          wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
         });
       }
       if(beta!=null){
@@ -5995,7 +6000,9 @@ export default function App() {
       if(!last) return;
       let dt = (now - last)/1000;
       if(dt<=0 || dt>0.5) return; // ignore gaps / first sample
-      // Watchdog: accumulate physical rotation in ALL modes, evaluate each window.
+      // Watchdog: accumulate signed rotation (compass convention: -yawRate, matching
+      // the gyro integrator below) in ALL modes, evaluate each window.
+      wdG   += -yawRate*dt;
       wdRot += Math.abs(yawRate)*dt;
       wdEval(now);
       if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
