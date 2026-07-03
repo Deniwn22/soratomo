@@ -66,6 +66,27 @@ const distNmi  = m  => (m/1852).toFixed(1);
 // Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
 // Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
 const SHOW_SENSOR_DIAG = false;
+
+// ── One-Euro filter ──────────────────────────────────────────────
+// Adaptive low-pass for AR pointing (Casiez et al.): cutoff = fcMin + beta*|velocity|.
+// At rest the cutoff is low → strong smoothing, no jitter. In motion the cutoff
+// rises with speed → minimal lag. Strictly better than a fixed EMA at both ends.
+function makeOneEuro(fcMin, beta, dCut=1.0){
+  let xF=null, dxF=0, tPrev=null;
+  const alpha=(dt,fc)=>{ const r=2*Math.PI*fc*dt; return r/(r+1); };
+  const f=(x, tMs)=>{
+    if(tPrev==null || xF==null){ tPrev=tMs; xF=x; return x; }
+    let dt=(tMs-tPrev)/1000; tPrev=tMs;
+    if(dt<=0) return xF;
+    if(dt>0.2) dt=0.2;                     // clamp across event gaps
+    const dx=(x-xF)/dt;
+    dxF += alpha(dt,dCut)*(dx-dxF);        // low-passed velocity estimate
+    xF  += alpha(dt, fcMin+beta*Math.abs(dxF))*(x-xF);
+    return xF;
+  };
+  f.reset=(v)=>{ xF=v??null; dxF=0; tPrev=null; };
+  return f;
+}
 const altColor = altM => {
   const ft=altM*3.28084;
   if(ft>45000) return '#e879f9'; // lavender:       extreme altitude
@@ -5825,7 +5846,13 @@ export default function App() {
     let rafId=null;
     let alpha=null, beta=null, gamma=null, webkit=null; // heading fields (any event can update)
     let smoothPitch=0, pitchInit=false;     // pitch fields (ONLY deviceorientation updates)
-    let smoothHdg=0,   hdgInit=false;       // heading — circular EMA (avoids 0/360 wrap jump)
+    let smoothHdg=0,   hdgInit=false;       // heading — filtered, wrap-safe
+    // One-Euro filters — heading runs on an UNWRAPPED angle (accumulated signed deltas)
+    // so the 0/360 seam never confuses the filter; output is re-wrapped after.
+    const hdgEuro   = makeOneEuro(0.6, 0.04);  // rest: smoother than old EMA; 100°/s pan: ~35ms lag
+    const pitchEuro = makeOneEuro(0.5, 0.05);
+    let hdgUnwrap=0, hdgPrevRaw=null;
+    const hdgFilterSeed=(v)=>{ hdgUnwrap=v; hdgPrevRaw=v; hdgEuro.reset(v); smoothHdg=v; hdgInit=true; };
 
     // ── Compass-coherence watchdog ─────────────────────────────────
     // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
@@ -5873,7 +5900,7 @@ export default function App() {
           else if(Math.abs(gDelta)>10) wdCoh=0;   // rotated but incoherent → reset streak
           if(wdCoh>=2){
             wdAuto=false; wdCoh=0; gyroAnchoredRef.current=false;
-            smoothHdg=gyroHeadingRef.current; hdgInit=true; // seamless hand-back
+            hdgFilterSeed(gyroHeadingRef.current); // seamless hand-back, filter re-seeded
             setHeadingSource('compass');
           }
         }
@@ -5909,8 +5936,12 @@ export default function App() {
         }
         // Watchdog bookkeeping: how much is the compass actually moving?
         wdTrack(rawHdg);
-        if(!hdgInit){ smoothHdg=rawHdg; hdgInit=true; }
-        else{ const d=((rawHdg-smoothHdg+540)%360)-180; smoothHdg=(smoothHdg+d*0.15+360)%360; }
+        if(!hdgInit){ hdgFilterSeed(rawHdg); }
+        else{
+          const d=((rawHdg-hdgPrevRaw+540)%360)-180;  // signed step, wrap-safe
+          hdgPrevRaw=rawHdg; hdgUnwrap+=d;
+          smoothHdg=((hdgEuro(hdgUnwrap, performance.now())%360)+360)%360;
+        }
         hdgVal = Math.round(smoothHdg*10)/10;
         // Keep the gyro heading shadowing the compass while in compass mode, so a
         // later switch to gyro starts from the right place even before an explicit anchor.
@@ -5943,13 +5974,14 @@ export default function App() {
       }
       if(beta!=null){
         const raw=Math.max(-60,Math.min(90,beta-90));
-        // EMA (heavier smoothing) — seed on first reading, no snap-from-0
-        smoothPitch = pitchInit ? smoothPitch*0.92 + raw*0.08 : raw;
+        // One-Euro: responsive during fast tilts (old EMA lagged ~200 ms), stable at rest.
+        smoothPitch = pitchEuro(raw, performance.now());
         pitchInit   = true;
-        // Dead-band: only push to React state when display value would change
-        // Suppresses 60Hz re-renders from sub-1° noise
-        const display = Math.round(smoothPitch);
-        if(display !== displayedPitch || !pitchInit){
+        // Dead-band at 0.2° (was 1°): the old integer step moved markers ~12 px per jump.
+        // 0.2° ≈ 2px — visually continuous. At rest the filter output pins, so React
+        // still skips re-renders (setState with an identical value bails out).
+        const display = Math.round(smoothPitch*5)/5;
+        if(display !== displayedPitch){
           displayedPitch = display;
           setDevicePitch(display);
         }
