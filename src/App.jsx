@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import geomagnetism from "geomagnetism";
 import { submitScore, fetchLeaderboard } from './firebase'; // Firestore REST leaderboard
 import { computeRarity, GLOBAL_RARITY } from './rarity.js';
@@ -2820,7 +2820,7 @@ const MarkerBody = React.memo(function MarkerBody({
 });
 
 // ── AircraftMarker ─────────────────────────────────────────────
-const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
+const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedTypes, proximityM, isCatchable, isDisplayNew, stageW, stageH }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
   const color      = cat==='military' ? '#ff8c00' : altColor(f.alt); // orange for military
   const dNmi       = f.dist/M_PER_NMI;
@@ -2851,8 +2851,12 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   return (
     <div onClick={e=>{e.stopPropagation();onSelect(f);}} style={{
       position:'absolute',left:0,top:0,
-      // translate3d in viewport units = pure GPU composite (no layout pass).
-      transform:`translate3d(${f.x}vw, ${f.y}vh, 0) translate(-50%,-50%)`,
+      // translate3d in CONTAINER px = pure GPU composite (no layout pass) in the
+      // same coordinate frame as the trails canvas and the rest of the stage.
+      // (vw/vh was viewport-relative — offset from the stage by the header height.)
+      transform: stageW>0
+        ? `translate3d(${(f.x/100*stageW).toFixed(1)}px, ${(f.y/100*stageH).toFixed(1)}px, 0) translate(-50%,-50%)`
+        : `translate3d(${f.x}vw, ${f.y}vh, 0) translate(-50%,-50%)`,
       willChange:'transform',cursor:'pointer',
       zIndex:isSelected?20:10,
       opacity:dimmed?0.28:1,
@@ -2879,6 +2883,7 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 }
 , (prev,next)=>{
   // Only re-render if visually relevant props changed
+  if(prev.stageW!==next.stageW||prev.stageH!==next.stageH) return false;
   if(prev.isSelected!==next.isSelected||prev.isDisplayNew!==next.isDisplayNew) return false;
   if(prev.proximityM!==next.proximityM||prev.isCatchable!==next.isCatchable||prev.loggedTypes!==next.loggedTypes) return false;
   if(prev.onSelect!==next.onSelect) return false;
@@ -5629,6 +5634,22 @@ export default function App() {
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   const [sensorDbg, setSensorDbg] = useState(null);  // TEMP: raw sensor diagnostic readout
   const trailCanvasRef = useRef(null);  // trails drawn on canvas — zero React nodes
+  // AR stage dimensions in px. Markers MUST be positioned relative to the stage
+  // container (not the viewport) — the stage sits below the top HUD, so vw/vh
+  // coordinates are offset from the %-based frame everything else uses.
+  const [stageDim, setStageDim] = useState({w:0,h:0});
+  useLayoutEffect(()=>{
+    const cv=trailCanvasRef.current;
+    if(!cv) return;
+    const measure=()=>setStageDim(d=>{
+      const w=cv.clientWidth,h=cv.clientHeight;
+      return (d.w===w&&d.h===h)?d:{w,h};
+    });
+    measure();
+    const ro=new ResizeObserver(measure);
+    ro.observe(cv);
+    return ()=>ro.disconnect();
+  },[tiltMode]);
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
   // Gallery uses IndexedDB (idb.js) — async load on mount
@@ -8157,6 +8178,7 @@ export default function App() {
       }}>
         {displayed.map(f=>(
           <AircraftMarker key={f.id} f={f} isSelected={selectedId===f.id}
+            stageW={stageDim.w} stageH={stageDim.h}
             dimmed={selectedId!==null&&selectedId!==f.id}
             tiltMode={tiltMode}
             onSelect={handleAircraftSelect}
