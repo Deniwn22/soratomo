@@ -5929,6 +5929,16 @@ export default function App() {
     // (seen in iOS standalone PWAs). If the gyro feed is dead, fusion must fall
     // back to compass-direct display instead of freezing.
     let motCnt=0, motOkCnt=0, motHz=0, motOkHz=0, motWinT0=0;
+    let webkitAcc=null;    // iOS webkitCompassAccuracy (deg; -1 = uncalibrated)
+    // ── North-offset estimator ─────────────────────────────────────
+    // iOS webkitCompassHeading measures the TOP-axis azimuth. In AR pose (phone
+    // vertical, beta≈90°) that projection is DEGENERATE: magnitude ~cos(beta)→0
+    // and it flips 180° as beta crosses 90 — the source of wandering 20-180°
+    // heading errors near vertical. Fix: heading = CAMERA-axis azimuth (always
+    // well-conditioned in AR pose) in the Euler frame, plus a north offset
+    // learned from webkit ONLY while the top axis is well-conditioned
+    // (|cos(beta)| > 0.26 → tilted >15° from vertical).
+    let nOff=0, nOffInit=false;
 
     // ── Compass-coherence watchdog ─────────────────────────────────
     // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
@@ -6007,8 +6017,28 @@ export default function App() {
         // Adding declination to the iOS value double-corrected it by ~10° (the DC-area
         // declination), which is why headings read consistently off.
         let rawHdg;
-        if(webkit!=null && webkit>=0){
-          rawHdg = (webkit + 360) % 360;                       // iOS: already true north
+        if(webkit!=null && webkit>=0 && alpha!=null && beta!=null && gamma!=null){
+          // iOS: derive heading from the CAMERA axis, not webkit's degenerate
+          // top-axis projection (see north-offset estimator comment above).
+          const _x=beta*Math.PI/180, _y=gamma*Math.PI/180, _z=alpha*Math.PI/180;
+          const cZ=Math.cos(_z),sZ=Math.sin(_z),cY=Math.cos(_y),sY=Math.sin(_y);
+          const sX=Math.sin(_x),cX=Math.cos(_x);
+          // Camera (-Z device) azimuth in the Euler(alpha) frame — well-conditioned in AR pose
+          const camAz=((Math.atan2(-cZ*sY - sZ*sX*cY, -sZ*sY + cZ*sX*cY)*180/Math.PI)+360)%360;
+          // Top (+Y device) azimuth — this is what webkit actually measures
+          const topAz=((Math.atan2(-sZ*cX, cZ*cX)*180/Math.PI)+360)%360;
+          if(Math.abs(cX)>0.26 && (webkitAcc==null || webkitAcc>=0)){
+            // Top axis tilted >15° from vertical → webkit geometry is sound → learn
+            // the Euler-frame→north offset (circular EMA; also tracks iOS alpha drift).
+            const sample=((webkit-topAz+540)%360)-180;
+            if(!nOffInit){ nOff=sample; nOffInit=true; }
+            else nOff += (((sample-nOff+540)%360)-180)*0.08;
+          }
+          rawHdg = nOffInit
+            ? (camAz + nOff + 360) % 360
+            : (webkit + 360) % 360;   // no offset learned yet — legacy behavior
+        } else if(webkit!=null && webkit>=0){
+          rawHdg = (webkit + 360) % 360;                       // iOS legacy (no Euler data)
         } else {
           rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
         }
@@ -6092,6 +6122,7 @@ export default function App() {
           wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
           perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
           mot: `${motHz}/s events \u00b7 ${motOkHz}/s gyro \u00b7 yaw ${lastYawRate.toFixed(0)}\u00b0/s`,
+          nav: `nOff ${nOffInit?nOff.toFixed(0)+'\u00b0':'unset'} \u00b7 acc ${webkitAcc==null?'n/a':webkitAcc<0?'UNCAL':'\u00b1'+webkitAcc.toFixed(0)+'\u00b0'} \u00b7 tilt ${beta==null?'?':Math.abs(beta-90).toFixed(0)+'\u00b0'}`,
         });
       }
       if(beta!=null){
@@ -6117,6 +6148,7 @@ export default function App() {
       beta   = e.beta;           // ONLY this handler may write beta
       gamma  = e.gamma;
       webkit = e.webkitCompassHeading ?? null;
+      webkitAcc = e.webkitCompassAccuracy ?? null;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
 
@@ -7561,6 +7593,7 @@ export default function App() {
           <div style={{color:'#ff8c00'}}>wd: {sensorDbg.wd}</div>
           <div style={{color:'#ff5c5c'}}>perf: {sensorDbg.perf}</div>
           <div style={{color:'#5cffd0'}}>mot: {sensorDbg.mot}</div>
+          <div style={{color:'#c9a0ff'}}>nav: {sensorDbg.nav}</div>
         </div>
       )}
       {alignNote&&(
