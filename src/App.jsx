@@ -2709,6 +2709,116 @@ const loadLog   = () => {try{const r=JSON.parse(localStorage.getItem(LOG_KEY)||'
 const saveLog   = e  => {try{localStorage.setItem(LOG_KEY,JSON.stringify(e));}catch{}};
 const loadProx  = () => {try{return Math.min(25,parseInt(localStorage.getItem(PROX_KEY)||'10'));}catch{return 10;}};
 
+// ── MarkerBody ─────────────────────────────────────────────────
+// Everything inside a marker EXCEPT its position. Shallow-memoized on primitive
+// props, so panning (x/y changes at 60 Hz) re-renders only the thin positioned
+// wrapper — the SVG path building, rings, and labels here are skipped entirely
+// until a value actually changes (data tick, selection, proximity crossing).
+const MarkerBody = React.memo(function MarkerBody({
+  isSelected, tiltMode, uncertVw, color, isDisplayNew, ringInner, ringOuter,
+  rarColor, rarKey, rarLabel, rarScore, isCatchable, iconSize, isNearby,
+  ringColor, aspect, cat, icao, confidence, rawSize, cs, isNewType, badgeColor, distLabel,
+}) {
+  return (
+    <>
+      {/* Uncertainty bubble — tilt/camera mode only, selected aircraft only */}
+      {isSelected && tiltMode && (
+        <div style={{
+          position:'absolute',
+          left:'50%', top:'50%',
+          width:`${Math.max(9,uncertVw)*2}vw`,
+          height:`${Math.max(9,uncertVw)*2}vw`,
+          transform:'translate(-50%,-50%)',
+          borderRadius:'50%',
+          border:`1.5px dashed ${color}`,
+          background:`${color}12`,
+          opacity:0.6,
+          pointerEvents:'none',
+          transition:'width 0.8s ease, height 0.8s ease',
+        }}/>
+      )}
+      {/* Entry ping — one-shot on first appearance */}
+      {isDisplayNew&&<>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1.5px solid ${color}cc`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 1 forwards'}}/>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1px solid ${color}88`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 0.22s 1 forwards'}}/>
+        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
+          border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
+          animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
+      </>}
+      {/* Glow ring — see rules in original comment */}
+      {(()=>{
+        const showRing = isCatchable || rarKey==='mythic' || rarKey==='legendary';
+        if(!showRing) return null;
+        const dur = rarKey==='mythic' ? '2s'
+                  : rarKey==='legendary' ? '3s'
+                  : rarKey==='uncommon' ? '4.5s'
+                  : '3.5s';
+        const opacity = isCatchable ? 1 : 0.4;
+        return <div style={{
+          position:'absolute',width:ringInner,height:ringInner,
+          borderRadius:'50%',
+          border:`2px solid ${rarColor}`,
+          top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+          animation:`glowRing ${dur} ease-in-out infinite`,
+          filter:`drop-shadow(0 0 4px ${rarColor})`,
+          opacity,
+          pointerEvents:'none',
+        }}/>;
+      })()}
+
+      {/* Aircraft silhouette + accuracy dot */}
+      <div style={{position:'relative',display:'inline-block'}}>
+        <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24"
+          style={{display:'block',overflow:'visible',
+            filter:`drop-shadow(0 0 ${isNearby?6:4}px ${ringColor}88)`,
+            transform:`rotate(${aspect}deg)`,
+          }}>
+          <PlaneShape cat={cat} color={color} fc={1} icao={icao}/>
+        </svg>
+        {tiltMode && confidence && (()=>{
+          const dc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[confidence];
+          return (
+            <div style={{
+              position:'absolute',top:-4,right:-4,
+              width:10,height:10,borderRadius:'50%',
+              background:dc,border:'2px solid #010a18',
+              boxShadow:`0 0 5px ${dc}99`,
+              pointerEvents:'none',
+            }}/>
+          );
+        })()}
+      </div>
+
+      {/* Callsign label */}
+      <div style={{
+        position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
+        marginTop:4,color,fontSize:Math.max(8,Math.min(10,rawSize*0.22)),
+        fontFamily:"'Orbitron',monospace",fontWeight:700,
+        whiteSpace:'nowrap',letterSpacing:'0.06em',textShadow:`0 0 8px ${color}`,
+        background:'rgba(1,8,20,0.6)',padding:'1px 5px',borderRadius:3,pointerEvents:'none',
+      }}>{cs}</div>
+
+      {/* Proximity badge */}
+      {isNearby && (
+        <div style={{
+          position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
+          marginTop:16+Math.max(8,Math.min(10,rawSize*0.22)),
+          background:`${rarColor}1f`,
+          border:`1px solid ${badgeColor}55`,
+          borderRadius:3,padding:'1px 5px',
+          fontSize:9,color:badgeColor,
+          fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
+          whiteSpace:'nowrap',pointerEvents:'none',
+        }}>{rarScore>=60 ? `${rarLabel} \u00b7 ` : (isNewType ? '\u2605 NEW TYPE \u00b7 ' : '')}{distLabel} NMI</div>
+      )}
+    </>
+  );
+});
+
 // ── AircraftMarker ─────────────────────────────────────────────
 const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimmed, tiltMode, onSelect, loggedTypes, proximityM, isCatchable, isDisplayNew }) {
   const cat        = getAircraftCat(f.type, f.emitter||'');
@@ -2741,120 +2851,29 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
   return (
     <div onClick={e=>{e.stopPropagation();onSelect(f);}} style={{
       position:'absolute',left:0,top:0,
-      // translate3d in viewport units = pure GPU composite. left/top% changes
-      // forced a browser LAYOUT pass per marker per frame — the main source of
-      // dropped frames (and the horizon "jump") with many aircraft in view.
+      // translate3d in viewport units = pure GPU composite (no layout pass).
       transform:`translate3d(${f.x}vw, ${f.y}vh, 0) translate(-50%,-50%)`,
       willChange:'transform',cursor:'pointer',
       zIndex:isSelected?20:10,
       opacity:dimmed?0.28:1,
       transition:'opacity 0.25s ease',
     }}>
-      {/* Uncertainty bubble — tilt/camera mode only, selected aircraft only */}
-      {isSelected && tiltMode && (
-        <div style={{
-          position:'absolute',
-          left:'50%', top:'50%',
-          width:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
-          height:`${Math.max(9,f.uncertRadiusVw)*2}vw`,
-          transform:'translate(-50%,-50%)',
-          borderRadius:'50%',
-          border:`1.5px dashed ${color}`,
-          background:`${color}12`,
-          opacity:0.6,
-          pointerEvents:'none',
-          transition:'width 0.8s ease, height 0.8s ease',
-        }}/>
-      )}
-      {/* Entry ping — one-shot on first appearance */}
-      {isDisplayNew&&<>
-        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
-          border:`1.5px solid ${color}cc`,top:'50%',left:'50%',pointerEvents:'none',
-          animation:'ping 1.1s ease-out 1 forwards'}}/>
-        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
-          border:`1px solid ${color}88`,top:'50%',left:'50%',pointerEvents:'none',
-          animation:'ping 1.1s ease-out 0.22s 1 forwards'}}/>
-        <div style={{position:'absolute',width:ringOuter+8,height:ringOuter+8,borderRadius:'50%',
-          border:`1px solid ${color}44`,top:'50%',left:'50%',pointerEvents:'none',
-          animation:'ping 1.1s ease-out 0.44s 1 forwards'}}/>
-      </>}
-      {/* Glow ring rules:
-           - Any aircraft within 10 nm (catchable): glow ring always shown
-           - UNCOMMON/LEGENDARY/MYTHIC: glow ring always shown regardless of range
-           - RARE/COMMON beyond 10 nm: no ring
-           Pulse speed: MYTHIC 2s, LEGENDARY 3s, UNCOMMON 4.5s, catchable-others 3.5s */}
-      {(()=>{
-        const tk = rarTier.key;
-        // UNCOMMON only gets ring when catchable (<10 nm)
-        // LEGENDARY and MYTHIC show ring at any range (faint when distant)
-        const showRing = isCatchable ||
-                         tk==='mythic' || tk==='legendary';
-        if(!showRing) return null;
-        const dur = tk==='mythic' ? '2s'
-                  : tk==='legendary' ? '3s'
-                  : tk==='uncommon' ? '4.5s'
-                  : '3.5s'; // catchable RARE/COMMON
-        const opacity = isCatchable ? 1 : 0.4; // faint when legendary/mythic out of range
-        return <div style={{
-          position:'absolute',width:ringInner,height:ringInner,
-          borderRadius:'50%',
-          border:`2px solid ${rarTier.color}`,
-          top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-          animation:`glowRing ${dur} ease-in-out infinite`,
-          filter:`drop-shadow(0 0 4px ${rarTier.color})`,
-          opacity,
-          pointerEvents:'none',
-        }}/>;
-      })()}
-
-      {/* Aircraft silhouette + NEW dot wrapped together */}
-      <div style={{position:'relative',display:'inline-block'}}>
-        <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24"
-          style={{display:'block',overflow:'visible',
-            filter:`drop-shadow(0 0 ${isNearby?6:4}px ${ringColor}88)`,
-            transform:`rotate(${aspect}deg)`,
-          }}>
-          <PlaneShape cat={cat} color={color} fc={wingFC} icao={f.type||''}/>
-        </svg>
-        {/* Accuracy dot — green=HIGH, yellow=MED, orange=LOW confidence (tilt mode only) */}
-        {tiltMode && f.confidence && (()=>{
-          const dc={HIGH:'#2dffb4',MED:'#ffd700',LOW:'#ff8c00'}[f.confidence];
-          return (
-            <div style={{
-              position:'absolute',top:-4,right:-4,
-              width:10,height:10,borderRadius:'50%',
-              background:dc,border:'2px solid #010a18',
-              boxShadow:`0 0 5px ${dc}99`,
-              pointerEvents:'none',
-            }}/>
-          );
-        })()}
-      </div>
-
-      {/* Callsign label */}
-      <div style={{
-        position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
-        marginTop:4,color,fontSize:Math.max(8,Math.min(10,rawSize*0.22)),
-        fontFamily:"'Orbitron',monospace",fontWeight:700,
-        whiteSpace:'nowrap',letterSpacing:'0.06em',textShadow:`0 0 8px ${color}`,
-        background:'rgba(1,8,20,0.6)',padding:'1px 5px',borderRadius:3,pointerEvents:'none',
-      }}>{f.cs}</div>
-
-
-
-      {/* Proximity badge */}
-      {isNearby && (
-        <div style={{
-          position:'absolute',top:'100%',left:'50%',transform:'translateX(-50%)',
-          marginTop:16+Math.max(8,Math.min(10,rawSize*0.22)),
-          background:`${rarTier.color}1f`,
-          border:`1px solid ${badgeColor}55`,
-          borderRadius:3,padding:'1px 5px',
-          fontSize:9,color:badgeColor,
-          fontFamily:"'Orbitron',monospace",letterSpacing:'.06em',
-          whiteSpace:'nowrap',pointerEvents:'none',
-        }}>{rarTier.score>=60 ? `${rarTier.label} \u00b7 ` : (isNewType ? '\u2605 NEW TYPE \u00b7 ' : '')}{distNmi(f.dist)} NMI</div>
-      )}
+      {/* All visual content is in MarkerBody — shallow-memoized on primitives, so
+          60 Hz x/y panning only diffs THIS wrapper's transform. Quantized props
+          (aspect 1°, uncertVw 0.5, distLabel 0.1 nmi) keep the memo stable while
+          the aircraft drifts between data ticks. */}
+      <MarkerBody
+        isSelected={isSelected} tiltMode={tiltMode}
+        uncertVw={Math.round((f.uncertRadiusVw||0)*2)/2}
+        color={color} isDisplayNew={isDisplayNew}
+        ringInner={ringInner} ringOuter={ringOuter}
+        rarColor={rarTier.color} rarKey={rarTier.key} rarLabel={rarTier.label} rarScore={rarTier.score}
+        isCatchable={isCatchable} iconSize={iconSize} isNearby={isNearby}
+        ringColor={ringColor} aspect={Math.round(aspect)}
+        cat={cat} icao={f.type||''} confidence={f.confidence}
+        rawSize={rawSize} cs={f.cs} isNewType={isNewType}
+        badgeColor={badgeColor} distLabel={distNmi(f.dist)}
+      />
     </div>
   );
 }
@@ -5609,6 +5628,7 @@ export default function App() {
   })());
   const [alignNote, setAlignNote] = useState(null);  // transient feedback banner
   const [sensorDbg, setSensorDbg] = useState(null);  // TEMP: raw sensor diagnostic readout
+  const trailCanvasRef = useRef(null);  // trails drawn on canvas — zero React nodes
   // One-time cleanup: remove stale v1 calibration keys (contain pre-declination biases)
   useEffect(()=>{try{['soratomo_hdg_bias','soratomo_pitch_bias','soratomo_cam_fov','soratomo_cam_fov_tele','soratomo_calib_ts'].forEach(k=>localStorage.removeItem(k));}catch{}},[]);
   // Gallery uses IndexedDB (idb.js) — async load on mount
@@ -7048,6 +7068,40 @@ export default function App() {
   // What the AR layers actually render — candidates only while aligning
   const displayed = alignCandidates ?? mapped;
 
+  // ── Trail canvas draw — runs after each commit (per frame during panning). ──
+  // Canvas 2D handles ~100 tapered segments in <1 ms; React reconciles nothing.
+  useEffect(()=>{
+    const cv=trailCanvasRef.current;
+    if(!cv) return;
+    const dpr=window.devicePixelRatio||1;
+    const W=cv.clientWidth, H=cv.clientHeight;
+    if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){
+      cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    }
+    const ctx=cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.lineCap='round';
+    for(const f of displayed){
+      if(!f.trail?.length) continue;
+      const col=altColor(f.alt);
+      const sampled=f.trail.filter((_,i)=> i%2===0 || i===f.trail.length-1);
+      const pts=[...sampled,{x:f.x,y:f.y}];
+      const n=pts.length-1;
+      for(let i=1;i<pts.length;i++){
+        ctx.strokeStyle=col;
+        ctx.globalAlpha=0.28+((i-1)/n)*0.42;
+        ctx.lineWidth=1.5+((i-1)/n)*1.5;
+        ctx.beginPath();
+        ctx.moveTo(pts[i-1].x/100*W, pts[i-1].y/100*H);
+        ctx.lineTo(pts[i].x/100*W,   pts[i].y/100*H);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+  });
+
+
   // ── Tap-to-align calibration ──
   // The aircraft themselves are the calibration landmarks: their true bearing/elevation
   // are known from ADS-B far more precisely than any visual landmark. One tap on the REAL
@@ -8090,29 +8144,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Trail lines — draw behind markers */}
-      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:3,overflow:'hidden'}}>
-        {displayed.map(f=>{
-          if(!f.trail?.length) return null;
-          const col=altColor(f.alt);
-          // pts: [oldest_prev, ..., prev, current]
-          // Stride-2 sampling halves SVG node count (~190 → ~95 with a full sky)
-          // while keeping the full trail time-span.
-          const sampled = f.trail.filter((_,i)=> i%2===0 || i===f.trail.length-1);
-          const pts=[...sampled,{x:f.x,y:f.y}];
-          const n=pts.length-1; // number of segments
-          return pts.slice(1).map((pt,i)=>(
-            <line key={`${f.id}-t${i}`}
-              x1={`${pts[i].x}%`} y1={`${pts[i].y}%`}
-              x2={`${pt.x}%`}     y2={`${pt.y}%`}
-              stroke={col}
-              strokeWidth={1.5 + (i/n)*1.5}
-              strokeLinecap='round'
-              opacity={0.28 + (i/n)*0.42}
-            />
-          ));
-        })}
-      </svg>
+      {/* Trail lines — canvas, drawn imperatively each frame (see effect below).
+          Replaces ~95 React-reconciled SVG nodes per frame with one draw call pass. */}
+      <canvas ref={trailCanvasRef}
+        style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:3}}/>
 
       {/* Aircraft markers — dimmed and non-interactive during calibration */}
       <div style={{
