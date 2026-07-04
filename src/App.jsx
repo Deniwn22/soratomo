@@ -105,6 +105,13 @@ const CAM_MAX_DIST_M = 30*1852;// 30 nmi — hide aircraft beyond this in camera
 const LOG_PROX_NMI   = 25;     // nmi — logbook proximity logging cap
 const DR_MAX_AGE_S   = 30;     // seconds — dead-reckoning projection limit
 
+// Trail geometry cache — (bearing, elevation, dist) of each aircraft's history
+// points only change when new DATA arrives (the history array is rebuilt) or the
+// user moves. Keyed on the history array's identity: each 2s data tick creates a
+// new array → natural invalidation. Saves ~190 haversine/bearing/elev calls per
+// FRAME with a full sky; per frame only the cheap linear view-mapping remains.
+const trailGeoCache = new WeakMap();
+
 const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
   let hDiff=((bear-dHdg+540)%360)-180;
   if(Math.abs(hDiff)>hfov/2) return {on:false};
@@ -2733,8 +2740,12 @@ const AircraftMarker = React.memo(function AircraftMarker({ f, isSelected, dimme
 
   return (
     <div onClick={e=>{e.stopPropagation();onSelect(f);}} style={{
-      position:'absolute',left:`${f.x}%`,top:`${f.y}%`,
-      transform:'translate(-50%,-50%)',cursor:'pointer',
+      position:'absolute',left:0,top:0,
+      // translate3d in viewport units = pure GPU composite. left/top% changes
+      // forced a browser LAYOUT pass per marker per frame — the main source of
+      // dropped frames (and the horizon "jump") with many aircraft in view.
+      transform:`translate3d(${f.x}vw, ${f.y}vh, 0) translate(-50%,-50%)`,
+      willChange:'transform',cursor:'pointer',
       zIndex:isSelected?20:10,
       opacity:dimmed?0.28:1,
       transition:'opacity 0.25s ease',
@@ -5973,24 +5984,7 @@ export default function App() {
         });
       }
       if(beta!=null){
-        const bp=Math.max(-60,Math.min(90,beta-90));   // Euler pitch (singular at 0)
-        let raw=bp;
-        if(gPitchRaw!=null){
-          // Auto-calibrate gravity-pitch sign where beta is trustworthy (15–50° off
-          // vertical): majority vote over 40 samples, then locked.
-          if(gSignVotes<40 && Math.abs(bp)>15 && Math.abs(bp)<50){
-            gPitchSign += (Math.abs(gPitchRaw-bp) <= Math.abs(-gPitchRaw-bp)) ? 1 : -1;
-            gSignVotes++;
-          }
-          if(gSignVotes>=10){
-            const gp=(gPitchSign>=0?1:-1)*gPitchRaw;
-            // Crossfade: pure gravity-pitch inside ±6° (singularity zone), pure
-            // beta-pitch outside ±12°, linear blend between. Both agree in the
-            // overlap, so the transition is seamless.
-            const a=Math.max(0,Math.min(1,(Math.abs(bp)-6)/6));
-            raw = a*bp + (1-a)*gp;
-          }
-        }
+        const raw=Math.max(-60,Math.min(90,beta-90));
         // One-Euro: responsive during fast tilts (old EMA lagged ~200 ms), stable at rest.
         smoothPitch = pitchEuro(raw, performance.now());
         pitchInit   = true;
@@ -6030,12 +6024,6 @@ export default function App() {
     // regardless of how the phone is tilted/held — pure rotationRate.alpha is only
     // correct when the phone is flat.
     let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
-    // Gravity-derived pitch — immune to the Euler gimbal-lock singularity at
-    // beta=90° (phone vertical = AIM 0°), where deviceorientation's beta gets
-    // unstable and the horizon "snaps". asin(gz/|g|) is smooth through vertical.
-    // gPitchSign is auto-calibrated at runtime against beta-pitch away from the
-    // singularity, so platform axis-convention differences can't invert it.
-    let gPitchRaw=null, gPitchSign=0, gSignVotes=0;
     const hMotion = e => {
       const rr = e.rotationRate;
       if(!rr) return;
@@ -6047,7 +6035,6 @@ export default function App() {
         gAz = gAz*0.9 + ag.z*0.1;
       }
       const gm = Math.hypot(gAx,gAy,gAz) || 1;
-      gPitchRaw = Math.asin(Math.max(-1,Math.min(1, gAz/gm)))*180/Math.PI;
       // Angular velocity about device axes (deg/s). Project onto unit gravity vector
       // → rotation rate about the true vertical = yaw rate (compass change rate).
       const wx=rr.beta||0, wy=rr.gamma||0, wz=rr.alpha||0;
@@ -7001,12 +6988,19 @@ export default function App() {
     const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
     // Project historical positions — no FOV clipping so trail persists near edges
     // SVG overflow:hidden clips lines at viewport boundary naturally
-    const trail=(f.history||[]).slice(0,-1).map(h=>{
-      const hd=haversine(pos.lat,pos.lon,h.lat,h.lon);
-      const hb=getBearing(pos.lat,pos.lon,h.lat,h.lon);
-      const he=getElev(hd,h.alt);
-      const hDiff=((hb-viewHdg+540)%360)-180;
-      const vDiff=he-viewPitch;
+    let tg = f.history ? trailGeoCache.get(f.history) : null;
+    if(f.history && (!tg || tg.pLat!==pos.lat || tg.pLon!==pos.lon)){
+      tg = { pLat:pos.lat, pLon:pos.lon,
+        pts: f.history.slice(0,-1).map(h=>{
+          const hd=haversine(pos.lat,pos.lon,h.lat,h.lon);
+          return { hb:getBearing(pos.lat,pos.lon,h.lat,h.lon), he:getElev(hd,h.alt) };
+        })
+      };
+      trailGeoCache.set(f.history, tg);
+    }
+    const trail=(tg?.pts||[]).map(p=>{
+      const hDiff=((p.hb-viewHdg+540)%360)-180;
+      const vDiff=p.he-viewPitch;
       return {x:50+(hDiff/(activeFov/2))*50, y:50-(vDiff/(activeVFov/2))*50};
     });
     // ── Uncertainty bubble radius (vw units) ──
@@ -8102,7 +8096,10 @@ export default function App() {
           if(!f.trail?.length) return null;
           const col=altColor(f.alt);
           // pts: [oldest_prev, ..., prev, current]
-          const pts=[...f.trail,{x:f.x,y:f.y}];
+          // Stride-2 sampling halves SVG node count (~190 → ~95 with a full sky)
+          // while keeping the full trail time-span.
+          const sampled = f.trail.filter((_,i)=> i%2===0 || i===f.trail.length-1);
+          const pts=[...sampled,{x:f.x,y:f.y}];
           const n=pts.length-1; // number of segments
           return pts.slice(1).map((pt,i)=>(
             <line key={`${f.id}-t${i}`}
