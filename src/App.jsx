@@ -5922,8 +5922,13 @@ export default function App() {
     // The moment the compass stalls or wanders while the phone rotates, the pull
     // pauses and heading rides the gyro cleanly through the disturbance.
     let lastYawRate=0;     // deg/s from hMotion (compass sign convention)
+    let lastYawT=0;        // performance.now() of last SUCCESSFUL yaw computation
     let prevProcT=null;    // for per-event dt in the correction pull
     let lastTrusted=true;  // diag: was the compass pull active last event?
+    // Motion-health counters — devicemotion can silently deliver null rotationRate
+    // (seen in iOS standalone PWAs). If the gyro feed is dead, fusion must fall
+    // back to compass-direct display instead of freezing.
+    let motCnt=0, motOkCnt=0, motHz=0, motOkHz=0, motWinT0=0;
 
     // ── Compass-coherence watchdog ─────────────────────────────────
     // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
@@ -6019,17 +6024,32 @@ export default function App() {
         const nowP=performance.now();
         const dtP=prevProcT!=null ? Math.min(0.1,(nowP-prevProcT)/1000) : 0;
         prevProcT=nowP;
-        // Trust gate: compass velocity must track gyro velocity RIGHT NOW.
-        // A stalled compass (vel≈0) while the phone rotates fails instantly;
-        // a still phone (both ≈0) passes; a healthy pan (equal rates) passes.
-        const cmpVel=hdgEuro.vel();
-        const trusted=Math.abs(cmpVel-lastYawRate) < Math.max(8, 0.5*Math.abs(lastYawRate));
-        lastTrusted=trusted;
-        if(trusted && dtP>0){
-          const err=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
-          gyroHeadingRef.current=(((gyroHeadingRef.current + err*Math.min(1,dtP/1.5))%360)+360)%360;
+        const motionAlive = (nowP-lastYawT) < 400; // gyro feed produced yaw <0.4s ago
+        if(!motionAlive){
+          // Gyro feed is dead (null rotationRate / no devicemotion) — display the
+          // smoothed compass directly, exactly like the pre-fusion behavior, and
+          // keep the gyro heading synced so align features stay sane.
+          gyroHeadingRef.current = smoothHdg;
+          hdgVal = Math.round(smoothHdg*10)/10;
+          lastTrusted = null; // diag: 'cmp-only'
+        } else {
+          // Trust gate: compass velocity must track gyro velocity RIGHT NOW.
+          // Explicit rest case first — both near zero is ALWAYS trusted (noise in
+          // the compass velocity estimate could otherwise fail the ratio test).
+          const cmpVel=hdgEuro.vel();
+          const yawAbs=Math.abs(lastYawRate);
+          const trusted=(Math.abs(cmpVel)<3 && yawAbs<3)
+            || Math.abs(cmpVel-lastYawRate) < Math.max(8, 0.5*yawAbs);
+          lastTrusted=trusted;
+          if(trusted && dtP>0){
+            const err=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
+            // Adaptive pull: gentle in steady state; brisk (τ=0.5s) when the gap is
+            // large so post-disturbance recovery never feels like a slow crawl.
+            const tau=Math.abs(err)>25 ? 0.5 : 1.5;
+            gyroHeadingRef.current=(((gyroHeadingRef.current + err*Math.min(1,dtP/tau))%360)+360)%360;
+          }
+          hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360*10)/10;
         }
-        hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360*10)/10;
       }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
@@ -6066,9 +6086,12 @@ export default function App() {
           gamma: gamma==null?'null':gamma.toFixed(1),
           tcHdg,
           hdg: hdgVal.toFixed(1),
-          src: headingSourceRef.current==='gyro' ? 'gyro' : (lastTrusted ? 'fused\u2713' : 'fused\u2717 gyro-only'),
+          src: headingSourceRef.current==='gyro' ? 'gyro'
+             : lastTrusted===null ? 'cmp-only (no gyro feed!)'
+             : (lastTrusted ? 'fused\u2713' : 'fused\u2717 gyro-only'),
           wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
           perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
+          mot: `${motHz}/s events \u00b7 ${motOkHz}/s gyro \u00b7 yaw ${lastYawRate.toFixed(0)}\u00b0/s`,
         });
       }
       if(beta!=null){
@@ -6113,8 +6136,18 @@ export default function App() {
     // correct when the phone is flat.
     let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
     const hMotion = e => {
+      // Health accounting (raw event rate vs usable-gyro rate) — surfaced in diag
+      const tH=performance.now();
+      motCnt++;
+      if(motWinT0===0) motWinT0=tH;
+      else if(tH-motWinT0>=1000){
+        motHz=Math.round(motCnt*1000/(tH-motWinT0));
+        motOkHz=Math.round(motOkCnt*1000/(tH-motWinT0));
+        motCnt=0; motOkCnt=0; motWinT0=tH;
+      }
       const rr = e.rotationRate;
-      if(!rr) return;
+      if(!rr || (rr.alpha==null && rr.beta==null && rr.gamma==null)) return; // no usable gyro in this event
+      motOkCnt++;
       // Track gravity direction from accelerationIncludingGravity (low-pass)
       const ag = e.accelerationIncludingGravity;
       if(ag && ag.x!=null){
@@ -6143,6 +6176,7 @@ export default function App() {
       // yawRate is rotation about the DOWN (gravity) axis: positive = clockwise
       // viewed from above = heading increasing → ADD.
       lastYawRate = yawRate;
+      lastYawT = performance.now();
       gyroHeadingRef.current = (((gyroHeadingRef.current + yawRate*dt)%360)+360)%360;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
@@ -7526,6 +7560,7 @@ export default function App() {
           <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
           <div style={{color:'#ff8c00'}}>wd: {sensorDbg.wd}</div>
           <div style={{color:'#ff5c5c'}}>perf: {sensorDbg.perf}</div>
+          <div style={{color:'#5cffd0'}}>mot: {sensorDbg.mot}</div>
         </div>
       )}
       {alignNote&&(
