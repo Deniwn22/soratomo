@@ -5973,7 +5973,24 @@ export default function App() {
         });
       }
       if(beta!=null){
-        const raw=Math.max(-60,Math.min(90,beta-90));
+        const bp=Math.max(-60,Math.min(90,beta-90));   // Euler pitch (singular at 0)
+        let raw=bp;
+        if(gPitchRaw!=null){
+          // Auto-calibrate gravity-pitch sign where beta is trustworthy (15–50° off
+          // vertical): majority vote over 40 samples, then locked.
+          if(gSignVotes<40 && Math.abs(bp)>15 && Math.abs(bp)<50){
+            gPitchSign += (Math.abs(gPitchRaw-bp) <= Math.abs(-gPitchRaw-bp)) ? 1 : -1;
+            gSignVotes++;
+          }
+          if(gSignVotes>=10){
+            const gp=(gPitchSign>=0?1:-1)*gPitchRaw;
+            // Crossfade: pure gravity-pitch inside ±6° (singularity zone), pure
+            // beta-pitch outside ±12°, linear blend between. Both agree in the
+            // overlap, so the transition is seamless.
+            const a=Math.max(0,Math.min(1,(Math.abs(bp)-6)/6));
+            raw = a*bp + (1-a)*gp;
+          }
+        }
         // One-Euro: responsive during fast tilts (old EMA lagged ~200 ms), stable at rest.
         smoothPitch = pitchEuro(raw, performance.now());
         pitchInit   = true;
@@ -6013,6 +6030,12 @@ export default function App() {
     // regardless of how the phone is tilted/held — pure rotationRate.alpha is only
     // correct when the phone is flat.
     let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
+    // Gravity-derived pitch — immune to the Euler gimbal-lock singularity at
+    // beta=90° (phone vertical = AIM 0°), where deviceorientation's beta gets
+    // unstable and the horizon "snaps". asin(gz/|g|) is smooth through vertical.
+    // gPitchSign is auto-calibrated at runtime against beta-pitch away from the
+    // singularity, so platform axis-convention differences can't invert it.
+    let gPitchRaw=null, gPitchSign=0, gSignVotes=0;
     const hMotion = e => {
       const rr = e.rotationRate;
       if(!rr) return;
@@ -6024,6 +6047,7 @@ export default function App() {
         gAz = gAz*0.9 + ag.z*0.1;
       }
       const gm = Math.hypot(gAx,gAy,gAz) || 1;
+      gPitchRaw = Math.asin(Math.max(-1,Math.min(1, gAz/gm)))*180/Math.PI;
       // Angular velocity about device axes (deg/s). Project onto unit gravity vector
       // → rotation rate about the true vertical = yaw rate (compass change rate).
       const wx=rr.beta||0, wy=rr.gamma||0, wz=rr.alpha||0;
