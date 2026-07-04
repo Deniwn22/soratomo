@@ -66,6 +66,10 @@ const distNmi  = m  => (m/1852).toFixed(1);
 // Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
 // Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
 const SHOW_SENSOR_DIAG = true;
+// Render-commit counter (diag): incremented in the App body each render; sampled
+// per second into the overlay to expose state-update churn (suspect in the
+// 13 fps / 1958 ms-stall regression observed during in-car testing).
+let __commitCount = 0;
 
 // ── One-Euro filter ──────────────────────────────────────────────
 // Adaptive low-pass for AR pointing (Casiez et al.): cutoff = fcMin + beta*|velocity|.
@@ -5929,6 +5933,7 @@ export default function App() {
     // (seen in iOS standalone PWAs). If the gyro feed is dead, fusion must fall
     // back to compass-direct display instead of freezing.
     let motCnt=0, motOkCnt=0, motHz=0, motOkHz=0, motWinT0=0;
+    let sysLastCommit=0, sysCommitHz=0, sysWinT0=0;
     let webkitAcc=null;    // iOS webkitCompassAccuracy (deg; -1 = uncalibrated)
     // ── North-offset estimator ─────────────────────────────────────
     // iOS webkitCompassHeading measures the TOP-axis azimuth. In AR pose (phone
@@ -6007,7 +6012,38 @@ export default function App() {
         // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
         hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
         // Watchdog bookkeeping continues in gyro mode so recovery can be detected.
-        if(webkit!=null && webkit>=0) wdTrack((webkit+360)%360);
+        if(webkit!=null && webkit>=0){
+          const rawG=(webkit+360)%360;
+          wdTrack(rawG);
+          // Keep the compass smoothing pipeline warm so its velocity estimate is
+          // available for the bounded-drift pull below.
+          if(hdgInit){
+            const dG=((rawG-hdgPrevRaw+540)%360)-180;
+            hdgPrevRaw=rawG; hdgUnwrap+=dG;
+            smoothHdg=((hdgEuro(hdgUnwrap, performance.now())%360)+360)%360;
+          }
+          // ── Bounded drift in ground vehicles ──
+          // AUTO-GYRO in a car (15-60 m/s; flight is faster) has no absolute
+          // reference, and stalls/event gaps make pure integration drift without
+          // limit (observed: 41° off while webkit was only 17° off). Apply the
+          // trusted-pull with a long τ (5 s): error stays bounded by local compass
+          // quality. Manual alignments (wdAuto=false) are never touched, and
+          // flight (>60 m/s) stays pure-gyro — cabin magnetics are hopeless there.
+          const spdNow=drVel.current?.speedMs||0;
+          if(wdAuto && spdNow>15 && spdNow<60){
+            const nowG=performance.now();
+            const dtG=prevProcT!=null?Math.min(0.1,(nowG-prevProcT)/1000):0;
+            prevProcT=nowG;
+            const cmpVelG=hdgEuro.vel();
+            const yawAbsG=Math.abs(lastYawRate);
+            const trustedG=(Math.abs(cmpVelG)<3 && yawAbsG<3)
+              || Math.abs(cmpVelG-lastYawRate) < Math.max(8, 0.5*yawAbsG);
+            if(trustedG && dtG>0){
+              const errG=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
+              gyroHeadingRef.current=(((gyroHeadingRef.current + errG*Math.min(1,dtG/5))%360)+360)%360;
+            }
+          }
+        }
       } else {
         // Compass mode, smoothed with circular EMA.
         // CRITICAL iOS/Android difference:
@@ -6123,6 +6159,15 @@ export default function App() {
           perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
           mot: `${motHz}/s events \u00b7 ${motOkHz}/s gyro \u00b7 yaw ${lastYawRate.toFixed(0)}\u00b0/s`,
           nav: `nOff ${nOffInit?nOff.toFixed(0)+'\u00b0':'unset'} \u00b7 acc ${webkitAcc==null?'n/a':webkitAcc<0?'UNCAL':'\u00b1'+webkitAcc.toFixed(0)+'\u00b0'} \u00b7 tilt ${beta==null?'?':Math.abs(beta-90).toFixed(0)+'\u00b0'}`,
+          sys: (()=>{
+            const nowS=performance.now();
+            if(sysWinT0===0){ sysWinT0=nowS; sysLastCommit=__commitCount; }
+            else if(nowS-sysWinT0>=1000){
+              sysCommitHz=Math.round((__commitCount-sysLastCommit)*1000/(nowS-sysWinT0));
+              sysLastCommit=__commitCount; sysWinT0=nowS;
+            }
+            return `${sysCommitHz} commits/s \u00b7 fetch ${((Date.now()-lastFetchMs.current)/1000).toFixed(1)}s ago`;
+          })(),
         });
       }
       if(beta!=null){
@@ -7212,6 +7257,7 @@ export default function App() {
   })() : null;
   // What the AR layers actually render — candidates only while aligning
   const displayed = alignCandidates ?? mapped;
+  __commitCount++;  // diag: render-churn counter
 
   // ── Trail canvas draw — runs after each commit (per frame during panning). ──
   // Canvas 2D handles ~100 tapered segments in <1 ms; React reconciles nothing.
@@ -7594,6 +7640,7 @@ export default function App() {
           <div style={{color:'#ff5c5c'}}>perf: {sensorDbg.perf}</div>
           <div style={{color:'#5cffd0'}}>mot: {sensorDbg.mot}</div>
           <div style={{color:'#c9a0ff'}}>nav: {sensorDbg.nav}</div>
+          <div style={{color:'#ffe28a'}}>sys: {sensorDbg.sys}</div>
         </div>
       )}
       {alignNote&&(
@@ -8032,7 +8079,7 @@ export default function App() {
                   {headingSource==='gyro'?'\u25c9 GYRO':'\u25cb COMPASS'}
                 </span>
                 {headingSource==='gyro'&&(
-                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap\u2192mag</span>
+                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap→mag</span>
                 )}
               </div>
             )}
