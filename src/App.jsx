@@ -87,6 +87,7 @@ function makeOneEuro(fcMin, beta, dCut=1.0){
     return xF;
   };
   f.reset=(v)=>{ xF=v??null; dxF=0; tPrev=null; };
+  f.vel=()=>dxF;   // low-passed velocity estimate (units/s) — used by heading fusion
   return f;
 }
 const altColor = altM => {
@@ -5911,7 +5912,18 @@ export default function App() {
     const hdgEuro   = makeOneEuro(0.6, 0.04);  // rest: smoother than old EMA; 100°/s pan: ~35ms lag
     const pitchEuro = makeOneEuro(0.5, 0.05);
     let hdgUnwrap=0, hdgPrevRaw=null;
-    const hdgFilterSeed=(v)=>{ hdgUnwrap=v; hdgPrevRaw=v; hdgEuro.reset(v); smoothHdg=v; hdgInit=true; };
+    const hdgFilterSeed=(v)=>{ hdgUnwrap=v; hdgPrevRaw=v; hdgEuro.reset(v); smoothHdg=v; hdgInit=true;
+      gyroHeadingRef.current=v; };
+    // ── Gyro-primary heading fusion ────────────────────────────────
+    // The DISPLAYED heading is always the gyro integral (instant response, immune
+    // to the Euler singularity and to iOS heading stalls during multi-axis motion
+    // near vertical). The compass only applies a slow drift-correction pull
+    // (τ≈1.5 s) — and only while its measured velocity AGREES with the gyro's.
+    // The moment the compass stalls or wanders while the phone rotates, the pull
+    // pauses and heading rides the gyro cleanly through the disturbance.
+    let lastYawRate=0;     // deg/s from hMotion (compass sign convention)
+    let prevProcT=null;    // for per-event dt in the correction pull
+    let lastTrusted=true;  // diag: was the compass pull active last event?
 
     // ── Compass-coherence watchdog ─────────────────────────────────
     // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
@@ -6003,10 +6015,21 @@ export default function App() {
           hdgPrevRaw=rawHdg; hdgUnwrap+=d;
           smoothHdg=((hdgEuro(hdgUnwrap, performance.now())%360)+360)%360;
         }
-        hdgVal = Math.round(smoothHdg*10)/10;
-        // Keep the gyro heading shadowing the compass while in compass mode, so a
-        // later switch to gyro starts from the right place even before an explicit anchor.
-        gyroHeadingRef.current = smoothHdg;
+        // ── Fusion: gyro is the display; compass is a gated slow correction ──
+        const nowP=performance.now();
+        const dtP=prevProcT!=null ? Math.min(0.1,(nowP-prevProcT)/1000) : 0;
+        prevProcT=nowP;
+        // Trust gate: compass velocity must track gyro velocity RIGHT NOW.
+        // A stalled compass (vel≈0) while the phone rotates fails instantly;
+        // a still phone (both ≈0) passes; a healthy pan (equal rates) passes.
+        const cmpVel=hdgEuro.vel();
+        const trusted=Math.abs(cmpVel-lastYawRate) < Math.max(8, 0.5*Math.abs(lastYawRate));
+        lastTrusted=trusted;
+        if(trusted && dtP>0){
+          const err=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
+          gyroHeadingRef.current=(((gyroHeadingRef.current + err*Math.min(1,dtP/1.5))%360)+360)%360;
+        }
+        hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360*10)/10;
       }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
@@ -6043,7 +6066,7 @@ export default function App() {
           gamma: gamma==null?'null':gamma.toFixed(1),
           tcHdg,
           hdg: hdgVal.toFixed(1),
-          src: headingSourceRef.current,
+          src: headingSourceRef.current==='gyro' ? 'gyro' : (lastTrusted ? 'fused\u2713' : 'fused\u2717 gyro-only'),
           wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
           perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
         });
@@ -6115,10 +6138,11 @@ export default function App() {
       wdG   += yawRate*dt;
       wdRot += Math.abs(yawRate)*dt;
       wdEval(now);
-      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
-      // Integrate. yawRate is rotation about the DOWN (gravity) axis: positive =
-      // clockwise viewed from above = heading increasing → ADD. (The previous
-      // subtraction was inverted — gyro mode tracked opposite to phone rotation.)
+      // Integrate in ALL modes — the gyro integral is now the primary displayed
+      // heading (compass applies only a gated slow correction in process()).
+      // yawRate is rotation about the DOWN (gravity) axis: positive = clockwise
+      // viewed from above = heading increasing → ADD.
+      lastYawRate = yawRate;
       gyroHeadingRef.current = (((gyroHeadingRef.current + yawRate*dt)%360)+360)%360;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
