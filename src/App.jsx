@@ -78,7 +78,9 @@ function makeOneEuro(fcMin, beta, dCut=1.0){
     if(tPrev==null || xF==null){ tPrev=tMs; xF=x; return x; }
     let dt=(tMs-tPrev)/1000; tPrev=tMs;
     if(dt<=0) return xF;
-    if(dt>0.2) dt=0.2;                     // clamp across event gaps
+    if(dt>0.12) dt=0.12;                   // clamp across event gaps — also spreads
+                                           // post-jank catch-up over 2-3 frames
+                                           // instead of one teleporting step
     const dx=(x-xF)/dt;
     dxF += alpha(dt,dCut)*(dx-dxF);        // low-passed velocity estimate
     xF  += alpha(dt, fcMin+beta*Math.abs(dxF))*(x-xF);
@@ -111,6 +113,11 @@ const DR_MAX_AGE_S   = 30;     // seconds — dead-reckoning projection limit
 // new array → natural invalidation. Saves ~190 haversine/bearing/elev calls per
 // FRAME with a full sky; per frame only the cheap linear view-mapping remains.
 const trailGeoCache = new WeakMap();
+// DR projection cache — the dead-reckoned position/bearing/elevation of an
+// aircraft moves <0.1° per 66 ms, so recomputing the trig at 60 Hz is wasted
+// work. Quantize to 15 Hz buckets keyed on flight-object identity; per frame
+// only the linear view mapping (toScreenTilt) remains.
+const drProjCache = new WeakMap();
 
 const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
   let hDiff=((bear-dHdg+540)%360)-180;
@@ -5961,6 +5968,8 @@ export default function App() {
     };
 
     let displayedPitch = 0;          // last value actually sent to React state
+    // Diag-only frame cadence stats (zero cost when SHOW_SENSOR_DIAG is false)
+    let dbgLastT=null, dbgWorst=0, dbgFrames=0, dbgWinT0=0, dbgFps=0, dbgWorstShown=0;
     const process=()=>{
       rafId=null;
       // Both webkitCompassHeading (iOS) and deviceorientationabsolute alpha (Android)
@@ -6003,6 +6012,20 @@ export default function App() {
       drHeadingRef.current = hdgVal; // keep DR closure current
       // Sensor diagnostic — only computes/updates state when the flag is on (off on the ground).
       if(SHOW_SENSOR_DIAG){
+        // Frame cadence stats — process() runs once per rendered frame (rAF-gated),
+        // so gaps between calls ≈ frame times. worstMs exposes jank stalls directly.
+        const nowT=performance.now();
+        if(dbgLastT!=null){
+          const gap=nowT-dbgLastT;
+          if(gap>dbgWorst) dbgWorst=gap;
+          dbgFrames++;
+          if(nowT-dbgWinT0>=1000){
+            dbgFps=Math.round(dbgFrames*1000/(nowT-dbgWinT0));
+            dbgWorstShown=Math.round(dbgWorst);
+            dbgFrames=0; dbgWorst=0; dbgWinT0=nowT;
+          }
+        } else { dbgWinT0=nowT; }
+        dbgLastT=nowT;
         // Tilt-compensated heading from alpha/beta/gamma (Euler → world heading),
         // for comparison against webkitCompassHeading during in-flight troubleshooting.
         let tcHdg = 'n/a';
@@ -6022,6 +6045,7 @@ export default function App() {
           hdg: hdgVal.toFixed(1),
           src: headingSourceRef.current,
           wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
+          perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
         });
       }
       if(beta!=null){
@@ -6989,43 +7013,53 @@ export default function App() {
     ft <= 10000 ? 5  + (ft-5000) /5000 *10 :
     ft <= 20000 ? 15 + (ft-10000)/10000*30 : 45;
 
+  const drBucket = (Date.now()*0.015)|0;  // 66 ms buckets — DR recomputed at 15 Hz
   const mapped=visibleFlights.map(f=>{
     // Dead reckoning: project ADS-B position forward to now using reported track,
-    // groundspeed, turn rate, and vertical rate.
-    // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
-    // add time elapsed since our fetch completed.
-    const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
-    const altFt  = f.alt * 3.28084;
-    const drCapS = drCapForAlt(altFt);
-    const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
-    const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
-    const hdgRad = f.hdg * (Math.PI/180);
-    const R = 6371000;
-    // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
-    // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
-    // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
-    // This follows curved approaches (DCA river visual) instead of flying off tangent.
-    let dN, dE; // meters north / east
-    const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
-    if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
-      const Rt     = f.spd / w;                     // signed turn radius
-      const dAlong = Rt * Math.sin(w*tEff);
-      const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
-      dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
-      dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
-    } else {
-      dN = Math.cos(hdgRad)*extraM;
-      dE = Math.sin(hdgRad)*extraM;
+    // groundspeed, turn rate, and vertical rate. The trig is cached per aircraft
+    // per 66 ms bucket (position moves <0.1°/bucket — invisible); only the linear
+    // view mapping below runs at the full frame rate.
+    let dp = drProjCache.get(f);
+    if(!dp || dp.bucket!==drBucket || dp.pLat!==pos.lat || dp.pLon!==pos.lon){
+      // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
+      // add time elapsed since our fetch completed.
+      const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
+      const altFt  = f.alt * 3.28084;
+      const drCapS = drCapForAlt(altFt);
+      const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
+      const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
+      const hdgRad = f.hdg * (Math.PI/180);
+      const R = 6371000;
+      // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
+      // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
+      // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
+      // This follows curved approaches (DCA river visual) instead of flying off tangent.
+      let dN, dE; // meters north / east
+      const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
+      if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
+        const Rt     = f.spd / w;                     // signed turn radius
+        const dAlong = Rt * Math.sin(w*tEff);
+        const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
+        dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
+        dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
+      } else {
+        dN = Math.cos(hdgRad)*extraM;
+        dE = Math.sin(hdgRad)*extraM;
+      }
+      const rLat = f.lat + (dN/R)*(180/Math.PI);
+      const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
+      // ── Vertical: extrapolate altitude with reported vertical rate ──
+      const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
+      dp = { bucket:drBucket, pLat:pos.lat, pLon:pos.lon,
+        totalAgeSec, extraM,
+        dist: 0, bear: 0, elev: 0,
+      };
+      dp.dist = haversine(pos.lat,pos.lon,rLat,rLon);
+      dp.bear = getBearing(pos.lat,pos.lon,rLat,rLon);
+      dp.elev = getElev(dp.dist, drAlt);
+      drProjCache.set(f, dp);
     }
-    const rLat = f.lat + (dN/R)*(180/Math.PI);
-    const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
-    // ── Vertical: extrapolate altitude with reported vertical rate ──
-    // Without this, a descending aircraft is drawn ahead horizontally but at its
-    // old (higher) altitude — visibly above the real aircraft on approach.
-    const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
-    const dist=haversine(pos.lat,pos.lon,rLat,rLon);
-    const bear=getBearing(pos.lat,pos.lon,rLat,rLon);
-    const elev=getElev(dist,drAlt);
+    const {totalAgeSec, extraM, dist, bear, elev} = dp;
     const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
     // Project historical positions — no FOV clipping so trail persists near edges
     // SVG overflow:hidden clips lines at viewport boundary naturally
@@ -7467,6 +7501,7 @@ export default function App() {
           <div style={{color:'#ffd700'}}>tcHdg: {sensorDbg.tcHdg}</div>
           <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
           <div style={{color:'#ff8c00'}}>wd: {sensorDbg.wd}</div>
+          <div style={{color:'#ff5c5c'}}>perf: {sensorDbg.perf}</div>
         </div>
       )}
       {alignNote&&(
