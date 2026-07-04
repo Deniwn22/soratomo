@@ -65,11 +65,7 @@ const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
 // Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
 // Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
-const SHOW_SENSOR_DIAG = true;
-// Render-commit counter (diag): incremented in the App body each render; sampled
-// per second into the overlay to expose state-update churn (suspect in the
-// 13 fps / 1958 ms-stall regression observed during in-car testing).
-let __commitCount = 0;
+const SHOW_SENSOR_DIAG = false;
 
 // ── One-Euro filter ──────────────────────────────────────────────
 // Adaptive low-pass for AR pointing (Casiez et al.): cutoff = fcMin + beta*|velocity|.
@@ -82,16 +78,13 @@ function makeOneEuro(fcMin, beta, dCut=1.0){
     if(tPrev==null || xF==null){ tPrev=tMs; xF=x; return x; }
     let dt=(tMs-tPrev)/1000; tPrev=tMs;
     if(dt<=0) return xF;
-    if(dt>0.12) dt=0.12;                   // clamp across event gaps — also spreads
-                                           // post-jank catch-up over 2-3 frames
-                                           // instead of one teleporting step
+    if(dt>0.2) dt=0.2;                     // clamp across event gaps
     const dx=(x-xF)/dt;
     dxF += alpha(dt,dCut)*(dx-dxF);        // low-passed velocity estimate
     xF  += alpha(dt, fcMin+beta*Math.abs(dxF))*(x-xF);
     return xF;
   };
   f.reset=(v)=>{ xF=v??null; dxF=0; tPrev=null; };
-  f.vel=()=>dxF;   // low-passed velocity estimate (units/s) — used by heading fusion
   return f;
 }
 const altColor = altM => {
@@ -118,11 +111,6 @@ const DR_MAX_AGE_S   = 30;     // seconds — dead-reckoning projection limit
 // new array → natural invalidation. Saves ~190 haversine/bearing/elev calls per
 // FRAME with a full sky; per frame only the cheap linear view-mapping remains.
 const trailGeoCache = new WeakMap();
-// DR projection cache — the dead-reckoned position/bearing/elevation of an
-// aircraft moves <0.1° per 66 ms, so recomputing the trig at 60 Hz is wasted
-// work. Quantize to 15 Hz buckets keyed on flight-object identity; per frame
-// only the linear view mapping (toScreenTilt) remains.
-const drProjCache = new WeakMap();
 
 const toScreenTilt = (bear,elev,dHdg,dPitch,hfov=HFOV,vfov=VFOV) => {
   let hDiff=((bear-dHdg+540)%360)-180;
@@ -5916,34 +5904,7 @@ export default function App() {
     const hdgEuro   = makeOneEuro(0.6, 0.04);  // rest: smoother than old EMA; 100°/s pan: ~35ms lag
     const pitchEuro = makeOneEuro(0.5, 0.05);
     let hdgUnwrap=0, hdgPrevRaw=null;
-    const hdgFilterSeed=(v)=>{ hdgUnwrap=v; hdgPrevRaw=v; hdgEuro.reset(v); smoothHdg=v; hdgInit=true;
-      gyroHeadingRef.current=v; };
-    // ── Gyro-primary heading fusion ────────────────────────────────
-    // The DISPLAYED heading is always the gyro integral (instant response, immune
-    // to the Euler singularity and to iOS heading stalls during multi-axis motion
-    // near vertical). The compass only applies a slow drift-correction pull
-    // (τ≈1.5 s) — and only while its measured velocity AGREES with the gyro's.
-    // The moment the compass stalls or wanders while the phone rotates, the pull
-    // pauses and heading rides the gyro cleanly through the disturbance.
-    let lastYawRate=0;     // deg/s from hMotion (compass sign convention)
-    let lastYawT=0;        // performance.now() of last SUCCESSFUL yaw computation
-    let prevProcT=null;    // for per-event dt in the correction pull
-    let lastTrusted=true;  // diag: was the compass pull active last event?
-    // Motion-health counters — devicemotion can silently deliver null rotationRate
-    // (seen in iOS standalone PWAs). If the gyro feed is dead, fusion must fall
-    // back to compass-direct display instead of freezing.
-    let motCnt=0, motOkCnt=0, motHz=0, motOkHz=0, motWinT0=0;
-    let sysLastCommit=0, sysCommitHz=0, sysWinT0=0;
-    let webkitAcc=null;    // iOS webkitCompassAccuracy (deg; -1 = uncalibrated)
-    // ── North-offset estimator ─────────────────────────────────────
-    // iOS webkitCompassHeading measures the TOP-axis azimuth. In AR pose (phone
-    // vertical, beta≈90°) that projection is DEGENERATE: magnitude ~cos(beta)→0
-    // and it flips 180° as beta crosses 90 — the source of wandering 20-180°
-    // heading errors near vertical. Fix: heading = CAMERA-axis azimuth (always
-    // well-conditioned in AR pose) in the Euler frame, plus a north offset
-    // learned from webkit ONLY while the top axis is well-conditioned
-    // (|cos(beta)| > 0.26 → tilted >15° from vertical).
-    let nOff=0, nOffInit=false;
+    const hdgFilterSeed=(v)=>{ hdgUnwrap=v; hdgPrevRaw=v; hdgEuro.reset(v); smoothHdg=v; hdgInit=true; };
 
     // ── Compass-coherence watchdog ─────────────────────────────────
     // In-flight, iOS's compass DECOUPLES from phone rotation: magnetics inside the
@@ -6000,8 +5961,6 @@ export default function App() {
     };
 
     let displayedPitch = 0;          // last value actually sent to React state
-    // Diag-only frame cadence stats (zero cost when SHOW_SENSOR_DIAG is false)
-    let dbgLastT=null, dbgWorst=0, dbgFrames=0, dbgWinT0=0, dbgFps=0, dbgWorstShown=0;
     const process=()=>{
       rafId=null;
       // Both webkitCompassHeading (iOS) and deviceorientationabsolute alpha (Android)
@@ -6012,38 +5971,7 @@ export default function App() {
         // Gyro mode: heading is integrated yaw (updated in hMotion), magnetometer ignored.
         hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360 * 10)/10;
         // Watchdog bookkeeping continues in gyro mode so recovery can be detected.
-        if(webkit!=null && webkit>=0){
-          const rawG=(webkit+360)%360;
-          wdTrack(rawG);
-          // Keep the compass smoothing pipeline warm so its velocity estimate is
-          // available for the bounded-drift pull below.
-          if(hdgInit){
-            const dG=((rawG-hdgPrevRaw+540)%360)-180;
-            hdgPrevRaw=rawG; hdgUnwrap+=dG;
-            smoothHdg=((hdgEuro(hdgUnwrap, performance.now())%360)+360)%360;
-          }
-          // ── Bounded drift in ground vehicles ──
-          // AUTO-GYRO in a car (15-60 m/s; flight is faster) has no absolute
-          // reference, and stalls/event gaps make pure integration drift without
-          // limit (observed: 41° off while webkit was only 17° off). Apply the
-          // trusted-pull with a long τ (5 s): error stays bounded by local compass
-          // quality. Manual alignments (wdAuto=false) are never touched, and
-          // flight (>60 m/s) stays pure-gyro — cabin magnetics are hopeless there.
-          const spdNow=drVel.current?.speedMs||0;
-          if(wdAuto && spdNow>15 && spdNow<60){
-            const nowG=performance.now();
-            const dtG=prevProcT!=null?Math.min(0.1,(nowG-prevProcT)/1000):0;
-            prevProcT=nowG;
-            const cmpVelG=hdgEuro.vel();
-            const yawAbsG=Math.abs(lastYawRate);
-            const trustedG=(Math.abs(cmpVelG)<3 && yawAbsG<3)
-              || Math.abs(cmpVelG-lastYawRate) < Math.max(8, 0.5*yawAbsG);
-            if(trustedG && dtG>0){
-              const errG=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
-              gyroHeadingRef.current=(((gyroHeadingRef.current + errG*Math.min(1,dtG/5))%360)+360)%360;
-            }
-          }
-        }
+        if(webkit!=null && webkit>=0) wdTrack((webkit+360)%360);
       } else {
         // Compass mode, smoothed with circular EMA.
         // CRITICAL iOS/Android difference:
@@ -6053,28 +5981,8 @@ export default function App() {
         // Adding declination to the iOS value double-corrected it by ~10° (the DC-area
         // declination), which is why headings read consistently off.
         let rawHdg;
-        if(webkit!=null && webkit>=0 && alpha!=null && beta!=null && gamma!=null){
-          // iOS: derive heading from the CAMERA axis, not webkit's degenerate
-          // top-axis projection (see north-offset estimator comment above).
-          const _x=beta*Math.PI/180, _y=gamma*Math.PI/180, _z=alpha*Math.PI/180;
-          const cZ=Math.cos(_z),sZ=Math.sin(_z),cY=Math.cos(_y),sY=Math.sin(_y);
-          const sX=Math.sin(_x),cX=Math.cos(_x);
-          // Camera (-Z device) azimuth in the Euler(alpha) frame — well-conditioned in AR pose
-          const camAz=((Math.atan2(-cZ*sY - sZ*sX*cY, -sZ*sY + cZ*sX*cY)*180/Math.PI)+360)%360;
-          // Top (+Y device) azimuth — this is what webkit actually measures
-          const topAz=((Math.atan2(-sZ*cX, cZ*cX)*180/Math.PI)+360)%360;
-          if(Math.abs(cX)>0.26 && (webkitAcc==null || webkitAcc>=0)){
-            // Top axis tilted >15° from vertical → webkit geometry is sound → learn
-            // the Euler-frame→north offset (circular EMA; also tracks iOS alpha drift).
-            const sample=((webkit-topAz+540)%360)-180;
-            if(!nOffInit){ nOff=sample; nOffInit=true; }
-            else nOff += (((sample-nOff+540)%360)-180)*0.08;
-          }
-          rawHdg = nOffInit
-            ? (camAz + nOff + 360) % 360
-            : (webkit + 360) % 360;   // no offset learned yet — legacy behavior
-        } else if(webkit!=null && webkit>=0){
-          rawHdg = (webkit + 360) % 360;                       // iOS legacy (no Euler data)
+        if(webkit!=null && webkit>=0){
+          rawHdg = (webkit + 360) % 360;                       // iOS: already true north
         } else {
           rawHdg = ((360-(alpha||0)) + magDeclRef.current + 360) % 360; // Android: magnetic→true
         }
@@ -6086,55 +5994,15 @@ export default function App() {
           hdgPrevRaw=rawHdg; hdgUnwrap+=d;
           smoothHdg=((hdgEuro(hdgUnwrap, performance.now())%360)+360)%360;
         }
-        // ── Fusion: gyro is the display; compass is a gated slow correction ──
-        const nowP=performance.now();
-        const dtP=prevProcT!=null ? Math.min(0.1,(nowP-prevProcT)/1000) : 0;
-        prevProcT=nowP;
-        const motionAlive = (nowP-lastYawT) < 400; // gyro feed produced yaw <0.4s ago
-        if(!motionAlive){
-          // Gyro feed is dead (null rotationRate / no devicemotion) — display the
-          // smoothed compass directly, exactly like the pre-fusion behavior, and
-          // keep the gyro heading synced so align features stay sane.
-          gyroHeadingRef.current = smoothHdg;
-          hdgVal = Math.round(smoothHdg*10)/10;
-          lastTrusted = null; // diag: 'cmp-only'
-        } else {
-          // Trust gate: compass velocity must track gyro velocity RIGHT NOW.
-          // Explicit rest case first — both near zero is ALWAYS trusted (noise in
-          // the compass velocity estimate could otherwise fail the ratio test).
-          const cmpVel=hdgEuro.vel();
-          const yawAbs=Math.abs(lastYawRate);
-          const trusted=(Math.abs(cmpVel)<3 && yawAbs<3)
-            || Math.abs(cmpVel-lastYawRate) < Math.max(8, 0.5*yawAbs);
-          lastTrusted=trusted;
-          if(trusted && dtP>0){
-            const err=((smoothHdg-gyroHeadingRef.current+540)%360)-180;
-            // Adaptive pull: gentle in steady state; brisk (τ=0.5s) when the gap is
-            // large so post-disturbance recovery never feels like a slow crawl.
-            const tau=Math.abs(err)>25 ? 0.5 : 1.5;
-            gyroHeadingRef.current=(((gyroHeadingRef.current + err*Math.min(1,dtP/tau))%360)+360)%360;
-          }
-          hdgVal = Math.round(((gyroHeadingRef.current%360)+360)%360*10)/10;
-        }
+        hdgVal = Math.round(smoothHdg*10)/10;
+        // Keep the gyro heading shadowing the compass while in compass mode, so a
+        // later switch to gyro starts from the right place even before an explicit anchor.
+        gyroHeadingRef.current = smoothHdg;
       }
       setHeading(hdgVal);
       drHeadingRef.current = hdgVal; // keep DR closure current
       // Sensor diagnostic — only computes/updates state when the flag is on (off on the ground).
       if(SHOW_SENSOR_DIAG){
-        // Frame cadence stats — process() runs once per rendered frame (rAF-gated),
-        // so gaps between calls ≈ frame times. worstMs exposes jank stalls directly.
-        const nowT=performance.now();
-        if(dbgLastT!=null){
-          const gap=nowT-dbgLastT;
-          if(gap>dbgWorst) dbgWorst=gap;
-          dbgFrames++;
-          if(nowT-dbgWinT0>=1000){
-            dbgFps=Math.round(dbgFrames*1000/(nowT-dbgWinT0));
-            dbgWorstShown=Math.round(dbgWorst);
-            dbgFrames=0; dbgWorst=0; dbgWinT0=nowT;
-          }
-        } else { dbgWinT0=nowT; }
-        dbgLastT=nowT;
         // Tilt-compensated heading from alpha/beta/gamma (Euler → world heading),
         // for comparison against webkitCompassHeading during in-flight troubleshooting.
         let tcHdg = 'n/a';
@@ -6152,22 +6020,8 @@ export default function App() {
           gamma: gamma==null?'null':gamma.toFixed(1),
           tcHdg,
           hdg: hdgVal.toFixed(1),
-          src: headingSourceRef.current==='gyro' ? 'gyro'
-             : lastTrusted===null ? 'cmp-only (no gyro feed!)'
-             : (lastTrusted ? 'fused\u2713' : 'fused\u2717 gyro-only'),
+          src: headingSourceRef.current,
           wd: `g ${wdDbg.g>=0?'+':''}${wdDbg.g}\u00b0 c ${wdDbg.c>=0?'+':''}${wdDbg.c}\u00b0 ${wdDbg.auto?'AUTO-GYRO':'watching'}`,
-          perf: `${dbgFps} fps \u00b7 worst ${dbgWorstShown}ms`,
-          mot: `${motHz}/s events \u00b7 ${motOkHz}/s gyro \u00b7 yaw ${lastYawRate.toFixed(0)}\u00b0/s`,
-          nav: `nOff ${nOffInit?nOff.toFixed(0)+'\u00b0':'unset'} \u00b7 acc ${webkitAcc==null?'n/a':webkitAcc<0?'UNCAL':'\u00b1'+webkitAcc.toFixed(0)+'\u00b0'} \u00b7 tilt ${beta==null?'?':Math.abs(beta-90).toFixed(0)+'\u00b0'}`,
-          sys: (()=>{
-            const nowS=performance.now();
-            if(sysWinT0===0){ sysWinT0=nowS; sysLastCommit=__commitCount; }
-            else if(nowS-sysWinT0>=1000){
-              sysCommitHz=Math.round((__commitCount-sysLastCommit)*1000/(nowS-sysWinT0));
-              sysLastCommit=__commitCount; sysWinT0=nowS;
-            }
-            return `${sysCommitHz} commits/s \u00b7 fetch ${((Date.now()-lastFetchMs.current)/1000).toFixed(1)}s ago`;
-          })(),
         });
       }
       if(beta!=null){
@@ -6193,7 +6047,6 @@ export default function App() {
       beta   = e.beta;           // ONLY this handler may write beta
       gamma  = e.gamma;
       webkit = e.webkitCompassHeading ?? null;
-      webkitAcc = e.webkitCompassAccuracy ?? null;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
 
@@ -6213,18 +6066,8 @@ export default function App() {
     // correct when the phone is flat.
     let gAx=0,gAy=0,gAz=-9.81; // smoothed gravity direction (device frame)
     const hMotion = e => {
-      // Health accounting (raw event rate vs usable-gyro rate) — surfaced in diag
-      const tH=performance.now();
-      motCnt++;
-      if(motWinT0===0) motWinT0=tH;
-      else if(tH-motWinT0>=1000){
-        motHz=Math.round(motCnt*1000/(tH-motWinT0));
-        motOkHz=Math.round(motOkCnt*1000/(tH-motWinT0));
-        motCnt=0; motOkCnt=0; motWinT0=tH;
-      }
       const rr = e.rotationRate;
-      if(!rr || (rr.alpha==null && rr.beta==null && rr.gamma==null)) return; // no usable gyro in this event
-      motOkCnt++;
+      if(!rr) return;
       // Track gravity direction from accelerationIncludingGravity (low-pass)
       const ag = e.accelerationIncludingGravity;
       if(ag && ag.x!=null){
@@ -6248,12 +6091,10 @@ export default function App() {
       wdG   += yawRate*dt;
       wdRot += Math.abs(yawRate)*dt;
       wdEval(now);
-      // Integrate in ALL modes — the gyro integral is now the primary displayed
-      // heading (compass applies only a gated slow correction in process()).
-      // yawRate is rotation about the DOWN (gravity) axis: positive = clockwise
-      // viewed from above = heading increasing → ADD.
-      lastYawRate = yawRate;
-      lastYawT = performance.now();
+      if(headingSourceRef.current !== 'gyro') return; // only integrate when in gyro mode
+      // Integrate. yawRate is rotation about the DOWN (gravity) axis: positive =
+      // clockwise viewed from above = heading increasing → ADD. (The previous
+      // subtraction was inverted — gyro mode tracked opposite to phone rotation.)
       gyroHeadingRef.current = (((gyroHeadingRef.current + yawRate*dt)%360)+360)%360;
       if(!rafId) rafId = requestAnimationFrame(process);
     };
@@ -7148,53 +6989,43 @@ export default function App() {
     ft <= 10000 ? 5  + (ft-5000) /5000 *10 :
     ft <= 20000 ? 15 + (ft-10000)/10000*30 : 45;
 
-  const drBucket = (Date.now()*0.015)|0;  // 66 ms buckets — DR recomputed at 15 Hz
   const mapped=visibleFlights.map(f=>{
     // Dead reckoning: project ADS-B position forward to now using reported track,
-    // groundspeed, turn rate, and vertical rate. The trig is cached per aircraft
-    // per 66 ms bucket (position moves <0.1°/bucket — invisible); only the linear
-    // view mapping below runs at the full frame rate.
-    let dp = drProjCache.get(f);
-    if(!dp || dp.bucket!==drBucket || dp.pLat!==pos.lat || dp.pLon!==pos.lon){
-      // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
-      // add time elapsed since our fetch completed.
-      const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
-      const altFt  = f.alt * 3.28084;
-      const drCapS = drCapForAlt(altFt);
-      const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
-      const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
-      const hdgRad = f.hdg * (Math.PI/180);
-      const R = 6371000;
-      // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
-      // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
-      // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
-      // This follows curved approaches (DCA river visual) instead of flying off tangent.
-      let dN, dE; // meters north / east
-      const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
-      if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
-        const Rt     = f.spd / w;                     // signed turn radius
-        const dAlong = Rt * Math.sin(w*tEff);
-        const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
-        dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
-        dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
-      } else {
-        dN = Math.cos(hdgRad)*extraM;
-        dE = Math.sin(hdgRad)*extraM;
-      }
-      const rLat = f.lat + (dN/R)*(180/Math.PI);
-      const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
-      // ── Vertical: extrapolate altitude with reported vertical rate ──
-      const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
-      dp = { bucket:drBucket, pLat:pos.lat, pLon:pos.lon,
-        totalAgeSec, extraM,
-        dist: 0, bear: 0, elev: 0,
-      };
-      dp.dist = haversine(pos.lat,pos.lon,rLat,rLon);
-      dp.bear = getBearing(pos.lat,pos.lon,rLat,rLon);
-      dp.elev = getElev(dp.dist, drAlt);
-      drProjCache.set(f, dp);
+    // groundspeed, turn rate, and vertical rate.
+    // posAge = true age of the position (broadcast age + pipeline lag, set at parse);
+    // add time elapsed since our fetch completed.
+    const totalAgeSec = (f.posAge||0) + (Date.now()-lastFetchMs.current)/1000;
+    const altFt  = f.alt * 3.28084;
+    const drCapS = drCapForAlt(altFt);
+    const tEff   = Math.min(totalAgeSec, drCapS);   // effective DR time
+    const extraM = f.spd * tEff;                    // path length travelled (used by uncertainty model)
+    const hdgRad = f.hdg * (Math.PI/180);
+    const R = 6371000;
+    // ── Horizontal: arc extrapolation when turning, straight line otherwise ──
+    // Constant-rate-turn model: displacement along initial heading = Rt·sin(ωt),
+    // displacement toward turn direction = Rt·(1−cos(ωt)), Rt = v/ω.
+    // This follows curved approaches (DCA river visual) instead of flying off tangent.
+    let dN, dE; // meters north / east
+    const w = (f.trkRate||0) * (Math.PI/180);       // turn rate, rad/s (right-positive)
+    if(Math.abs(f.trkRate||0) > 0.3 && f.spd > 30){
+      const Rt     = f.spd / w;                     // signed turn radius
+      const dAlong = Rt * Math.sin(w*tEff);
+      const dCross = Rt * (1 - Math.cos(w*tEff));   // + = right of track
+      dN = Math.cos(hdgRad)*dAlong - Math.sin(hdgRad)*dCross;
+      dE = Math.sin(hdgRad)*dAlong + Math.cos(hdgRad)*dCross;
+    } else {
+      dN = Math.cos(hdgRad)*extraM;
+      dE = Math.sin(hdgRad)*extraM;
     }
-    const {totalAgeSec, extraM, dist, bear, elev} = dp;
+    const rLat = f.lat + (dN/R)*(180/Math.PI);
+    const rLon = f.lon + (dE/(R*Math.cos(f.lat*Math.PI/180)))*(180/Math.PI);
+    // ── Vertical: extrapolate altitude with reported vertical rate ──
+    // Without this, a descending aircraft is drawn ahead horizontally but at its
+    // old (higher) altitude — visibly above the real aircraft on approach.
+    const drAlt = Math.max(91, f.alt + (f.vr||0)*tEff);
+    const dist=haversine(pos.lat,pos.lon,rLat,rLon);
+    const bear=getBearing(pos.lat,pos.lon,rLat,rLon);
+    const elev=getElev(dist,drAlt);
     const sc=toScreenTilt(bear,elev,viewHdg,viewPitch,activeFov,activeVFov);
     // Project historical positions — no FOV clipping so trail persists near edges
     // SVG overflow:hidden clips lines at viewport boundary naturally
@@ -7257,7 +7088,6 @@ export default function App() {
   })() : null;
   // What the AR layers actually render — candidates only while aligning
   const displayed = alignCandidates ?? mapped;
-  __commitCount++;  // diag: render-churn counter
 
   // ── Trail canvas draw — runs after each commit (per frame during panning). ──
   // Canvas 2D handles ~100 tapered segments in <1 ms; React reconciles nothing.
@@ -7637,10 +7467,6 @@ export default function App() {
           <div style={{color:'#ffd700'}}>tcHdg: {sensorDbg.tcHdg}</div>
           <div>→ hdg: {sensorDbg.hdg} ({sensorDbg.src})</div>
           <div style={{color:'#ff8c00'}}>wd: {sensorDbg.wd}</div>
-          <div style={{color:'#ff5c5c'}}>perf: {sensorDbg.perf}</div>
-          <div style={{color:'#5cffd0'}}>mot: {sensorDbg.mot}</div>
-          <div style={{color:'#c9a0ff'}}>nav: {sensorDbg.nav}</div>
-          <div style={{color:'#ffe28a'}}>sys: {sensorDbg.sys}</div>
         </div>
       )}
       {alignNote&&(
@@ -8079,7 +7905,7 @@ export default function App() {
                   {headingSource==='gyro'?'\u25c9 GYRO':'\u25cb COMPASS'}
                 </span>
                 {headingSource==='gyro'&&(
-                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap→mag</span>
+                  <span style={{fontSize:7,color:'#4a7898',fontFamily:"'Orbitron',monospace"}}>tap\u2192mag</span>
                 )}
               </div>
             )}
