@@ -65,7 +65,7 @@ const msToKts  = ms => Math.round(ms*1.944);
 const distNmi  = m  => (m/1852).toFixed(1);
 // Heading sensor diagnostic overlay — flip to true to re-enable in-flight troubleshooting.
 // Shows raw webkit/alpha/beta/gamma + tilt-compensated heading vs final hdg.
-const SHOW_SENSOR_DIAG = false;
+const SHOW_SENSOR_DIAG = true;
 
 // ── One-Euro filter ──────────────────────────────────────────────
 // Adaptive low-pass for AR pointing (Casiez et al.): cutoff = fcMin + beta*|velocity|.
